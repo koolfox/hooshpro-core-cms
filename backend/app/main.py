@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from app.db import create_db_and_tables
 from app import models
+from app.routers import auth as auth_router
 
 app = FastAPI(title="Hoosh Pro API")
 
@@ -11,6 +12,8 @@ async def on_startup()-> None:
 @app.get("/health")
 async def health():
     return {"status":"ok"}
+
+app.include_router(auth_router.router)
 
 
 from fastapi import Depends
