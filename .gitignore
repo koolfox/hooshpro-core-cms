@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.__pycache__
+
+# Virtual env
+.venv/
+
+# SQLite database
+*.db
+
+# Media files
+data/media/
+
+# Node modules
+node_modules/
+
