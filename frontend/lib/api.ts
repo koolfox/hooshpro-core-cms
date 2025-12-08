@@ -67,7 +67,7 @@ export interface ProjectCreateInput {
 	description?: string;
 }
 
-export async function apiListProjects(token: string): promise<Project[]> {
+export async function apiListProjects(token: string): Promise<Project[]> {
 	const url = `${API_BASE_URL}/projects/`;
 
 	const res = await fetch(url, {
