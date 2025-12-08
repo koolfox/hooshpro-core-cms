@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db import create_db_and_tables
 from app import models
 from app.routers import auth as auth_router
+from app.routers import projects as projects_router
 
 app = FastAPI(title="Hoosh Pro API")
 
@@ -25,7 +26,7 @@ async def health():
     return {"status":"ok"}
 
 app.include_router(auth_router.router)
-
+app.include_router(projects_router.router)
 
 from fastapi import Depends
 from sqlmodel import Session

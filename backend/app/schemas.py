@@ -18,3 +18,23 @@ class Token(SQLModel):
 
 class TokenData(SQLModel):
     user_id:Optional[int]=None
+
+class ProjectBase(SQLModel):
+    name:str
+    slug:str
+    description:Optional[str]=None
+
+class ProjectCreate(ProjectBase):
+    pass
+
+class ProjectRead(ProjectBase):
+    id:int
+    owner_id:int
+    created_at:datetime
+
+class ProjectUpdate(SQLModel):
+    name:Optional[str]=None
+    slug:Optional[str]=None
+    description:Optional[str]=None
+
+
