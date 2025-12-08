@@ -51,3 +51,56 @@ export async function apiGetMe(token: string): Promise<MeResponse> {
 
 	return res.json();
 }
+
+export interface Project {
+	id: number;
+	owner_id: number;
+	name: string;
+	slug: string;
+	description: string | null;
+	created_at: string;
+}
+
+export interface ProjectCreateInput {
+	name: string;
+	slug: string;
+	description?: string;
+}
+
+export async function apiListProjects(token: string): promise<Project[]> {
+	const url = `${API_BASE_URL}/projects/`;
+
+	const res = await fetch(url, {
+		headers: {
+			Authorization: `Bearer ${token}`,
+		},
+	});
+
+	if (!res.ok) {
+		throw new Error('Failed to load projects');
+	}
+
+	return res.json();
+}
+
+export async function apiCreateProject(
+	token: string,
+	input: ProjectCreateInput
+): Promise<Project> {
+	const url = `${API_BASE_URL}/projects`;
+
+	const res = await fetch(url, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+		},
+		body: JSON.stringify(input),
+	});
+
+	if (!res.ok) {
+		throw new Error('Failed to create project');
+	}
+
+	return res.json();
+}
