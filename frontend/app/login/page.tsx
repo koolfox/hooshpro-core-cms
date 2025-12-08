@@ -23,7 +23,7 @@ export default function LoginPage() {
 
 			localStorage.setItem('hooshpro_token', data.access_token);
 
-			router.push('/');
+			router.push('/app');
 		} catch (err) {
 			setError('Email or Password are incorrect, try again');
 		} finally {

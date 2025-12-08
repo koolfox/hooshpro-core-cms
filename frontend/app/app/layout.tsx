@@ -1,35 +1,58 @@
 'use client';
 
+import clsx from 'clsx';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import type { ReactNode } from 'react';
 import { useEffect, useState } from 'react';
 
-interface AppLayoutProps {
-	children: React.ReactNode;
-}
+type AuthState = 'checking' | 'authenticated' | 'unauthenticated';
 
-export default function AppLayout({ children }: AppLayoutProps) {
+export default function AppLayout({ children }: { children: ReactNode }) {
 	const router = useRouter();
 	const pathname = usePathname();
 
-	const [checkedAuth, setCheckedAuth] = useState(false);
+	const [authState, setAuthState] = useState<AuthState>('checking');
 
 	useEffect(() => {
 		const token = localStorage.getItem('hooshpro_token');
-
+		console.log('[AppLayout] origin', window.location.origin);
+		console.log(
+			'[AppLayout] token:',
+			localStorage.getItem('hooshpro_token')
+		);
 		if (!token) {
-			router.replace('/login');
-			return;
+			setAuthState('unauthenticated');
+			const t = setTimeout(() => {
+				router.replace('/login');
+			}, 400);
+			return () => clearTimeout(t);
 		}
 
-		setCheckedAuth(true);
+		setAuthState('authenticated');
 	}, [router]);
 
-	if (!checkedAuth) {
+	if (authState === 'checking') {
 		return (
-			<div className='min-h-screen flex items-center justify-center text-gray-500'>
+			<div className='min-h-screen flex items-center justify-center text-slate-500'>
+				CHECKING ...
+			</div>
+		);
+	}
+
+	if (authState == 'unauthenticated') {
+		return (
+			<div className='min-h-screen flex items-center justify-center text-slate-500'>
+				REDIRECTING TO LOGIN PAGE ...
+			</div>
+		);
+	}
+
+	if (authState === 'authenticated') {
+		return (
+			<div className='min-h-screen flex bg-slate-950 text-slate-50'>
 				{/*sidebar*/}
-				<aside className='w-64 border-r border-slate-800 p-4 hidden md:flex flex-col'>
+				<aside className='hidden md:flex ms:w-64 flex-col border-r border-slate-800 p-4'>
 					<div className='mb-6'>
 						<span className='text-xs uppercase tracking-wide text-slate-500'>
 							Hooshpro
@@ -42,25 +65,27 @@ export default function AppLayout({ children }: AppLayoutProps) {
 					<nav className='space-y-1 text-sm'>
 						<Link
 							href='/app'
-							className='{clsx(
-                        "block rounded-md px-3 py-2 hover:bg-slate-900",
-                        pathname==="/app"&&"bg-slate-900 text-slate-50"
-                        )}'>
+							className={clsx(
+								'block rounded-md px-3 py-2 hover:bg-slate-900',
+								pathname === '/app' &&
+									'bg-slate-900 text-slate-50'
+							)}>
 							Dashboard
 						</Link>
 						<Link
 							href='/app/profile'
-							className='{clsx(
-                        "block rounded-md px-3 py-2 hover:bg-slate-900",
-                        pathname==="/app/profile"&&"bg-slate-900 text-slate-50"
-                        )}'>
+							className={clsx(
+								'block rounded-md px-3 py-2 hover:bg-slate-900',
+								pathname === '/app/profile' &&
+									'bg-slate-900 text-slate-50'
+							)}>
 							Profile
 						</Link>
 					</nav>
 				</aside>
 				{/*MAIN*/}
 				<div className='flex-1 flex flex-col'>
-					<header className='h-14 border-b border-slate-800 flex items-center justify-between px-4'>
+					<header className='h-12 border-b border-slate-800 flex items-center justify-between px-4'>
 						<div className='text-sm text-slate-400'>
 							{pathname === '/app' ? 'dashboard' : 'Hooshpro'}
 						</div>
