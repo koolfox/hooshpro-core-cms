@@ -1,9 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db import create_db_and_tables
+from app.db import create_db_and_tables,get_session
+from app.seed_content import seed_page_content_type
+from sqlmodel import Session
 from app import models
 from app.routers import auth as auth_router
 from app.routers import projects as projects_router
+from app.routers import content as contetnt_router
+from app.routers import public_content as public_contetnt_router
+
 
 app = FastAPI(title="Hoosh Pro API")
 
@@ -20,6 +25,8 @@ app.add_middleware(
 @app.on_event("startup")
 async def on_startup()-> None:
     create_db_and_tables()
+    with Session(engine) as session:
+        seed_page_content_type(session)
 
 @app.get("/health")
 async def health():
@@ -27,6 +34,9 @@ async def health():
 
 app.include_router(auth_router.router)
 app.include_router(projects_router.router)
+app.include_router(contetnt_router.router)
+app.include_router(public_contetnt_router.router)
+
 
 from fastapi import Depends
 from sqlmodel import Session
