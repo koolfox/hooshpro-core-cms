@@ -104,3 +104,85 @@ export async function apiCreateProject(
 
 	return res.json();
 }
+
+export interface AdminFieldMeta {
+	name: string;
+	label: string;
+	type: string;
+	required: boolean;
+	list: boolean;
+	filterable: boolean;
+	order_index: number;
+}
+
+export interface AdminContentType {
+	key: string;
+	label: string;
+	description?: string | null;
+	singleton: boolean;
+	fields: AdminFieldMeta[];
+}
+
+export interface AdminEntrySummary {
+	id: number;
+	slug: string;
+	status: string;
+	created_at: string;
+	updated_at: string;
+	data: Record<string, any>;
+}
+
+function getAuthToken() {
+	if (typeof window === 'undefined') return null;
+	return localStorage.getItem('hooshpro_token');
+}
+
+export async function fetchContentTypes(): Promise<AdminContentType[]> {
+	const token = getAuthToken();
+	const res = await fetch(`${API_BASE_URL}/admin/content-types`, {
+		headers: {
+			Authorization: token ? `Bearer ${token}` : '',
+		},
+	});
+	if (!res.ok) {
+		throw new Error('Failed to load content types');
+	}
+	return res.json();
+}
+
+export async function fetchEntries(
+	typeKey: string
+): Promise<AdminEntrySummary[]> {
+	const token = getAuthToken();
+	const res = await fetch(`${API_BASE_URL}/admin/content/${typeKey}`, {
+		headers: {
+			Authorization: token ? `Bearer ${token}` : '',
+		},
+	});
+	if (!res.ok) {
+		throw new Error('Failed to load entries');
+	}
+	return res.json();
+}
+
+export async function createEntry(
+	typeKey: string,
+	payload: Record<string, any>
+): Promise<AdminEntrySummary> {
+	const token = getAuthToken();
+	const res = await fetch(`${API_BASE_URL}/admin/content/${typeKey}`, {
+		method:'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: token ? `Bearer ${token}` : '',
+		},
+		body: JSON.stringify(payload),
+	});
+	if (!res.ok) {
+		const text = await res.text();
+		throw new Error(
+			`Failed to create entry (${res.status}): ${text || res.statusText}`
+		);
+	}
+	return res.json();
+}
