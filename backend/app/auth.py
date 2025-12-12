@@ -11,14 +11,15 @@ from app.db import get_session
 from app.models import User
 from app.schemas import UserRead,TokenData
 
+
 password_hasher=PasswordHash.recommended()
 oauth2_scheme=OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 def hash_password(plain_password:str)->str:
     return password_hasher.hash(plain_password)
 
-def verify_password(plain_password:str,hashed_password:str)->bool:
-    return password_hasher.verify(plain_password,hashed_password)
+def verify_password(plain_password:str,password_hash:str)->bool:
+    return password_hasher.verify(plain_password,password_hash)
 
 def create_access_token(user_id:int)->str:
     now =datetime.now(timezone.utc)
@@ -41,7 +42,7 @@ def authenticate_user(session:Session,email:str,password:str)->Optional[User]:
     user=get_user_by_email(session,email=email)
     if not user:
         return None
-    if not verify_password(password,user.hashed_password):
+    if not verify_password(password,user.password_hash):
         return None
     return user
 
