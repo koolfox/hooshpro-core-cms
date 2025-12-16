@@ -1,77 +1,114 @@
-from typing import Annotated
-from fastapi import APIRouter,Depends,HTTPException,Response,Request,status
-from pydantic import BaseModel,EmailStr
-from sqlalchemy.orm import Session as OrmSession
+from datetime import datetime, timedelta, timezone
+from fastapi import APIRouter, Depends, HTTPException, Response, Request, status
 from fastapi.security import OAuth2PasswordRequestForm
-from datetime import datetime,timedelta,timezone
-from app.auth import authenticate_user,create_access_token,get_current_user_read,hash_password
-from app.db import get_session,get_db
-from app.models import User,UserSession
-from app.schemas import UserCreate,UserRead,Token
-from app.security import hash_password,verify_password,new_session_token,hash_session_token
+from pydantic import BaseModel, EmailStr
+from sqlalchemy.orm import Session as OrmSession
 
-router = APIRouter(prefix="/api/auth",tags=["auth"])
+from app.db import get_db
+from app.models import User, UserSession
+from app.security import (
+    verify_password,
+    new_session_token,
+    hash_session_token,
+)
+from app.config import settings
 
-COOKIE_NAME="hooshpro_session"
-SESSION_DAYS=14
+router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 class LoginIn(BaseModel):
-    email:EmailStr
-    password:str
+    email: EmailStr
+    password: str
+
 
 class MeOut(BaseModel):
-    id:int
-    email:EmailStr
+    id: int
+    email: EmailStr
 
-def _cookie_settings():
-    return dict(key=COOKIE_NAME,httponly=True,samesite="lax",secure=False,path="/")
 
-@router.post("/login",response_model=MeOut)
-def login(payload:LoginIn,response:Response,db:OrmSession=Depends(get_db)):
-    user = db.query(User).filter(User.email==payload.email).first()
-    if not user or not verify_password(user.password_hash,payload.password):
-        raise HTTPException(status_code=401,detail="Invalid credentials")
-    
-    token=new_session_token()
+def set_session_cookie(response: Response, token: str):
+    response.set_cookie(
+        key=settings.COOKIE_NAME,
+        value=token,
+        httponly=True,
+        samesite=settings.COOKIE_SAMESITE,
+        secure=settings.COOKIE_SECURE,
+        max_age=settings.SESSION_DAYS * 24 * 3600,
+        path="/",
+    )
 
-    token_hash=hash_session_token(token)
 
-    now = datetime.now(timezone.utc)
-    expires_at=now+timedelta(SESSION_DAYS)
+def create_session(db: OrmSession, user_id: int) -> str:
+    raw = new_session_token()
+    expires_at = datetime.now(timezone.utc) + timedelta(days=settings.SESSION_DAYS)
 
-    session=UserSession(user_id=user.id,token_hash=token_hash,expires_at=expires_at)
-    db.add(session)
+    sess = UserSession(
+        user_id=user_id,
+        token_hash=hash_session_token(raw),
+        expires_at=expires_at,
+    )
+    db.add(sess)
     db.commit()
+    return raw
 
-    response.set_cookie(value=token,max_age=SESSION_DAYS*24*3600,**_cookie_settings())
-    return MeOut(id=user.id,email=user.email)
+
+@router.post("/login", response_model=MeOut)
+def login(payload: LoginIn, response: Response, db: OrmSession = Depends(get_db)):
+    email = payload.email.strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user or not verify_password(user.password_hash, payload.password):
+        raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    raw = create_session(db, user.id)
+    set_session_cookie(response, raw)
+    return MeOut(id=user.id, email=user.email)
+
 
 @router.post("/logout")
-def logout(response:Response,request:Request,db:OrmSession=Depends(get_db)):
-    token=request.cookies.get(COOKIE_NAME)
+def logout(response: Response, request: Request, db: OrmSession = Depends(get_db)):
+    token = request.cookies.get(settings.COOKIE_NAME)
     if token:
-        token_hash=hash_session_token(token)
-        db.query(UserSession).filter(UserSession.token_hash==token_hash).delete()
+        db.query(UserSession).filter(
+            UserSession.token_hash == hash_session_token(token)
+        ).delete()
         db.commit()
 
-        response.delete_cookie(COOKIE_NAME,path="/")
-        return{"ok:True"}
-    
-@router.get("/me",response_model=MeOut)
-def me(request:Request,db:OrmSession=Depends(get_db)):
-    token=request.cookies.get(COOKIE_NAME)
-    if not token:
-        raise HTTPException(status_code=401,detail="Not Authenticated")
-    
-    token_hash=hash_session_token(token)
-    now = datetime.now(timezone.utc)
+    response.delete_cookie(settings.COOKIE_NAME, path="/")
+    return {"ok": True}
 
-    session=(db.query(UserSession).filter(UserSession.token_hash==token_hash,UserSession.expires_at>now).first())
-    if not session:
-        raise HTTPException(status_code=401,detail="Mot Authenticated")
-    
-    user=db.query(User).filter(User.id==session.user_id).first()
+
+@router.get("/me", response_model=MeOut)
+def me(request: Request, db: OrmSession = Depends(get_db)):
+    token = request.cookies.get(settings.COOKIE_NAME)
+    if not token:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    sess = db.query(UserSession).filter(
+        UserSession.token_hash == hash_session_token(token)
+    ).first()
+    if not sess:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    user = db.query(User).filter(User.id == sess.user_id).first()
     if not user:
-        raise HTTPException(status_code=401,detail="Not Authenticated")
-    
-    return MeOut(id=user.id,email=user.email)
+        raise HTTPException(status_code=401, detail="Not authenticated")
+
+    return MeOut(id=user.id, email=user.email)
+
+
+@router.post("/token")
+def token(
+    form: OAuth2PasswordRequestForm = Depends(),
+    db: OrmSession = Depends(get_db),
+):
+    email = form.username.strip().lower()
+    user = db.query(User).filter(User.email == email).first()
+
+    if not user or not verify_password(user.password_hash, form.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Incorrect email or password",
+        )
+
+    raw = create_session(db, user.id)
+    return {"access_token": raw, "token_type": "bearer"}

@@ -1,12 +1,18 @@
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from app.db import create_db_and_tables,get_session
+from app.db import engine
 from sqlmodel import Session
 from app import models
 from app.routers import auth as auth_router
+from app.routers import pages as pages_router
+from app.routers import bootstrap as bootstrap_router
 
 
-app = FastAPI(title="Hoosh Pro API")
+app = FastAPI(title="Hoosh Pro API",swagger_ui_parameters={
+    "withCredentials":True,
+    "persistAuthorization": True,
+})
 
 origins=["http://127.0.0.1:3000","http://localhost:3000"]
 
@@ -19,16 +25,25 @@ app.add_middleware(
 )
 
 @app.on_event("startup")
-async def on_startup()-> None:
-    create_db_and_tables()
+def on_startup():
+    models.Base.metadata.create_all(bind=engine)
 
+@app.get("/api/debug/db")
+def debug_db():
+    insp = inspect(engine)
+    return {
+        "cwd": os.getcwd(),
+        "db_url": str(engine.url),
+        "tables": insp.get_table_names(),
+    }
 
 @app.get("/api/health")
 async def health():
     return {"status":"ok"}
 
 app.include_router(auth_router.router)
-
+app.include_router(pages_router.router)
+app.include_router(bootstrap_router.router)
 
 from fastapi import Depends
 from sqlmodel import Session

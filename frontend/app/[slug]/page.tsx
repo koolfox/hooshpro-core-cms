@@ -1,58 +1,64 @@
-interface PublicEntry {
-	slug: string;
-	data: {
-		title?: string;
-		body?: string;
-		seo_title?: string;
-		seo_descption?: string;
-		[key: string]: any;
-	};
-}
+import type { Metadata } from 'next';
 
-type PageProps = {
-	params: Promise<{ slug: string }>;
+type Page = {
+	id: number;
+	title: string;
+	slug: string;
+	status: 'draft' | 'published';
+	seo_title?: string | null;
+	seo_description?: string | null;
+	blocks: any;
 };
 
-const API_BASE_URL =
-	process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://127.0.0.1:8000';
-
-async function fetchPage(slug: string): Promise<PublicEntry | null> {
-	const res = await fetch(`${API_BASE_URL}/api/public-content/page/${slug}`, {
-		next: { revalidate: 60 },
+async function fetchPage(slug: string): Promise<Page | null> {
+	const res = await fetch(`http://localhost:3000/api/public/pages/${slug}`, {
+		cache: 'no-store',
 	});
 
-	if (!res.ok) {
-		return null;
-	}
-
+	if (!res.ok) return null;
 	return res.json();
 }
 
-export default async function Page({ params }: PageProps) {
-	const { slug } = await params;
-	const entry = await fetchPage(slug);
+export async function generateMetadata({
+	params,
+}: {
+	params: { slug: string };
+}): Promise<Metadata> {
+	const p = await fetchPage(params.slug);
+	if (!p) return { title: 'Not found' };
 
-	if (!entry) {
+	return {
+		title: p.seo_title || p.title,
+		description: p.seo_description || undefined,
+	};
+}
+
+export default async function PublicPage({
+	params,
+}: {
+	params: { slug: string };
+}) {
+	const p = await fetchPage(params.slug);
+	if (!p) {
 		return (
-			<div className='min-h-screen flex items-center justify-center'>
-				<p>Page Not Found</p>
-			</div>
+			<main className='p-10'>
+				<h1 className='text-2xl font-semibold'>404</h1>
+				<p className='text-sm text-muted-foreground'>Page not found.</p>
+			</main>
 		);
 	}
 
-	const { title, body } = entry.data;
+	const bodyBlock = p.blocks?.blocks?.find(
+		(b: any) => b.type === 'paragraph'
+	);
+	const bodyText = bodyBlock?.data?.text ?? '';
+
 	return (
-		<div className='min-h-screen bg-slate-950 text-slate-50'>
-			<main className='max-w-3xl mx-auto py-12 px-4'>
-				<h1 className='text-3xl font-semibold mb-6'>
-					{title ?? entry.slug}
-				</h1>
-				{body && (
-					<div className='prose prose-invert max-w-none'>
-						<p>{body}</p>
-					</div>
-				)}
-			</main>
-		</div>
+		<main className='max-w-3xl mx-auto p-10 space-y-6'>
+			<h1 className='text-4xl font-bold tracking-tight'>{p.title}</h1>
+			{bodyText ? (
+				<p className='text-base leading-7'>{bodyText}</p>
+			) : null}
+		</main>
 	);
 }
