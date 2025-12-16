@@ -29,6 +29,7 @@ export default function LoginPage() {
 
 		if (!res.ok) {
 			setError('Email or Password is wrong.');
+			setLoading(false);
 			return;
 		}
 
