@@ -5,7 +5,7 @@ from app.db import engine
 from sqlmodel import Session
 from app import models
 from app.routers import auth as auth_router
-from app.routers import pages as pages_router
+from app.routers.pages import admin_router, public_router
 from app.routers import bootstrap as bootstrap_router
 
 
@@ -42,7 +42,8 @@ async def health():
     return {"status":"ok"}
 
 app.include_router(auth_router.router)
-app.include_router(pages_router.router)
+app.include_router(admin_router)
+app.include_router(public_router)
 app.include_router(bootstrap_router.router)
 
 from fastapi import Depends
