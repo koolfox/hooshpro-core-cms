@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-type PageDTO = {
+type Page = {
 	id: number;
 	title: string;
 	slug: string;
@@ -10,16 +10,13 @@ type PageDTO = {
 	blocks: any;
 };
 
-type Params = Promise<{ slug: string }>;
+const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:8000';
+const RESERVED = new Set(['admin', 'login', 'logout', 'api', 'auth']);
 
-async function fetchPage(slug: string): Promise<PageDTO | null> {
-	const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:8000';
-
-	const res = await fetch(
-		`${API_ORIGIN}/api/public/pages/${encodeURIComponent(slug)}`,
-		{ cache: 'no-store' }
-	);
-
+async function fetchPage(slug: string): Promise<Page | null> {
+	const res = await fetch(`${API_ORIGIN}/api/public/pages/${slug}`, {
+		cache: 'no-store',
+	});
 	if (!res.ok) return null;
 	return res.json();
 }
@@ -27,9 +24,11 @@ async function fetchPage(slug: string): Promise<PageDTO | null> {
 export async function generateMetadata({
 	params,
 }: {
-	params: Params;
+	params: Promise<{ slug: string }>;
 }): Promise<Metadata> {
 	const { slug } = await params;
+
+	if (RESERVED.has(slug)) return { title: 'Not found' };
 
 	const p = await fetchPage(slug);
 	if (!p) return { title: 'Not found' };
@@ -40,8 +39,21 @@ export async function generateMetadata({
 	};
 }
 
-export default async function PublicPage({ params }: { params: Params }) {
+export default async function PublicPage({
+	params,
+}: {
+	params: Promise<{ slug: string }>;
+}) {
 	const { slug } = await params;
+
+	if (RESERVED.has(slug)) {
+		return (
+			<main className='p-10'>
+				<h1 className='text-2xl font-semibold'>404</h1>
+				<p className='text-sm text-muted-foreground'>Page not found.</p>
+			</main>
+		);
+	}
 
 	const p = await fetchPage(slug);
 	if (!p) {
