@@ -1,20 +1,60 @@
-# backend/app/routers/pages.py
+from __future__ import annotations
+
 import json
 from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy import func
 
 from app.db import get_db
 from app.deps import get_current_user
 from app.models import Page, User
-from app.schemas.page import PageCreate, PageUpdate, PageOut, validate_slug
+from app.schemas.page import (
+    PageCreate,
+    PageUpdate,
+    PageOut,
+    PageListOut,
+    validate_slug,
+)
 
-admin_router = APIRouter(prefix="/api/admin/pages", tags=["admin:pages"])
-public_router = APIRouter(prefix="/api/public/pages", tags=["public:pages"])
+router = APIRouter(tags=["pages"])
 
-def page_to_out(p: Page) -> PageOut:
-    blocks = json.loads(p.blocks_json) if p.blocks_json else {"version": 1, "blocks": []}
+
+def utcnow() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+def _safe_load_blocks(blocks_json: str | None) -> dict:
+    if not blocks_json:
+        return {"version": 1, "blocks": []}
+    try:
+        return json.loads(blocks_json)
+    except Exception:
+        return {"version": 1, "blocks": []}
+
+
+def _extract_body(blocks: dict) -> str:
+    for b in (blocks.get("blocks") or []):
+        if b.get("type") == "paragraph":
+            data = b.get("data") or {}
+            return str(data.get("text") or "")
+    return ""
+
+
+def _build_blocks(title: str, body: str) -> dict:
+    return {
+        "version": 1,
+        "blocks": [
+            {"type": "hero", "data": {"headline": title, "subheadline": ""}},
+            {"type": "paragraph", "data": {"text": body or ""}},
+        ],
+    }
+
+
+def _to_out(p: Page) -> PageOut:
+    blocks = _safe_load_blocks(p.blocks_json)
+    body = _extract_body(blocks)
     return PageOut(
         id=p.id,
         title=p.title,
@@ -22,96 +62,166 @@ def page_to_out(p: Page) -> PageOut:
         status=p.status,
         seo_title=p.seo_title,
         seo_description=p.seo_description,
+        body=body,
         blocks=blocks,
         published_at=p.published_at,
         created_at=p.created_at,
         updated_at=p.updated_at,
     )
 
-@admin_router.get("", response_model=list[PageOut])
-def admin_list_pages(db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
-    pages = db.query(Page).order_by(Page.updated_at.desc()).all()
-    return [page_to_out(p) for p in pages]
 
-@admin_router.post("", response_model=PageOut)
-def admin_create_page(payload: PageCreate, db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
+@router.get("/api/admin/pages", response_model=PageListOut)
+def admin_list_pages(
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+    limit: int = 20,
+    offset: int = 0,
+    q: str | None = None,
+    status: str | None = None,
+):
+    limit = max(1, min(limit, 100))
+    offset = max(0, offset)
+
+    base = db.query(Page)
+
+    if status in ("draft", "published"):
+        base = base.filter(Page.status == status)
+
+    if q:
+        qq = f"%{q.strip().lower()}%"
+        base = base.filter(
+            func.lower(Page.title).like(qq) | func.lower(Page.slug).like(qq)
+        )
+
+    total = base.with_entities(func.count(Page.id)).scalar() or 0
+
+    items = (
+        base.order_by(Page.updated_at.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    return PageListOut(
+        items=[_to_out(p) for p in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )
+
+
+@router.post("/api/admin/pages", response_model=PageOut)
+def admin_create_page(
+    payload: PageCreate,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     payload.normalized()
     slug = validate_slug(payload.slug)
 
+    blocks = _build_blocks(payload.title, payload.body)
     p = Page(
         title=payload.title,
         slug=slug,
         status=payload.status,
         seo_title=payload.seo_title,
         seo_description=payload.seo_description,
-        blocks_json=json.dumps(payload.blocks, ensure_ascii=False),
+        blocks_json=json.dumps(blocks, ensure_ascii=False),
+        published_at=utcnow() if payload.status == "published" else None,
     )
 
     db.add(p)
     try:
         db.commit()
-        db.refresh(p)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Slug already exists")
 
-    return page_to_out(p)
+    db.refresh(p)
+    return _to_out(p)
 
-@admin_router.get("/{page_id}", response_model=PageOut)
-def admin_get_page(page_id: int, db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
+
+@router.get("/api/admin/pages/{page_id}", response_model=PageOut)
+def admin_get_page(
+    page_id: int,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     p = db.query(Page).filter(Page.id == page_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Page not found")
-    return page_to_out(p)
+    return _to_out(p)
 
-@admin_router.put("/{page_id}", response_model=PageOut)
-def admin_update_page(page_id: int, payload: PageUpdate, db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
+
+@router.put("/api/admin/pages/{page_id}", response_model=PageOut)
+def admin_update_page(
+    page_id: int,
+    payload: PageUpdate,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    payload.normalized()
+
     p = db.query(Page).filter(Page.id == page_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Page not found")
 
     if payload.title is not None:
         p.title = payload.title
+
     if payload.slug is not None:
         p.slug = validate_slug(payload.slug)
+
     if payload.status is not None:
-        if payload.status not in ("draft", "published"):
-            raise HTTPException(status_code=422, detail="status must be draft|published")
         p.status = payload.status
         if payload.status == "published" and p.published_at is None:
-            p.published_at = datetime.now(timezone.utc)
+            p.published_at = utcnow()
         if payload.status == "draft":
             p.published_at = None
 
     if payload.seo_title is not None:
         p.seo_title = payload.seo_title
+
     if payload.seo_description is not None:
         p.seo_description = payload.seo_description
-    if payload.blocks is not None:
-        p.blocks_json = json.dumps(payload.blocks, ensure_ascii=False)
+
+    if payload.body is not None:
+        blocks = _build_blocks(p.title, payload.body)
+        p.blocks_json = json.dumps(blocks, ensure_ascii=False)
 
     try:
         db.commit()
-        db.refresh(p)
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Slug already exists")
 
-    return page_to_out(p)
+    db.refresh(p)
+    return _to_out(p)
 
-@admin_router.delete("/{page_id}")
-def admin_delete_page(page_id: int, db: OrmSession = Depends(get_db), user: User = Depends(get_current_user)):
+
+@router.delete("/api/admin/pages/{page_id}")
+def admin_delete_page(
+    page_id: int,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
     p = db.query(Page).filter(Page.id == page_id).first()
     if not p:
         raise HTTPException(status_code=404, detail="Not found")
+
     db.delete(p)
     db.commit()
     return {"ok": True}
 
-@public_router.get("/{slug}", response_model=PageOut)
+
+@router.get("/api/public/pages/{slug}", response_model=PageOut)
 def public_get_page(slug: str, db: OrmSession = Depends(get_db)):
-    s = validate_slug(slug)
-    p = db.query(Page).filter(Page.slug == s, Page.status == "published").first()
+    slug = validate_slug(slug)
+    p = (
+        db.query(Page)
+        .filter(Page.slug == slug, Page.status == "published")
+        .first()
+    )
     if not p:
         raise HTTPException(status_code=404, detail="Page not found")
-    return page_to_out(p)
+    return _to_out(p)
