@@ -12,7 +12,7 @@ export default async function Home() {
 				<h1>Hoosh Pro</h1>
 				<p>Backend Status: {data.status}</p>
 				<p>
-					<Link href='/admin/login'>/admin/login</Link>
+					<Link href='/auth/login'>/auth/login</Link>
 				</p>
 			</main>
 		);

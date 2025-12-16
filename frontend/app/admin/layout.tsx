@@ -1,12 +1,12 @@
-import { AppSidebar } from '@/components/ui/app-sidebar';
+import { AppSidebar } from '@/components/app-sidebar';
+import { Separator } from '@/components/ui/separator';
 import {
 	SidebarInset,
 	SidebarProvider,
-	SidebarSeparator,
 	SidebarTrigger,
 } from '@/components/ui/sidebar';
 
-export default function AdminLayout({
+export default async function AdminLayout({
 	children,
 }: {
 	children: React.ReactNode;
@@ -17,7 +17,7 @@ export default function AdminLayout({
 			<SidebarInset>
 				<header className='flex h-14 items-center gap-2 border-b px-4'>
 					<SidebarTrigger />
-					<SidebarSeparator
+					<Separator
 						orientation='vertical'
 						className='h-6'
 					/>

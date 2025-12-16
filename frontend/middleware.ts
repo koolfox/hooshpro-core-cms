@@ -1,7 +1,7 @@
-import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
+import { NextResponse } from 'next/server';
 
-const COOKIE_NAME = 'hooshpro_token';
+const COOKIE_NAME = 'hooshpro_session';
 
 export function middleware(req: NextRequest) {
 	const { pathname } = req.nextUrl;
@@ -9,10 +9,9 @@ export function middleware(req: NextRequest) {
 	if (!pathname.startsWith('/admin')) return NextResponse.next();
 
 	const token = req.cookies.get(COOKIE_NAME)?.value;
-
 	if (!token) {
 		const url = req.nextUrl.clone();
-		url.pathname = '/login';
+		url.pathname = '/auth/login';
 		url.searchParams.set('next', pathname);
 		return NextResponse.redirect(url);
 	}

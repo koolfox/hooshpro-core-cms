@@ -1,84 +1,82 @@
 'use client';
 
-import { apiLogin } from '@/lib/api';
 import { useRouter } from 'next/navigation';
-import { FormEvent, useState } from 'react';
+import { useState } from 'react';
+
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 
 export default function LoginPage() {
 	const router = useRouter();
-
 	const [email, setEmail] = useState('');
 	const [password, setPassword] = useState('');
-
-	const [error, setError] = useState<string | null>(null);
 	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
 
-	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-		event.preventDefault();
-		setError(null);
+	async function onSubmit(e: React.FormEvent) {
+		e.preventDefault();
 		setLoading(true);
+		setError(null);
 
-		try {
-			const data = await apiLogin(email, password);
+		const res = await fetch('/api/auth/login', {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			credentials: 'include',
+			body: JSON.stringify({ email, password }),
+		});
 
-			localStorage.setItem('hooshpro_token', data.access_token);
-
-			router.push('/app');
-		} catch (err) {
-			setError('Email or Password are incorrect, try again');
-		} finally {
-			setLoading(false);
+		if (!res.ok) {
+			setError('Email or Password is wrong.');
+			return;
 		}
+
+		router.push('/admin');
 	}
 
 	return (
-		<div style={{ maxWidth: 400, margin: '2rem auto' }}>
-			<h1>Hoosh Pro Login</h1>
+		<main className='min-h-screen flex justify-center items-center p-6'>
+			<Card className='w-full max-w-sm'>
+				<CardHeader>
+					<CardTitle className='text-xl'>Admin Login</CardTitle>
+				</CardHeader>
+				<CardContent className='space-y-4'>
+					<form
+						onSubmit={onSubmit}
+						className='space-y-4'>
+						<div className='space-y-2'>
+							<Label htmlFor='email'>Email</Label>
+							<Input
+								id='email'
+								type='email'
+								value={email}
+								onChange={(e) => setEmail(e.target.value)}
+								placeholder='yourname@company.com'
+							/>
+						</div>
+						<div className='space-y-2'>
+							<Label htmlFor='password'>Password</Label>
+							<Input
+								id='password'
+								type='password'
+								value={password}
+								onChange={(e) => setPassword(e.target.value)}
+								placeholder='password'
+							/>
+						</div>
+						{error ? (
+							<p className='text-sm text-red-600'>{error}</p>
+						) : null}
 
-			<form onSubmit={handleSubmit}>
-				<div style={{ marginBottom: '1rem' }}>
-					<label htmlFor='email'>Email</label>
-					<input
-						id='email'
-						type='email'
-						autoComplete='email'
-						value={email}
-						onChange={(e) => setEmail(e.target.value)}
-						required
-						style={{ display: 'block', width: '100%' }}
-					/>
-				</div>
-
-				<div style={{ marginBottom: '1rem' }}>
-					<label htmlFor='password'>Password</label>
-					<input
-						id='password'
-						type='password'
-						autoComplete='current-password'
-						value={password}
-						onChange={(e) => setPassword(e.target.value)}
-						required
-						style={{ display: 'block', width: '100%' }}
-					/>
-				</div>
-
-				{error && (
-					<p style={{ color: 'red', marginBottom: '1rem' }}>
-						{error}
-					</p>
-				)}
-
-				<button
-					style={{
-						border: '1px solid black',
-						color: 'blue',
-						cursor: 'loading',
-					}}
-					type='submit'
-					disabled={loading}>
-					{loading ? '...Logging In' : 'Login'}
-				</button>
-			</form>
-		</div>
+						<Button
+							className='w-full'
+							disabled={loading}>
+							{loading ? 'Signing In...' : 'Sign In'}
+						</Button>
+					</form>
+				</CardContent>
+			</Card>
+		</main>
 	);
 }

@@ -17,7 +17,7 @@ export default function AdminHome() {
 			method: 'POST',
 			credentials: 'include',
 		});
-		window.location.href = '/admin/login';
+		window.location.href = '/auth/login';
 	}
 
 	return (
