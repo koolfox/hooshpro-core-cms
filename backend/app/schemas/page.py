@@ -1,3 +1,4 @@
+from datetime import datetime
 from pydantic import BaseModel,Field
 from typing import Any,Optional
 import re
@@ -45,8 +46,9 @@ class PageOut(BaseModel):
     seo_title:Optional[str]=None
     seo_description:Optional[str]=None
     blocks:dict[str,Any]
-    created_at:str
-    updated_at:str
+    published_at:datetime|None
+    created_at:datetime
+    updated_at:datetime
 
 
 

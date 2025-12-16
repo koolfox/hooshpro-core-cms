@@ -12,7 +12,7 @@ from app.schemas.page import PageCreate,PageUpdate,PageOut,validate_slug
 router = APIRouter(tags=["pages"])
 
 def page_to_out(p:Page)->PageOut:
-    blocks=json.load(p.blocks_json) if p.blocks_json else {"version":1,"blocks":[]}
+    blocks=json.loads(p.blocks_json) if p.blocks_json else {"version":1,"blocks":[]}
     return PageOut(
         id=p.id,
         title=p.title,
@@ -21,16 +21,17 @@ def page_to_out(p:Page)->PageOut:
         seo_title=p.seo_title,
         seo_description=p.seo_description,
         blocks=blocks,
-        created_at=p.created_at.isoformat() if p.created_at else "",
-        updated_at=p.updated_at.isoformat() if p.updated_at else "",
+        published_at=p.published_at,
+        created_at=p.created_at,
+        updated_at=p.updated_at,
     )
 
 def build_blocks(title:str,body:str,existing:dict|None=None)->dict:
     return {
         "version":1,
         "blocks":[
-            {type:"hero","data":{"headline":title,"subheadline":""}},
-            {type:"paragraph","data":{"text":body or ""}},
+            {"type":"hero","data":{"headline":title,"subheadline":""}},
+            {"type":"paragraph","data":{"text":body or ""}},
         ],
     }
 
@@ -102,7 +103,7 @@ def admin_update_page(page_id:int,
 
     blocks=None
     try:
-        blocks=json.load(p.blocks_json) if p.blocks_json else None
+        blocks=json.loads(p.blocks_json) if p.blocks_json else None
     except Exception:
         blocks=None
 
@@ -134,7 +135,7 @@ def admin_delete_page(
     db.commit()
     return {"ok":True}
 
-@router.get("/api/public/page/{slug}",response_model=PageOut)
+@router.get("/api/public/pages/{slug}",response_model=PageOut)
 def public_get_page(slug:str,db:OrmSession=Depends(get_db)):
     slug=validate_slug(slug)
     p=db.query(Page).filter(Page.slug==slug,Page.status=="published").first()

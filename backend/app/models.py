@@ -43,7 +43,8 @@ class Page(Base):
            status:Mapped[str]=mapped_column(String(20),index=True,default="draft")
            seo_title:Mapped[str|None]=mapped_column(String(200),nullable=True)
            seo_description:Mapped[str|None]=mapped_column(String(500),nullable=True)
-           blocks_json:Mapped[str]=mapped_column(Text,nullable=False,default='{"version:1,"blocks":[]}')
+           blocks_json:Mapped[str]=mapped_column(Text,nullable=False,default='{"version":1,"blocks":[]}')
+           published_at:Mapped[datetime|None]=mapped_column(DateTime(timezone=True),nullable=True,default=None)
            created_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow)
            updated_at:Mapped[datetime]=mapped_column(DateTime(timezone=True),default=utcnow,onupdate=utcnow)
 

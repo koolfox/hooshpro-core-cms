@@ -1,3 +1,5 @@
+import Link from 'next/link';
+
 export default async function Home() {
 	const rest = await fetch('http://localhost:3000/api/health', {
 		cache: 'no-store',
@@ -9,7 +11,9 @@ export default async function Home() {
 			<main style={{ padding: 24 }}>
 				<h1>Hoosh Pro</h1>
 				<p>Backend Status: {data.status}</p>
-				<p>/admin/login</p>
+				<p>
+					<Link href='/admin/login'>/admin/login</Link>
+				</p>
 			</main>
 		);
 	} catch {
