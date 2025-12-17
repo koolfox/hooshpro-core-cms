@@ -1,6 +1,6 @@
 'use client';
 
-import { useRouter } from 'next/navigation';
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { Badge } from '@/components/ui/badge';
@@ -14,7 +14,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
 
 import {
 	Dialog,
@@ -36,28 +35,10 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-type PageOut = {
-	id: number;
-	title: string;
-	slug: string;
-	status: 'draft' | 'published';
-	seo_title?: string | null;
-	seo_description?: string | null;
-	body?: string;
-	blocks?: any;
-	published_at?: string | null;
-	created_at: string;
-	updated_at: string;
-};
+import { apiFetch } from '@/lib/http';
+import type { Page, PageListOut } from '@/lib/types';
 
-type PageListOut = {
-	items: PageOut[];
-	total: number;
-	limit: number;
-	offset: number;
-};
-
-type EditorMode = 'create' | 'edit';
+type EditorMode = 'create';
 
 const LIMIT = 20;
 
@@ -69,105 +50,46 @@ function slugify(input: string) {
 		.replace(/(^-|-$)/g, '');
 }
 
-async function readJsonOrThrow<T>(res: Response): Promise<T> {
-	if (res.ok) return (await res.json()) as T;
-
-	if (res.status === 401 || res.status === 403) {
-		throw Object.assign(new Error('AUTH_REQUIRED'), {
-			code: 'AUTH_REQUIRED',
-		});
-	}
-
-	const ct = res.headers.get('content-type') || '';
-	if (ct.includes('application/json')) {
-		const j: any = await res.json().catch(() => null);
-		throw new Error(j?.detail || `Request failed (${res.status})`);
-	}
-	const text = await res.text().catch(() => '');
-	throw new Error(text || `Request failed (${res.status})`);
-}
-
-export default function AdminPages() {
-	const router = useRouter();
-
-	const [items, setItems] = useState<PageOut[]>([]);
+export default function AdminPagesScreen() {
+	const [items, setItems] = useState<Page[]>([]);
 	const [total, setTotal] = useState(0);
-	const [offset, setOffset] = useState(0);
-
 	const [loading, setLoading] = useState(true);
 	const [error, setError] = useState<string | null>(null);
 
-	const [qDraft, setQDraft] = useState('');
-	const [q, setQ] = useState('');
-	const [statusFilter, setStatusFilter] = useState<
+	const [offset, setOffset] = useState(0);
+	const [qInput, setQInput] = useState('');
+	const [statusInput, setStatusInput] = useState<
 		'all' | 'draft' | 'published'
 	>('all');
 
-	const [editorOpen, setEditorOpen] = useState(false);
-	const [editorMode, setEditorMode] = useState<EditorMode>('create');
-	const [editingId, setEditingId] = useState<number | null>(null);
+	const [q, setQ] = useState('');
+	const [status, setStatus] = useState<'all' | 'draft' | 'published'>('all');
 
-	const [title, setTitle] = useState('');
-	const [slug, setSlug] = useState('');
-	const [slugTouched, setSlugTouched] = useState(false);
-	const [status, setStatus] = useState<'draft' | 'published'>('draft');
-	const [seoTitle, setSeoTitle] = useState('');
-	const [seoDesc, setSeoDesc] = useState('');
-	const [body, setBody] = useState('');
-
-	const [saving, setSaving] = useState(false);
-	const [formError, setFormError] = useState<string | null>(null);
-
-	const [confirmDelete, setConfirmDelete] = useState<PageOut | null>(null);
+	const qRef = useRef<HTMLInputElement | null>(null);
 
 	const canPrev = offset > 0;
-	const canNext = offset + items.length < total;
-
-	const debounceRef = useRef<number | null>(null);
-	useEffect(() => {
-		if (debounceRef.current) window.clearTimeout(debounceRef.current);
-		debounceRef.current = window.setTimeout(() => setQ(qDraft.trim()), 250);
-		return () => {
-			if (debounceRef.current) window.clearTimeout(debounceRef.current);
-		};
-	}, [qDraft]);
+	const canNext = offset + LIMIT < total;
 
 	const listUrl = useMemo(() => {
-		const sp = new URLSearchParams();
-		sp.set('limit', String(LIMIT));
-		sp.set('offset', String(offset));
-		if (q) sp.set('q', q);
-		if (statusFilter !== 'all') sp.set('status', statusFilter);
-		return `/api/admin/pages?${sp.toString()}`;
-	}, [offset, q, statusFilter]);
-
-	function goLogin() {
-		const next = `/admin/pages`;
-		router.replace(`/auth/login?next=${encodeURIComponent(next)}`);
-	}
+		const params = new URLSearchParams();
+		params.set('limit', String(LIMIT));
+		params.set('offset', String(offset));
+		if (q.trim()) params.set('q', q.trim());
+		if (status !== 'all') params.set('status', status);
+		return `/api/admin/pages?${params.toString()}`;
+	}, [offset, q, status]);
 
 	async function load() {
 		setLoading(true);
 		setError(null);
-
 		try {
-			const res = await fetch(listUrl, { cache: 'no-store' });
-			const data = await readJsonOrThrow<PageListOut>(res);
-
-			setItems(data.items || []);
-			setTotal(data.total || 0);
-
-			if ((data.items || []).length === 0 && offset > 0) {
-				setOffset((v) => Math.max(0, v - LIMIT));
-			}
+			const data = await apiFetch<PageListOut>(listUrl, {
+				cache: 'no-store',
+				nextPath: '/admin/pages',
+			});
+			setItems(data.items);
+			setTotal(data.total);
 		} catch (e: any) {
-			if (
-				e?.code === 'AUTH_REQUIRED' ||
-				String(e?.message) === 'AUTH_REQUIRED'
-			) {
-				goLogin();
-				return;
-			}
 			setError(String(e?.message ?? e));
 		} finally {
 			setLoading(false);
@@ -179,14 +101,40 @@ export default function AdminPages() {
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [listUrl]);
 
+	function applyFilters() {
+		setOffset(0);
+		setQ(qInput.trim());
+		setStatus(statusInput);
+	}
+
+	function resetFilters() {
+		setOffset(0);
+		setQInput('');
+		setStatusInput('all');
+		setQ('');
+		setStatus('all');
+		qRef.current?.focus();
+	}
+
+	const [editorOpen, setEditorOpen] = useState(false);
+	const [editorMode, setEditorMode] = useState<EditorMode>('create');
+
+	const [title, setTitle] = useState('');
+	const [slug, setSlug] = useState('');
+	const [slugTouched, setSlugTouched] = useState(false);
+
+	const [pageStatus, setPageStatus] = useState<'draft' | 'published'>(
+		'draft'
+	);
+
+	const [saving, setSaving] = useState(false);
+	const [formError, setFormError] = useState<string | null>(null);
+
 	function resetForm() {
 		setTitle('');
 		setSlug('');
 		setSlugTouched(false);
-		setStatus('draft');
-		setSeoTitle('');
-		setSeoDesc('');
-		setBody('');
+		setPageStatus('draft');
 		setFormError(null);
 		setSaving(false);
 	}
@@ -194,112 +142,56 @@ export default function AdminPages() {
 	function openCreate() {
 		resetForm();
 		setEditorMode('create');
-		setEditingId(null);
 		setEditorOpen(true);
 	}
 
-	async function openEdit(id: number) {
-		setFormError(null);
-		setSaving(false);
-
-		try {
-			const res = await fetch(`/api/admin/pages/${id}`, {
-				cache: 'no-store',
-			});
-			const p = await readJsonOrThrow<PageOut>(res);
-
-			setEditorMode('edit');
-			setEditingId(p.id);
-			setTitle(p.title);
-			setSlug(p.slug);
-			setSlugTouched(true);
-			setStatus(p.status);
-			setSeoTitle(p.seo_title ?? '');
-			setSeoDesc(p.seo_description ?? '');
-			setBody(p.body ?? '');
-			setEditorOpen(true);
-		} catch (e: any) {
-			if (
-				e?.code === 'AUTH_REQUIRED' ||
-				String(e?.message) === 'AUTH_REQUIRED'
-			) {
-				goLogin();
-				return;
-			}
-			setError(String(e?.message ?? e));
-		}
-	}
-
-	async function submit() {
-		if (!title.trim() || !slug.trim()) return;
-
+	async function submitCreate() {
 		setSaving(true);
 		setFormError(null);
 
 		const payload = {
 			title: title.trim(),
 			slug: slug.trim(),
-			status,
-			seo_title: seoTitle.trim() || null,
-			seo_description: seoDesc.trim() || null,
-			body,
+			status: pageStatus,
 		};
 
 		try {
-			if (editorMode === 'create') {
-				const res = await fetch('/api/admin/pages', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
-				await readJsonOrThrow(res);
-			} else {
-				const res = await fetch(`/api/admin/pages/${editingId}`, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-				});
-				await readJsonOrThrow(res);
-			}
-
+			await apiFetch<Page>('/api/admin/pages', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(payload),
+				nextPath: '/admin/pages',
+			});
 			setEditorOpen(false);
 			await load();
 		} catch (e: any) {
-			if (
-				e?.code === 'AUTH_REQUIRED' ||
-				String(e?.message) === 'AUTH_REQUIRED'
-			) {
-				goLogin();
-				return;
-			}
 			setFormError(String(e?.message ?? e));
 		} finally {
 			setSaving(false);
 		}
 	}
 
-	async function doDelete(p: PageOut) {
+	const [confirmDelete, setConfirmDelete] = useState<Page | null>(null);
+
+	async function doDelete(p: Page) {
 		try {
-			const res = await fetch(`/api/admin/pages/${p.id}`, {
+			await apiFetch<{ ok: boolean }>(`/api/admin/pages/${p.id}`, {
 				method: 'DELETE',
+				nextPath: '/admin/pages',
 			});
-			await readJsonOrThrow(res);
 			setConfirmDelete(null);
-			await load();
+
+			const nextTotal = Math.max(0, total - 1);
+			const lastOffset = Math.max(
+				0,
+				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
+			);
+			setOffset((cur) => Math.min(cur, lastOffset));
+			if (offset === Math.min(offset, lastOffset)) await load();
 		} catch (e: any) {
-			if (
-				e?.code === 'AUTH_REQUIRED' ||
-				String(e?.message) === 'AUTH_REQUIRED'
-			) {
-				goLogin();
-				return;
-			}
 			setError(String(e?.message ?? e));
 		}
 	}
-
-	const from = total === 0 ? 0 : offset + 1;
-	const to = Math.min(offset + items.length, total);
 
 	return (
 		<main className='p-6 space-y-6'>
@@ -307,51 +199,76 @@ export default function AdminPages() {
 				<div className='space-y-1'>
 					<h1 className='text-2xl font-semibold'>Pages</h1>
 					<p className='text-sm text-muted-foreground'>
-						Create, edit, publish — all from one screen.
+						Create/select here. Edit happens on the page itself.
 					</p>
 				</div>
 
-				<Button onClick={openCreate}>New Page</Button>
+				<Button
+					onClick={openCreate}
+					disabled={loading}>
+					New Page
+				</Button>
 			</div>
 
-			<div className='flex flex-col sm:flex-row sm:items-end gap-3'>
-				<div className='flex-1 space-y-2'>
-					<Label>Search</Label>
-					<Input
-						value={qDraft}
-						onChange={(e) => {
-							setOffset(0);
-							setQDraft(e.target.value);
-						}}
-						placeholder='Search by title or slug…'
-					/>
-				</div>
+			<div className='rounded-xl border p-4'>
+				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
+					<div className='md:col-span-6 space-y-2'>
+						<Label>Search</Label>
+						<Input
+							ref={qRef}
+							value={qInput}
+							onChange={(e) => setQInput(e.target.value)}
+							placeholder='Search title or slug...'
+							onKeyDown={(e) => {
+								if (e.key === 'Enter') applyFilters();
+								if (e.key === 'Escape') resetFilters();
+							}}
+						/>
+					</div>
 
-				<div className='w-full sm:w-56 space-y-2'>
-					<Label>Status</Label>
-					<Select
-						value={statusFilter}
-						onValueChange={(v) => {
-							setOffset(0);
-							setStatusFilter(v as any);
-						}}>
-						<SelectTrigger>
-							<SelectValue placeholder='All' />
-						</SelectTrigger>
-						<SelectContent>
-							<SelectItem value='all'>all</SelectItem>
-							<SelectItem value='draft'>draft</SelectItem>
-							<SelectItem value='published'>published</SelectItem>
-						</SelectContent>
-					</Select>
+					<div className='md:col-span-3 space-y-2'>
+						<Label>Status</Label>
+						<Select
+							value={statusInput}
+							onValueChange={(v) => setStatusInput(v as any)}>
+							<SelectTrigger>
+								<SelectValue placeholder='All' />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='all'>all</SelectItem>
+								<SelectItem value='draft'>draft</SelectItem>
+								<SelectItem value='published'>
+									published
+								</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className='md:col-span-3 flex gap-2 justify-end'>
+						<Button
+							variant='outline'
+							onClick={resetFilters}
+							disabled={loading}>
+							Reset
+						</Button>
+						<Button
+							onClick={applyFilters}
+							disabled={loading}>
+							Apply
+						</Button>
+					</div>
 				</div>
 			</div>
 
 			<div className='flex items-center justify-between'>
 				<p className='text-sm text-muted-foreground'>
-					{ total > 0
-						? `Showing ${from}–${to} of ${total}`
-						: ''}
+					{total > 0 ? (
+						<>
+							Showing <b>{offset + 1}</b>–
+							<b>{Math.min(offset + items.length, total)}</b> of{' '}
+							<b>{total}</b>
+						</>
+					) : null}
 				</p>
 
 				<div className='flex items-center gap-2'>
@@ -399,12 +316,13 @@ export default function AdminPages() {
 						<div
 							key={p.id}
 							className='grid grid-cols-12 gap-2 p-3 text-sm border-t items-center'>
-							<div className='col-span-4 font-medium truncate'>
+							<div className='col-span-4 font-medium'>
 								{p.title}
 							</div>
-							<div className='col-span-3 text-muted-foreground truncate'>
+							<div className='col-span-3 text-muted-foreground'>
 								/{p.slug}
 							</div>
+
 							<div className='col-span-2'>
 								<Badge
 									variant={
@@ -415,19 +333,23 @@ export default function AdminPages() {
 									{p.status}
 								</Badge>
 							</div>
+
 							<div className='col-span-2 text-muted-foreground'>
 								{new Date(p.updated_at).toLocaleString()}
 							</div>
+
 							<div className='col-span-1 flex justify-end gap-2'>
 								<Button
+									asChild
 									variant='outline'
-									size='sm'
-									onClick={() => openEdit(p.id)}>
-									Edit
+									size='sm'>
+									<Link href={`/${p.slug}?edit=1`}>Edit</Link>
 								</Button>
+
 								<Button
 									variant='destructive'
 									size='sm'
+									disabled={loading}
 									onClick={() => setConfirmDelete(p)}>
 									Delete
 								</Button>
@@ -440,14 +362,11 @@ export default function AdminPages() {
 			<Dialog
 				open={editorOpen}
 				onOpenChange={setEditorOpen}>
-				<DialogContent className='sm:max-w-2xl max-h-[85vh] overflow-y-auto'>
+				<DialogContent className='sm:max-w-xl'>
 					<DialogHeader>
-						<DialogTitle>
-							{editorMode === 'create' ? 'New Page' : 'Edit Page'}
-						</DialogTitle>
+						<DialogTitle>New Page</DialogTitle>
 						<DialogDescription>
-							SEO fields are optional. Status controls public
-							visibility.
+							Editing happens on the page itself.
 						</DialogDescription>
 					</DialogHeader>
 
@@ -459,14 +378,9 @@ export default function AdminPages() {
 								onChange={(e) => {
 									const v = e.target.value;
 									setTitle(v);
-									if (
-										editorMode === 'create' &&
-										!slugTouched
-									) {
-										setSlug(slugify(v));
-									}
+									if (!slugTouched) setSlug(slugify(v));
 								}}
-								placeholder='Home'
+								disabled={saving}
 							/>
 						</div>
 
@@ -478,15 +392,16 @@ export default function AdminPages() {
 									setSlugTouched(true);
 									setSlug(slugify(e.target.value));
 								}}
-								placeholder='home'
+								disabled={saving}
 							/>
 						</div>
 
 						<div className='space-y-2'>
 							<Label>Status</Label>
 							<Select
-								value={status}
-								onValueChange={(v) => setStatus(v as any)}>
+								value={pageStatus}
+								onValueChange={(v) => setPageStatus(v as any)}
+								disabled={saving}>
 								<SelectTrigger>
 									<SelectValue />
 								</SelectTrigger>
@@ -497,34 +412,6 @@ export default function AdminPages() {
 									</SelectItem>
 								</SelectContent>
 							</Select>
-						</div>
-
-						<div className='space-y-2'>
-							<Label>SEO Title</Label>
-							<Input
-								value={seoTitle}
-								onChange={(e) => setSeoTitle(e.target.value)}
-								placeholder='(optional)'
-							/>
-						</div>
-
-						<div className='space-y-2 sm:col-span-2'>
-							<Label>SEO Description</Label>
-							<Input
-								value={seoDesc}
-								onChange={(e) => setSeoDesc(e.target.value)}
-								placeholder='(optional)'
-							/>
-						</div>
-
-						<div className='space-y-2 sm:col-span-2'>
-							<Label>Body</Label>
-							<Textarea
-								value={body}
-								onChange={(e) => setBody(e.target.value)}
-								rows={10}
-								placeholder='Write your content…'
-							/>
 						</div>
 					</div>
 
@@ -540,9 +427,9 @@ export default function AdminPages() {
 							Cancel
 						</Button>
 						<Button
-							onClick={submit}
+							onClick={submitCreate}
 							disabled={saving || !title.trim() || !slug.trim()}>
-							{saving ? 'Saving…' : 'Save'}
+							{saving ? 'Creating…' : 'Create'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -551,7 +438,7 @@ export default function AdminPages() {
 			<AlertDialog
 				open={!!confirmDelete}
 				onOpenChange={(v) => !v && setConfirmDelete(null)}>
-				<AlertDialogContent className='sm:max-w-md'>
+				<AlertDialogContent>
 					<AlertDialogHeader>
 						<AlertDialogTitle>Delete page?</AlertDialogTitle>
 						<AlertDialogDescription>
@@ -560,10 +447,11 @@ export default function AdminPages() {
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
-						<AlertDialogCancel disabled={!confirmDelete}>
+						<AlertDialogCancel disabled={loading}>
 							Cancel
 						</AlertDialogCancel>
 						<AlertDialogAction
+							disabled={loading}
 							onClick={() =>
 								confirmDelete && doDelete(confirmDelete)
 							}>
