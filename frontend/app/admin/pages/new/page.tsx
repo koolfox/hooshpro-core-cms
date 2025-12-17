@@ -1,5 +1,5 @@
 import { redirect } from 'next/navigation';
 
-export default function NewPageRedirect() {
-	redirect('/admin/pages');
+export default function AdminNewPage() {
+	redirect('/admin/pages?new=1');
 }
