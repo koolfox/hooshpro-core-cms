@@ -1,12 +1,17 @@
-from datetime import datetime, timezone, timedelta
+from __future__ import annotations
+
+from datetime import datetime, timezone
 from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-def utcnow():
+
+def utcnow() -> datetime:
     return datetime.now(timezone.utc)
+
 
 class Base(DeclarativeBase):
     pass
+
 
 class User(Base):
     __tablename__ = "users"
@@ -21,6 +26,7 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+
 class UserSession(Base):
     __tablename__ = "sessions"
 
@@ -31,9 +37,7 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
-    @staticmethod
-    def default_expiry(days:int)->datetime:
-         return utcnow()+timedelta(days=days)
+
 
 class Page(Base):
     __tablename__ = "pages"
@@ -60,5 +64,18 @@ class Page(Base):
         DateTime(timezone=True),
         default=utcnow,
         onupdate=utcnow,
-    )    
+    )
 
+
+class MediaAsset(Base):
+    __tablename__ = "media_assets"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    original_name: Mapped[str] = mapped_column(String(400), nullable=False)
+    stored_name: Mapped[str] = mapped_column(String(400), unique=True, index=True, nullable=False)
+
+    content_type: Mapped[str] = mapped_column(String(200), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

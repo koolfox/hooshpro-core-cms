@@ -34,6 +34,8 @@ class PageCreate(BaseModel):
 
     body: str = Field(default="")
 
+    blocks: Optional[dict[str, Any]] = None
+
     def normalized(self) -> "PageCreate":
         self.slug = validate_slug(self.slug)
         if self.status not in ("draft", "published"):
@@ -47,7 +49,10 @@ class PageUpdate(BaseModel):
     status: Optional[str] = None
     seo_title: Optional[str] = Field(default=None, max_length=200)
     seo_description: Optional[str] = Field(default=None, max_length=500)
+
     body: Optional[str] = None
+
+    blocks: Optional[dict[str, Any]] = None
 
     def normalized(self) -> "PageUpdate":
         if self.slug is not None:

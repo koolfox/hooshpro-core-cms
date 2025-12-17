@@ -24,9 +24,9 @@ A simple, professional blog/site builder with admin login + page editor + public
 
 ## 2) Current Branch (ALWAYS update)
 
-- Branch: `<<PUT CURRENT BRANCH NAME HERE>>`
-- Feature: `<<FEATURE NAME>>`
-- Status: `<<In progress / Done / Blocked>>`
+- Branch: `feature/02-pages-mvp`
+- Feature: `Pages MVP + Public Visual Editing (TipTap)`
+- Status: `In progress`
 
 Quick check:
 
@@ -50,13 +50,16 @@ Quick check:
   - POST `/api/auth/logout` -> clears cookie
   - GET  `/api/auth/me`     -> validates session
   - POST `/api/auth/token`  -> swagger bearer token (no cookie)
+
 - Pages:
   - Admin CRUD:
-    - GET    `/api/admin/pages`
+    - GET    `/api/admin/pages` (pagination + filters)
     - POST   `/api/admin/pages`
     - GET    `/api/admin/pages/{id}`
     - PUT    `/api/admin/pages/{id}`
     - DELETE `/api/admin/pages/{id}`
+    - GET    `/api/admin/pages/by-slug/{slug}` (for visual editing on public route)
+
   - Public:
     - GET `/api/public/pages/{slug}` (published only)
 
@@ -75,7 +78,7 @@ Quick check:
 ### Security gates
 
 - Backend: every `/api/admin/*` requires auth dependency (real security)
-- Frontend: middleware blocks `/admin/*` if cookie missing (UX + early block)
+- Frontend: middleware blocks `/admin/*` if cookie missing or invalid (UX + early block)
 
 ---
 
@@ -91,7 +94,7 @@ Env:
 
 Important:
 
-- Server Components MUST use absolute URL when fetching backend (Node fetch hates relative URLs on server):
+- Server Components MUST use absolute URL when fetching backend:
   - use `${API_ORIGIN}/api/...`
 - Client components can call `/api/...` (rewrites kicks in)
 
@@ -114,6 +117,11 @@ Reserved slugs:
 
 - admin, login, logout, api, auth
 
+Blocks:
+
+- MVP uses TipTap blocks:
+  - `{ version: 2, blocks: [ { type:"tiptap", data:{ doc, html } } ] }`
+
 ---
 
 ## 7) How to Run (dev)
@@ -134,18 +142,19 @@ Reserved slugs:
 
 ### Done
 
-- [ ] Feature 00 – Repo setup + baseline
-- [ ] Feature 01 – Auth/session + admin gate (login/logout/me + middleware)
+- [x] Feature 00 – Repo setup + baseline
+- [x] Feature 01 – Auth/session + admin gate (login/logout/me + middleware)
 
 ### In Progress
 
 - [ ] Feature 02 – Pages MVP (CRUD admin + public render + SEO metadata)
+- [ ] TipTap visual editing on public route
 
 ### Next (parking lot)
 
-- [ ] Editor blocks: hero/paragraph/image
 - [ ] Media manager (local storage + DB references)
-- [ ] Rich text (TipTap)
+- [ ] TipTap image upload integration
+- [ ] Block palette (shadcn blocks)
 - [ ] RBAC (later)
 
 ---
@@ -158,13 +167,17 @@ Per feature:
 2) update this file (branch + status + endpoints)
 3) smoke test list:
    - /login works
-   - /admin redirects without cookie
+   - /admin redirects without valid session
    - /admin works after login
    - /api/admin/* returns 401 without cookie
+   - /[slug]?edit=1 works for admin
 4) merge
 
 ---
 
 ## 10) Current TODO (next 1–3 hours)
 
-- [ ] <<WRITE the next small tasks here>>
+- [ ] Install TipTap packages
+- [ ] Add /api/admin/pages/by-slug/{slug}
+- [ ] Add public page route with TipTap editor
+- [ ] Save blocks_json (doc+html) and render html publicly

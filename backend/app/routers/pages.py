@@ -35,14 +35,26 @@ def _safe_load_blocks(blocks_json: str | None) -> dict:
 
 
 def _extract_body(blocks: dict) -> str:
+    """
+    Legacy body extractor:
+    - If our blocks contain "tiptap" html, try to return a plain-ish fallback.
+    - Otherwise if blocks contain "paragraph" with text.
+    """
+    for b in (blocks.get("blocks") or []):
+        if b.get("type") == "tiptap":
+            data = b.get("data") or {}
+            html = data.get("html") or ""
+            return str(html)
+
     for b in (blocks.get("blocks") or []):
         if b.get("type") == "paragraph":
             data = b.get("data") or {}
             return str(data.get("text") or "")
+
     return ""
 
 
-def _build_blocks(title: str, body: str) -> dict:
+def _build_blocks_legacy(title: str, body: str) -> dict:
     return {
         "version": 1,
         "blocks": [
@@ -110,6 +122,19 @@ def admin_list_pages(
     )
 
 
+@router.get("/api/admin/pages/by-slug/{slug}", response_model=PageOut)
+def admin_get_page_by_slug(
+    slug: str,
+    db: OrmSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    slug = validate_slug(slug)
+    p = db.query(Page).filter(Page.slug == slug).first()
+    if not p:
+        raise HTTPException(status_code=404, detail="Page not found")
+    return _to_out(p)
+
+
 @router.post("/api/admin/pages", response_model=PageOut)
 def admin_create_page(
     payload: PageCreate,
@@ -119,7 +144,11 @@ def admin_create_page(
     payload.normalized()
     slug = validate_slug(payload.slug)
 
-    blocks = _build_blocks(payload.title, payload.body)
+    if payload.blocks is not None:
+        blocks = payload.blocks
+    else:
+        blocks = _build_blocks_legacy(payload.title, payload.body)
+
     p = Page(
         title=payload.title,
         slug=slug,
@@ -185,8 +214,10 @@ def admin_update_page(
     if payload.seo_description is not None:
         p.seo_description = payload.seo_description
 
-    if payload.body is not None:
-        blocks = _build_blocks(p.title, payload.body)
+    if payload.blocks is not None:
+        p.blocks_json = json.dumps(payload.blocks, ensure_ascii=False)
+    elif payload.body is not None:
+        blocks = _build_blocks_legacy(p.title, payload.body)
         p.blocks_json = json.dumps(blocks, ensure_ascii=False)
 
     try:
