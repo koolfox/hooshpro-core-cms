@@ -1,1 +1,10 @@
-Generic single-database configuration.
+# Alembic (HooshPro)
+
+Dev:
+
+- alembic revision --autogenerate -m "..."
+- alembic upgrade head
+
+SQLite note:
+
+- env.py uses render_as_batch=True to support ALTER TABLE style changes.
