@@ -2,25 +2,17 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { AppSidebar } from '@/components/app-sidebar';
-import { Separator } from '@/components/ui/separator';
-import {
-	SidebarInset,
-	SidebarProvider,
-	SidebarTrigger,
-} from '@/components/ui/sidebar';
+import { SiteHeader } from '@/components/site-header';
+import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 const COOKIE_NAME = 'hooshpro_session';
+const SIDEBAR_COOKIE_NAME = 'sidebar_state';
 
 function buildNextParam(): string {
 	return '/admin/pages';
 }
 
-async function requireAdminSession() {
-	const token = (await cookies()).get(COOKIE_NAME)?.value;
-	if (!token) {
-		redirect(`/auth/login?next=${encodeURIComponent(buildNextParam())}`);
-	}
-
+async function requireAdminSession(token: string) {
 	const apiOrigin = process.env.API_ORIGIN || 'http://127.0.0.1:8000';
 
 	const res = await fetch(`${apiOrigin}/api/auth/me`, {
@@ -41,24 +33,30 @@ export default async function AdminLayout({
 }: {
 	children: React.ReactNode;
 }) {
-	await requireAdminSession();
+	const cookieStore = await cookies();
+
+	const token = cookieStore.get(COOKIE_NAME)?.value;
+	if (!token) {
+		redirect(`/auth/login?next=${encodeURIComponent(buildNextParam())}`);
+	}
+
+	const sidebarCookie = cookieStore.get(SIDEBAR_COOKIE_NAME)?.value;
+	const defaultOpen = sidebarCookie ? sidebarCookie === 'true' : true;
+
+	await requireAdminSession(token);
 
 	return (
-		<SidebarProvider defaultOpen>
-			<AppSidebar />
+		<div className='[--header-height:calc(--spacing(14))]'>
+			<SidebarProvider
+				defaultOpen={defaultOpen}
+				className='flex flex-col'>
+				<SiteHeader />
 
-			<SidebarInset>
-				<header className='flex h-14 items-center gap-2 border-b px-4'>
-					<SidebarTrigger />
-					<Separator
-						orientation='vertical'
-						className='h-6'
-					/>
-					<div className='text-sm font-medium'>HooshPro Admin</div>
-				</header>
-
-				{children}
-			</SidebarInset>
-		</SidebarProvider>
+				<div className='flex flex-1'>
+					<AppSidebar />
+					<SidebarInset>{children}</SidebarInset>
+				</div>
+			</SidebarProvider>
+		</div>
 	);
 }

@@ -18,9 +18,11 @@ export function sanitizeRichHtml(input: string) {
 			'ol',
 			'li',
 			'a',
+			'img',
 		],
 		allowedAttributes: {
 			a: ['href', 'target', 'rel'],
+			img: ['src', 'alt', 'title', 'width', 'height'],
 		},
 		transformTags: {
 			a: sanitizeHtml.simpleTransform('a', {

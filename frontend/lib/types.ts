@@ -8,7 +8,7 @@ export type Page = {
 
 	body?: string;
 
-	blocks: any;
+	blocks: unknown;
 
 	published_at?: string | null;
 	created_at: string;
@@ -17,6 +17,22 @@ export type Page = {
 
 export type PageListOut = {
 	items: Page[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type MediaAsset = {
+	id: number;
+	url: string;
+	original_name: string;
+	content_type: string;
+	size_bytes: number;
+	created_at: string;
+};
+
+export type MediaListOut = {
+	items: MediaAsset[];
 	total: number;
 	limit: number;
 	offset: number;

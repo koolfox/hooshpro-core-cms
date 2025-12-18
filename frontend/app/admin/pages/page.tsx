@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
+import type { JSONContent } from '@tiptap/core';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,10 +38,32 @@ import {
 
 import { apiFetch } from '@/lib/http';
 import type { Page, PageListOut } from '@/lib/types';
-
-type EditorMode = 'create';
+import { useApiList } from '@/hooks/use-api-list';
+import { AdminListPage } from '@/components/admin/admin-list-page';
+import { AdminDataTable } from '@/components/admin/admin-data-table';
 
 const LIMIT = 20;
+type StatusFilter = 'all' | 'draft' | 'published';
+
+function defaultTipTapBlocks() {
+	const doc: JSONContent = {
+		type: 'doc',
+		content: [{ type: 'paragraph' }],
+	};
+
+	return {
+		version: 2,
+		blocks: [
+			{
+				type: 'tiptap',
+				data: {
+					doc,
+					html: '<p></p>',
+				},
+			},
+		],
+	};
+}
 
 function slugify(input: string) {
 	return input
@@ -51,24 +74,14 @@ function slugify(input: string) {
 }
 
 export default function AdminPagesScreen() {
-	const [items, setItems] = useState<Page[]>([]);
-	const [total, setTotal] = useState(0);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-
 	const [offset, setOffset] = useState(0);
 	const [qInput, setQInput] = useState('');
-	const [statusInput, setStatusInput] = useState<
-		'all' | 'draft' | 'published'
-	>('all');
+	const [statusInput, setStatusInput] = useState<StatusFilter>('all');
 
 	const [q, setQ] = useState('');
-	const [status, setStatus] = useState<'all' | 'draft' | 'published'>('all');
+	const [status, setStatus] = useState<StatusFilter>('all');
 
 	const qRef = useRef<HTMLInputElement | null>(null);
-
-	const canPrev = offset > 0;
-	const canNext = offset + LIMIT < total;
 
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
@@ -79,27 +92,12 @@ export default function AdminPagesScreen() {
 		return `/api/admin/pages?${params.toString()}`;
 	}, [offset, q, status]);
 
-	async function load() {
-		setLoading(true);
-		setError(null);
-		try {
-			const data = await apiFetch<PageListOut>(listUrl, {
-				cache: 'no-store',
-				nextPath: '/admin/pages',
-			});
-			setItems(data.items);
-			setTotal(data.total);
-		} catch (e: any) {
-			setError(String(e?.message ?? e));
-		} finally {
-			setLoading(false);
-		}
-	}
+	const { data, loading, error, reload } = useApiList<PageListOut>(listUrl, {
+		nextPath: '/admin/pages',
+	});
 
-	useEffect(() => {
-		load();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [listUrl]);
+	const items = data?.items ?? [];
+	const total = data?.total ?? 0;
 
 	function applyFilters() {
 		setOffset(0);
@@ -117,7 +115,6 @@ export default function AdminPagesScreen() {
 	}
 
 	const [editorOpen, setEditorOpen] = useState(false);
-	const [editorMode, setEditorMode] = useState<EditorMode>('create');
 
 	const [title, setTitle] = useState('');
 	const [slug, setSlug] = useState('');
@@ -129,6 +126,7 @@ export default function AdminPagesScreen() {
 
 	const [saving, setSaving] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 
 	function resetForm() {
 		setTitle('');
@@ -141,7 +139,6 @@ export default function AdminPagesScreen() {
 
 	function openCreate() {
 		resetForm();
-		setEditorMode('create');
 		setEditorOpen(true);
 	}
 
@@ -153,6 +150,7 @@ export default function AdminPagesScreen() {
 			title: title.trim(),
 			slug: slug.trim(),
 			status: pageStatus,
+			blocks: defaultTipTapBlocks(),
 		};
 
 		try {
@@ -163,9 +161,9 @@ export default function AdminPagesScreen() {
 				nextPath: '/admin/pages',
 			});
 			setEditorOpen(false);
-			await load();
-		} catch (e: any) {
-			setFormError(String(e?.message ?? e));
+			await reload();
+		} catch (e) {
+			setFormError(e instanceof Error ? e.message : String(e));
 		} finally {
 			setSaving(false);
 		}
@@ -180,37 +178,33 @@ export default function AdminPagesScreen() {
 				nextPath: '/admin/pages',
 			});
 			setConfirmDelete(null);
+			setActionError(null);
 
 			const nextTotal = Math.max(0, total - 1);
 			const lastOffset = Math.max(
 				0,
 				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
 			);
-			setOffset((cur) => Math.min(cur, lastOffset));
-			if (offset === Math.min(offset, lastOffset)) await load();
-		} catch (e: any) {
-			setError(String(e?.message ?? e));
+			const nextOffset = Math.min(offset, lastOffset);
+			setOffset(nextOffset);
+			if (nextOffset === offset) await reload();
+		} catch (e) {
+			setActionError(e instanceof Error ? e.message : String(e));
 		}
 	}
 
 	return (
-		<main className='p-6 space-y-6'>
-			<div className='flex items-start justify-between gap-4'>
-				<div className='space-y-1'>
-					<h1 className='text-2xl font-semibold'>Pages</h1>
-					<p className='text-sm text-muted-foreground'>
-						Create/select here. Edit happens on the page itself.
-					</p>
-				</div>
-
+		<AdminListPage
+			title='Pages'
+			description='Create/select here. Edit happens on the page itself.'
+			actions={
 				<Button
 					onClick={openCreate}
 					disabled={loading}>
 					New Page
 				</Button>
-			</div>
-
-			<div className='rounded-xl border p-4'>
+			}
+			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
 					<div className='md:col-span-6 space-y-2'>
 						<Label>Search</Label>
@@ -230,7 +224,7 @@ export default function AdminPagesScreen() {
 						<Label>Status</Label>
 						<Select
 							value={statusInput}
-							onValueChange={(v) => setStatusInput(v as any)}>
+							onValueChange={(v) => setStatusInput(v as StatusFilter)}>
 							<SelectTrigger>
 								<SelectValue placeholder='All' />
 							</SelectTrigger>
@@ -258,41 +252,21 @@ export default function AdminPagesScreen() {
 						</Button>
 					</div>
 				</div>
-			</div>
-
-			<div className='flex items-center justify-between'>
-				<p className='text-sm text-muted-foreground'>
-					{total > 0 ? (
-						<>
-							Showing <b>{offset + 1}</b>–
-							<b>{Math.min(offset + items.length, total)}</b> of{' '}
-							<b>{total}</b>
-						</>
-					) : null}
-				</p>
-
-				<div className='flex items-center gap-2'>
-					<Button
-						variant='outline'
-						disabled={!canPrev || loading}
-						onClick={() =>
-							setOffset((v) => Math.max(0, v - LIMIT))
-						}>
-						Prev
-					</Button>
-					<Button
-						variant='outline'
-						disabled={!canNext || loading}
-						onClick={() => setOffset((v) => v + LIMIT)}>
-						Next
-					</Button>
-				</div>
-			</div>
+			}
+			total={total}
+			offset={offset}
+			limit={LIMIT}
+			loading={loading}
+			onPrev={() => setOffset((v) => Math.max(0, v - LIMIT))}
+			onNext={() => setOffset((v) => v + LIMIT)}>
 
 			{loading ? (
 				<p className='text-sm text-muted-foreground'>Loading…</p>
 			) : null}
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
+			{actionError ? (
+				<p className='text-sm text-red-600'>{actionError}</p>
+			) : null}
 
 			{!loading && !error && items.length === 0 ? (
 				<div className='rounded-xl border p-6'>
@@ -303,27 +277,23 @@ export default function AdminPagesScreen() {
 			) : null}
 
 			{!loading && !error && items.length > 0 ? (
-				<div className='rounded-xl border overflow-hidden'>
-					<div className='grid grid-cols-12 gap-2 p-3 text-sm font-medium bg-muted/40'>
-						<div className='col-span-4'>Title</div>
-						<div className='col-span-3'>Slug</div>
-						<div className='col-span-2'>Status</div>
-						<div className='col-span-2'>Updated</div>
-						<div className='col-span-1 text-right'>Actions</div>
-					</div>
-
-					{items.map((p) => (
-						<div
-							key={p.id}
-							className='grid grid-cols-12 gap-2 p-3 text-sm border-t items-center'>
-							<div className='col-span-4 font-medium'>
-								{p.title}
-							</div>
-							<div className='col-span-3 text-muted-foreground'>
-								/{p.slug}
-							</div>
-
-							<div className='col-span-2'>
+				<AdminDataTable
+					rows={items}
+					getRowKey={(p) => p.id}
+					columns={[
+						{
+							header: 'Title',
+							cell: (p) => p.title,
+							cellClassName: 'font-medium whitespace-normal',
+						},
+						{
+							header: 'Slug',
+							cell: (p) => `/${p.slug}`,
+							cellClassName: 'text-muted-foreground',
+						},
+						{
+							header: 'Status',
+							cell: (p) => (
 								<Badge
 									variant={
 										p.status === 'published'
@@ -332,31 +302,41 @@ export default function AdminPagesScreen() {
 									}>
 									{p.status}
 								</Badge>
-							</div>
+							),
+						},
+						{
+							header: 'Updated',
+							cell: (p) =>
+								new Date(p.updated_at).toLocaleString(),
+							cellClassName: 'text-muted-foreground',
+						},
+						{
+							header: <span className='sr-only'>Actions</span>,
+							headerClassName: 'text-right',
+							cellClassName: 'text-right',
+							cell: (p) => (
+								<div className='flex justify-end gap-2'>
+									<Button
+										asChild
+										variant='outline'
+										size='sm'>
+										<Link href={`/${p.slug}?edit=1`}>
+											Edit
+										</Link>
+									</Button>
 
-							<div className='col-span-2 text-muted-foreground'>
-								{new Date(p.updated_at).toLocaleString()}
-							</div>
-
-							<div className='col-span-1 flex justify-end gap-2'>
-								<Button
-									asChild
-									variant='outline'
-									size='sm'>
-									<Link href={`/${p.slug}?edit=1`}>Edit</Link>
-								</Button>
-
-								<Button
-									variant='destructive'
-									size='sm'
-									disabled={loading}
-									onClick={() => setConfirmDelete(p)}>
-									Delete
-								</Button>
-							</div>
-						</div>
-					))}
-				</div>
+									<Button
+										variant='destructive'
+										size='sm'
+										disabled={loading}
+										onClick={() => setConfirmDelete(p)}>
+										Delete
+									</Button>
+								</div>
+							),
+						},
+					]}
+				/>
 			) : null}
 
 			<Dialog
@@ -400,7 +380,9 @@ export default function AdminPagesScreen() {
 							<Label>Status</Label>
 							<Select
 								value={pageStatus}
-								onValueChange={(v) => setPageStatus(v as any)}
+								onValueChange={(v) =>
+									setPageStatus(v as 'draft' | 'published')
+								}
 								disabled={saving}>
 								<SelectTrigger>
 									<SelectValue />
@@ -460,6 +442,6 @@ export default function AdminPagesScreen() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</main>
+		</AdminListPage>
 	);
 }

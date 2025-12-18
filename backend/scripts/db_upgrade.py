@@ -9,6 +9,7 @@ BACKEND_ROOT = os.path.abspath(os.path.join(HERE, ".."))
 
 def main() -> None:
     cfg = Config(os.path.join(BACKEND_ROOT, "alembic.ini"))
+    cfg.set_main_option("script_location", os.path.join(BACKEND_ROOT, "alembic"))
     command.upgrade(cfg, "head")
 
 if __name__ == "__main__":

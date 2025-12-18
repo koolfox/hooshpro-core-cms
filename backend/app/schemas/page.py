@@ -11,6 +11,7 @@ RESERVED_SLUGS = {
     "admin",
     "login",
     "logout",
+    "media",
     "api",
     "auth",
 }

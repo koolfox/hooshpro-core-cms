@@ -116,6 +116,20 @@ async def admin_upload_media(
                 if written > settings.MAX_UPLOAD_BYTES:
                     raise HTTPException(status_code=413, detail="File too large.")
                 f.write(chunk)
+    except HTTPException:
+        if target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                pass
+        raise
+    except Exception:
+        if target.exists():
+            try:
+                target.unlink()
+            except Exception:
+                pass
+        raise
     finally:
         await file.close()
 

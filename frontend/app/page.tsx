@@ -1,10 +1,13 @@
 import Link from 'next/link';
 
+const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:8000';
+
 export default async function Home() {
-	const rest = await fetch('http://localhost:3000/api/health', {
+	const rest = await fetch(`${API_ORIGIN}/health`, {
 		cache: 'no-store',
 	});
 	try {
+		if (!rest.ok) throw new Error('Health check failed');
 		const data = await rest.json();
 
 		return (

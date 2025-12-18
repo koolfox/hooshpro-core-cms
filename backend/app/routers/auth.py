@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session as OrmSession
 
 from app.db import get_db
 from app.models import User, UserSession
+from app.deps import get_current_user
 from app.security import (
     verify_password,
     new_session_token,
@@ -78,21 +79,7 @@ def logout(response: Response, request: Request, db: OrmSession = Depends(get_db
 
 
 @router.get("/me", response_model=MeOut)
-def me(request: Request, db: OrmSession = Depends(get_db)):
-    token = request.cookies.get(settings.COOKIE_NAME)
-    if not token:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    sess = db.query(UserSession).filter(
-        UserSession.token_hash == hash_session_token(token)
-    ).first()
-    if not sess:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
-    user = db.query(User).filter(User.id == sess.user_id).first()
-    if not user:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-
+def me(user: User = Depends(get_current_user)):
     return MeOut(id=user.id, email=user.email)
 
 

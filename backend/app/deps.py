@@ -16,23 +16,35 @@ def get_current_user(
     bearer: str | None = Depends(oauth2_scheme),
 ) -> User:
     cookie_token = request.cookies.get(settings.COOKIE_NAME)
-    raw = cookie_token or bearer
-    if not raw:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
+    candidates: list[str] = []
+    if bearer:
+        candidates.append(bearer)
+    if cookie_token:
+        candidates.append(cookie_token)
 
-    h = hash_session_token(raw)
+    if not candidates:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Not authenticated",
+        )
+
     now = datetime.now(timezone.utc)
 
-    sess = (
-        db.query(UserSession)
-        .filter(UserSession.token_hash == h, UserSession.expires_at > now)
-        .first()
-    )
-    if not sess:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+    for raw in candidates:
+        h = hash_session_token(raw)
 
-    user = db.query(User).filter(User.id == sess.user_id).first()
-    if not user:
-        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+        sess = (
+            db.query(UserSession)
+            .filter(UserSession.token_hash == h, UserSession.expires_at > now)
+            .first()
+        )
+        if not sess:
+            continue
 
-    return user
+        user = db.query(User).filter(User.id == sess.user_id).first()
+        if not user:
+            continue
+
+        return user
+
+    raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")

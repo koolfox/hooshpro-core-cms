@@ -1,13 +1,12 @@
 import getpass
 from sqlalchemy.orm import Session
 
-from app.db import SessionLocal
-from app.models import Base,User
-from app.db import engine
+from app.db import SessionLocal, init_db
+from app.models import User
 from app.security import hash_password
 
 def main():
-    Base.metadata.create_all(bind=engine)
+    init_db()
 
     email=input("Admin email: ").strip().lower()
     password=getpass.getpass("Admin password: ")

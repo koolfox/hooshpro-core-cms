@@ -1,11 +1,15 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import Image from 'next/image';
+import { useMemo, useRef, useState } from 'react';
 import { apiFetch } from '@/lib/http';
+import { useApiList } from '@/hooks/use-api-list';
+import { AdminListPage } from '@/components/admin/admin-list-page';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import type { MediaAsset, MediaListOut } from '@/lib/types';
 
 import {
 	Dialog,
@@ -27,23 +31,14 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-type Media = {
-	id: number;
-	url: string;
-	original_name: string;
-	content_type: string;
-	size_bytes: number;
-	created_at: string;
-};
-
-type MediaListOut = {
-	items: Media[];
-	total: number;
-	limit: number;
-	offset: number;
-};
-
 const LIMIT = 40;
+const SUPPORTED_TYPES_LABEL = 'JPG, PNG, WEBP, GIF, SVG';
+const MAX_BYTES_LABEL = '10MB';
+
+function toErrorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return String(error);
+}
 
 function prettyBytes(n: number) {
 	if (!Number.isFinite(n)) return '-';
@@ -55,11 +50,6 @@ function prettyBytes(n: number) {
 }
 
 export default function MediaScreen() {
-	const [items, setItems] = useState<Media[]>([]);
-	const [total, setTotal] = useState(0);
-	const [loading, setLoading] = useState(true);
-	const [error, setError] = useState<string | null>(null);
-
 	const [offset, setOffset] = useState(0);
 	const [qInput, setQInput] = useState('');
 	const [q, setQ] = useState('');
@@ -67,12 +57,13 @@ export default function MediaScreen() {
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [uploading, setUploading] = useState(false);
 	const [uploadError, setUploadError] = useState<string | null>(null);
+	const [uploadStatus, setUploadStatus] = useState<string | null>(null);
+	const [dragActive, setDragActive] = useState(false);
+	const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 	const fileRef = useRef<HTMLInputElement | null>(null);
 
-	const [confirmDelete, setConfirmDelete] = useState<Media | null>(null);
-
-	const canPrev = offset > 0;
-	const canNext = offset + LIMIT < total;
+	const [confirmDelete, setConfirmDelete] = useState<MediaAsset | null>(null);
+	const [actionError, setActionError] = useState<string | null>(null);
 
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
@@ -82,27 +73,18 @@ export default function MediaScreen() {
 		return `/api/admin/media?${params.toString()}`;
 	}, [offset, q]);
 
-	async function load() {
-		setLoading(true);
-		setError(null);
-		try {
-			const data = await apiFetch<MediaListOut>(listUrl, {
-				cache: 'no-store',
-				nextPath: '/admin/media',
-			});
-			setItems(data.items);
-			setTotal(data.total);
-		} catch (e: any) {
-			setError(String(e?.message ?? e));
-		} finally {
-			setLoading(false);
-		}
-	}
+	const { data, loading, error, reload } = useApiList<MediaListOut>(listUrl, {
+		nextPath: '/admin/media',
+	});
 
-	useEffect(() => {
-		load();
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [listUrl]);
+	const items = data?.items ?? [];
+	const total = data?.total ?? 0;
+
+	function onPickFiles(list: FileList | null) {
+		const files = Array.from(list ?? []);
+		setPendingFiles(files);
+		setUploadError(null);
+	}
 
 	function applyFilters() {
 		setOffset(0);
@@ -116,33 +98,45 @@ export default function MediaScreen() {
 	}
 
 	async function doUpload() {
-		const f = fileRef.current?.files?.[0];
-		if (!f) return;
+		if (pendingFiles.length === 0) return;
 
 		setUploading(true);
 		setUploadError(null);
+		setUploadStatus(null);
 
+		let okCount = 0;
 		try {
-			const fd = new FormData();
-			fd.append('file', f);
+			for (let i = 0; i < pendingFiles.length; i++) {
+				const f = pendingFiles[i];
+				setUploadStatus(
+					`Uploading ${i + 1}/${pendingFiles.length}: ${f.name}`
+				);
 
-			await apiFetch<Media>('/api/admin/media/upload', {
-				method: 'POST',
-				body: fd,
-				nextPath: '/admin/media',
-			});
+				const fd = new FormData();
+				fd.append('file', f);
+
+				await apiFetch<MediaAsset>('/api/admin/media/upload', {
+					method: 'POST',
+					body: fd,
+					nextPath: '/admin/media',
+				});
+				okCount++;
+			}
 
 			setUploadOpen(false);
+			setPendingFiles([]);
 			if (fileRef.current) fileRef.current.value = '';
-			await load();
-		} catch (e: any) {
-			setUploadError(String(e?.message ?? e));
+			setActionError(null);
+		} catch (e) {
+			setUploadError(toErrorMessage(e));
 		} finally {
+			setUploadStatus(null);
 			setUploading(false);
+			if (okCount > 0) await reload();
 		}
 	}
 
-	async function doDelete(m: Media) {
+	async function doDelete(m: MediaAsset) {
 		try {
 			await apiFetch<{ ok: boolean }>(`/api/admin/media/${m.id}`, {
 				method: 'DELETE',
@@ -153,33 +147,29 @@ export default function MediaScreen() {
 			const nextTotal = Math.max(0, total - 1);
 			const lastOffset = Math.max(
 				0,
-				Math.floor((nextTotal - 1) / LIMIT) * LIMIT
+				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
 			);
-			setOffset((cur) => Math.min(cur, lastOffset));
-			if (offset === lastOffset) await load();
-		} catch (e: any) {
-			setError(String(e?.message ?? e));
+			const nextOffset = Math.min(offset, lastOffset);
+			setOffset(nextOffset);
+			setActionError(null);
+			if (nextOffset === offset) await reload();
+		} catch (e) {
+			setActionError(toErrorMessage(e));
 		}
 	}
 
 	return (
-		<main className='p-6 space-y-6'>
-			<div className='flex items-start justify-between gap-4'>
-				<div className='space-y-1'>
-					<h1 className='text-2xl font-semibold'>Media</h1>
-					<p className='text-sm text-muted-foreground'>
-						Upload images, reuse them in pages later.
-					</p>
-				</div>
-
+		<AdminListPage
+			title='Media'
+			description='Upload images, reuse them in pages later.'
+			actions={
 				<Button
 					onClick={() => setUploadOpen(true)}
 					disabled={loading}>
 					Upload
 				</Button>
-			</div>
-
-			<div className='rounded-xl border p-4'>
+			}
+			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
 					<div className='md:col-span-9 space-y-2'>
 						<Label>Search</Label>
@@ -207,41 +197,21 @@ export default function MediaScreen() {
 						</Button>
 					</div>
 				</div>
-			</div>
-
-			<div className='flex items-center justify-between'>
-				<p className='text-sm text-muted-foreground'>
-					{total > 0 ? (
-						<>
-							Showing <b>{offset + 1}</b>–
-							<b>{Math.min(offset + items.length, total)}</b> of{' '}
-							<b>{total}</b>
-						</>
-					) : null}
-				</p>
-
-				<div className='flex items-center gap-2'>
-					<Button
-						variant='outline'
-						disabled={!canPrev || loading}
-						onClick={() =>
-							setOffset((v) => Math.max(0, v - LIMIT))
-						}>
-						Prev
-					</Button>
-					<Button
-						variant='outline'
-						disabled={!canNext || loading}
-						onClick={() => setOffset((v) => v + LIMIT)}>
-						Next
-					</Button>
-				</div>
-			</div>
+			}
+			total={total}
+			offset={offset}
+			limit={LIMIT}
+			loading={loading}
+			onPrev={() => setOffset((v) => Math.max(0, v - LIMIT))}
+			onNext={() => setOffset((v) => v + LIMIT)}>
 
 			{loading ? (
 				<p className='text-sm text-muted-foreground'>Loading…</p>
 			) : null}
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
+			{actionError ? (
+				<p className='text-sm text-red-600'>{actionError}</p>
+			) : null}
 
 			{!loading && !error && items.length === 0 ? (
 				<div className='rounded-xl border p-6'>
@@ -258,11 +228,14 @@ export default function MediaScreen() {
 							<div
 								key={m.id}
 								className='rounded-lg border overflow-hidden'>
-								<div className='aspect-video bg-muted/30'>
-									<img
+								<div className='relative aspect-video bg-muted/30'>
+									<Image
 										src={m.url}
 										alt={m.original_name}
-										className='w-full h-full object-cover'
+										fill
+										unoptimized
+										sizes='(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw'
+										className='object-cover'
 									/>
 								</div>
 								<div className='p-3 space-y-2'>
@@ -287,26 +260,83 @@ export default function MediaScreen() {
 
 			<Dialog
 				open={uploadOpen}
-				onOpenChange={setUploadOpen}>
+				onOpenChange={(v) => {
+					setUploadOpen(v);
+					if (!v) {
+						setPendingFiles([]);
+						setUploadError(null);
+						setUploadStatus(null);
+						setDragActive(false);
+						if (fileRef.current) fileRef.current.value = '';
+					}
+				}}>
 				<DialogContent className='sm:max-w-lg'>
 					<DialogHeader>
-						<DialogTitle>Upload image</DialogTitle>
+						<DialogTitle>Upload</DialogTitle>
 						<DialogDescription>
-							Accepted: image/* — stored locally on the backend.
+							Drop files or browse. Supported: {SUPPORTED_TYPES_LABEL}. Max {MAX_BYTES_LABEL} each.
 						</DialogDescription>
 					</DialogHeader>
 
 					<div className='space-y-2'>
-						<Label>File</Label>
+						<Label>Files</Label>
+
 						<input
 							ref={fileRef}
 							type='file'
 							accept='image/*'
-							className='block w-full text-sm'
+							multiple
+							className='hidden'
 							disabled={uploading}
+							onChange={(e) => onPickFiles(e.target.files)}
 						/>
+
+						<div
+							className={`rounded-lg border border-dashed p-6 text-center text-sm transition cursor-pointer ${dragActive ? 'bg-muted' : 'bg-muted/20'}`}
+							onClick={() => fileRef.current?.click()}
+							onDragOver={(e) => {
+								e.preventDefault();
+								setDragActive(true);
+							}}
+							onDragLeave={() => setDragActive(false)}
+							onDrop={(e) => {
+								e.preventDefault();
+								setDragActive(false);
+								onPickFiles(e.dataTransfer.files);
+							}}>
+							<div className='space-y-1'>
+								<p className='font-medium'>
+									Drop images here or click to browse
+								</p>
+								<p className='text-xs text-muted-foreground'>
+									Supported: {SUPPORTED_TYPES_LABEL} • Max{' '}
+									{MAX_BYTES_LABEL} each
+								</p>
+							</div>
+
+							{pendingFiles.length > 0 ? (
+								<div className='mt-3 text-xs text-muted-foreground space-y-1'>
+									<p>
+										Selected: <b>{pendingFiles.length}</b>
+									</p>
+									<div className='max-h-24 overflow-auto'>
+										{pendingFiles.map((f) => (
+											<div
+												key={`${f.name}:${f.size}:${f.lastModified}`}>
+												{f.name}
+											</div>
+										))}
+									</div>
+								</div>
+							) : null}
+						</div>
 					</div>
 
+					{uploadStatus ? (
+						<p className='text-sm text-muted-foreground'>
+							{uploadStatus}
+						</p>
+					) : null}
 					{uploadError ? (
 						<p className='text-sm text-red-600'>{uploadError}</p>
 					) : null}
@@ -320,8 +350,12 @@ export default function MediaScreen() {
 						</Button>
 						<Button
 							onClick={doUpload}
-							disabled={uploading}>
-							{uploading ? 'Uploading…' : 'Upload'}
+							disabled={uploading || pendingFiles.length === 0}>
+							{uploading
+								? 'Uploading…'
+								: pendingFiles.length > 1
+									? `Upload ${pendingFiles.length} files`
+									: 'Upload'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>
@@ -352,6 +386,6 @@ export default function MediaScreen() {
 					</AlertDialogFooter>
 				</AlertDialogContent>
 			</AlertDialog>
-		</main>
+		</AdminListPage>
 	);
 }
