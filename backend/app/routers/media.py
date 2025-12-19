@@ -24,6 +24,23 @@ from app.schemas.media import (
 
 router = APIRouter(tags=["media"])
 
+def _would_create_folder_cycle(
+    db: OrmSession, folder_id: int, parent_id: int
+) -> bool:
+    cur = parent_id
+    for _ in range(2000):
+        if cur == folder_id:
+            return True
+        nxt = (
+            db.query(MediaFolder.parent_id)
+            .filter(MediaFolder.id == cur)
+            .scalar()
+        )
+        if nxt is None:
+            return False
+        cur = int(nxt)
+    return True
+
 
 def _media_dir() -> Path:
     d = Path(settings.MEDIA_DIR)
@@ -136,6 +153,11 @@ def admin_update_media_folder(
             parent = db.query(MediaFolder).filter(MediaFolder.id == payload.parent_id).first()
             if not parent:
                 raise HTTPException(status_code=404, detail="Parent folder not found.")
+            if _would_create_folder_cycle(db, folder_id, payload.parent_id):
+                raise HTTPException(
+                    status_code=400,
+                    detail="Folder cannot be moved into itself or a descendant folder.",
+                )
             f.parent_id = payload.parent_id
 
     db.commit()

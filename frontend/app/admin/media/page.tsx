@@ -15,7 +15,7 @@ import {
 	useSensors,
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Folder, GripVertical } from 'lucide-react';
+import { FileImage, Folder, GripVertical, LayoutGrid, List } from 'lucide-react';
 import { apiFetch } from '@/lib/http';
 import { cn } from '@/lib/utils';
 import { useApiList } from '@/hooks/use-api-list';
@@ -79,6 +79,14 @@ function parseFolderParam(value: string | null): number | null {
 	return n;
 }
 
+type ViewMode = 'icons' | 'details';
+
+function parseViewParam(value: string | null): ViewMode {
+	const v = (value ?? '').trim().toLowerCase();
+	if (v === 'details' || v === 'tree' || v === 'list') return 'details';
+	return 'icons';
+}
+
 function toErrorMessage(error: unknown): string {
 	if (error instanceof Error) return error.message;
 	return String(error);
@@ -91,6 +99,16 @@ function prettyBytes(n: number) {
 	if (kb < 1024) return `${kb.toFixed(1)} KB`;
 	const mb = kb / 1024;
 	return `${mb.toFixed(1)} MB`;
+}
+
+function formatIsoUtc(iso: string) {
+	try {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+	} catch {
+		return iso;
+	}
 }
 
 type FolderNode = { folder: MediaFolder; depth: number };
@@ -142,17 +160,25 @@ function mediaDndId(mediaId: number) {
 	return `media:${mediaId}`;
 }
 
-function folderDndId(folderId: number) {
+function folderItemDndId(folderId: number) {
 	return `folder:${folderId}`;
 }
 
+type FolderDropScope = 'tree' | 'browser';
+
+function folderTargetDndId(scope: FolderDropScope, folderId: number) {
+	return `folder-target:${scope}:${folderId}`;
+}
+
 function FolderDropTarget({
+	scope = 'tree',
 	folderId,
 	onClick,
 	className,
 	style,
 	children,
 }: {
+	scope?: FolderDropScope;
 	folderId: number;
 	onClick?: () => void;
 	className?: string;
@@ -160,7 +186,7 @@ function FolderDropTarget({
 	children: ReactNode;
 }) {
 	const { setNodeRef, isOver } = useDroppable({
-		id: folderDndId(folderId),
+		id: folderTargetDndId(scope, folderId),
 		data: { kind: 'folder', folderId } satisfies DndData,
 	});
 
@@ -173,6 +199,70 @@ function FolderDropTarget({
 			className={cn(className, isOver && 'ring-2 ring-ring')}>
 			{children}
 		</button>
+	);
+}
+
+function FolderTile({
+	folder,
+	onOpen,
+	dragDisabled,
+}: {
+	folder: MediaFolder;
+	onOpen: () => void;
+	dragDisabled?: boolean;
+}) {
+	const { setNodeRef: setDropRef, isOver } = useDroppable({
+		id: folderTargetDndId('browser', folder.id),
+		data: { kind: 'folder', folderId: folder.id } satisfies DndData,
+	});
+
+	const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } =
+		useDraggable({
+			id: folderItemDndId(folder.id),
+			data: { kind: 'folder', folderId: folder.id } satisfies DndData,
+			disabled: !!dragDisabled,
+		});
+
+	const setNodeRef = (node: HTMLElement | null) => {
+		setDropRef(node);
+		setDragRef(node);
+	};
+
+	const style: CSSProperties | undefined = transform
+		? { transform: CSS.Transform.toString(transform) }
+		: undefined;
+
+	return (
+		<div
+			ref={setNodeRef}
+			style={style}
+			className={cn(
+				'rounded-lg border overflow-hidden bg-background cursor-pointer',
+				isOver && 'ring-2 ring-ring',
+				isDragging && 'opacity-60'
+			)}
+			role='button'
+			tabIndex={0}
+			onClick={onOpen}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') onOpen();
+			}}>
+			<div className='relative aspect-video bg-muted/20 flex items-center justify-center'>
+				<Folder className='h-9 w-9 text-muted-foreground' />
+				<button
+					type='button'
+					{...listeners}
+					{...attributes}
+					onClick={(e) => e.stopPropagation()}
+					className='absolute top-2 right-2 rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground'>
+					<GripVertical className='h-4 w-4' />
+				</button>
+			</div>
+			<div className='p-2'>
+				<div className='text-sm font-medium truncate'>{folder.name}</div>
+				<div className='text-xs text-muted-foreground'>Folder</div>
+			</div>
+		</div>
 	);
 }
 
@@ -238,6 +328,153 @@ function MediaTile({
 	);
 }
 
+function FolderRow({
+	folder,
+	onOpen,
+	dragDisabled,
+}: {
+	folder: MediaFolder;
+	onOpen: () => void;
+	dragDisabled?: boolean;
+}) {
+	const { setNodeRef: setDropRef, isOver } = useDroppable({
+		id: folderTargetDndId('browser', folder.id),
+		data: { kind: 'folder', folderId: folder.id } satisfies DndData,
+	});
+
+	const { attributes, listeners, setNodeRef: setDragRef, transform, isDragging } =
+		useDraggable({
+			id: folderItemDndId(folder.id),
+			data: { kind: 'folder', folderId: folder.id } satisfies DndData,
+			disabled: !!dragDisabled,
+		});
+
+	const setNodeRef = (node: HTMLElement | null) => {
+		setDropRef(node);
+		setDragRef(node);
+	};
+
+	const style: CSSProperties | undefined = transform
+		? { transform: CSS.Transform.toString(transform) }
+		: undefined;
+
+	return (
+		<div
+			ref={setNodeRef}
+			style={style}
+			className={cn(
+				'grid grid-cols-[auto_auto_1fr_auto] sm:grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3',
+				isOver && 'bg-muted/40',
+				isDragging && 'opacity-60'
+			)}>
+			<button
+				type='button'
+				{...listeners}
+				{...attributes}
+				disabled={!!dragDisabled}
+				className='rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing'>
+				<GripVertical className='h-4 w-4' />
+			</button>
+
+			<div className='rounded-md border bg-muted/20 h-10 w-10 flex items-center justify-center'>
+				<Folder className='h-5 w-5 text-muted-foreground' />
+			</div>
+
+			<button
+				type='button'
+				onClick={onOpen}
+				className='min-w-0 text-left'>
+				<div className='font-medium truncate'>{folder.name}</div>
+				<div className='text-xs text-muted-foreground'>Folder</div>
+			</button>
+
+			<div className='hidden sm:block text-xs text-muted-foreground'>—</div>
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{formatIsoUtc(folder.updated_at)}
+			</div>
+
+			<Button
+				size='sm'
+				variant='outline'
+				onClick={onOpen}>
+				Open
+			</Button>
+		</div>
+	);
+}
+
+function MediaRow({
+	media,
+	onDelete,
+	dragDisabled,
+}: {
+	media: MediaAsset;
+	onDelete: () => void;
+	dragDisabled?: boolean;
+}) {
+	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+		id: mediaDndId(media.id),
+		data: { kind: 'media', mediaId: media.id } satisfies DndData,
+		disabled: !!dragDisabled,
+	});
+
+	const style: CSSProperties | undefined = transform
+		? { transform: CSS.Transform.toString(transform) }
+		: undefined;
+
+	return (
+		<div
+			ref={setNodeRef}
+			style={style}
+			className={cn(
+				'grid grid-cols-[auto_auto_1fr_auto] sm:grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3',
+				isDragging && 'opacity-60'
+			)}>
+			<button
+				type='button'
+				{...listeners}
+				{...attributes}
+				disabled={!!dragDisabled}
+				className='rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing'>
+				<GripVertical className='h-4 w-4' />
+			</button>
+
+			<div className='rounded-md border bg-muted/20 h-10 w-10 overflow-hidden relative'>
+				<Image
+					src={media.url}
+					alt={media.original_name}
+					fill
+					unoptimized
+					sizes='40px'
+					className='object-cover'
+				/>
+			</div>
+
+			<div className='min-w-0'>
+				<div className='font-medium truncate'>{media.original_name}</div>
+				<div className='text-xs text-muted-foreground flex items-center gap-2'>
+					<FileImage className='h-3.5 w-3.5' />
+					<span className='truncate'>{media.content_type}</span>
+				</div>
+			</div>
+
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{prettyBytes(media.size_bytes)}
+			</div>
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{formatIsoUtc(media.created_at)}
+			</div>
+
+			<Button
+				size='sm'
+				variant='destructive'
+				onClick={onDelete}>
+				Delete
+			</Button>
+		</div>
+	);
+}
+
 export default function MediaScreen() {
 	const router = useRouter();
 	const pathname = usePathname();
@@ -247,10 +484,12 @@ export default function MediaScreen() {
 	const urlPage = parsePageParam(searchParams.get('page'));
 	const urlOffset = (urlPage - 1) * LIMIT;
 	const urlFolderFilter = parseFolderParam(searchParams.get('folder_id'));
+	const urlView = parseViewParam(searchParams.get('view'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [q, setQ] = useState(urlQ);
+	const [view, setView] = useState<ViewMode>(urlView);
 
 	// folders: null = all media, 0 = root
 	const [folderFilter, setFolderFilter] = useState<number | null>(urlFolderFilter);
@@ -271,6 +510,7 @@ export default function MediaScreen() {
 	const [dragActive, setDragActive] = useState(false);
 	const [pendingFiles, setPendingFiles] = useState<File[]>([]);
 	const fileRef = useRef<HTMLInputElement | null>(null);
+	const suppressNextFolderOpenRef = useRef(false);
 
 	const [confirmDelete, setConfirmDelete] = useState<MediaAsset | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
@@ -281,6 +521,12 @@ export default function MediaScreen() {
 		});
 
 	const folders = foldersData?.items ?? EMPTY_FOLDERS;
+	const foldersById = useMemo(() => {
+		const m = new Map<number, MediaFolder>();
+		for (const f of folders) m.set(f.id, f);
+		return m;
+	}, [folders]);
+
 	const folderNodes = useMemo(() => buildFolderNodes(folders), [folders]);
 	const selectedFolder = useMemo(() => {
 		if (folderFilter === null || folderFilter === 0) return null;
@@ -301,9 +547,15 @@ export default function MediaScreen() {
 		setQ(urlQ);
 		setQInput(urlQ);
 		setFolderFilter(urlFolderFilter);
-	}, [urlOffset, urlQ, urlFolderFilter]);
+		setView(urlView);
+	}, [urlOffset, urlQ, urlFolderFilter, urlView]);
 
-	function updateUrl(next: { page?: number; q?: string; folder?: number | null }) {
+	function updateUrl(next: {
+		page?: number;
+		q?: string;
+		folder?: number | null;
+		view?: ViewMode;
+	}) {
 		const params = new URLSearchParams(searchParams.toString());
 
 		const page = next.page ?? parsePageParam(params.get('page'));
@@ -322,6 +574,10 @@ export default function MediaScreen() {
 		} else {
 			params.set('folder_id', String(rawFolder));
 		}
+
+		const nextView = next.view ?? parseViewParam(params.get('view'));
+		if (nextView === 'details') params.set('view', 'details');
+		else params.delete('view');
 
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
@@ -349,6 +605,24 @@ export default function MediaScreen() {
 	const items = data?.items ?? EMPTY_MEDIA;
 	const total = data?.total ?? 0;
 
+	type BrowserNode =
+		| { kind: 'folder'; folder: MediaFolder }
+		| { kind: 'media'; media: MediaAsset };
+
+	const browserNodes = useMemo<BrowserNode[]>(() => {
+		const out: BrowserNode[] = [];
+		for (const f of childFolders) out.push({ kind: 'folder', folder: f });
+		for (const m of items) out.push({ kind: 'media', media: m });
+		return out;
+	}, [childFolders, items]);
+
+	const currentLocationLabel =
+		folderFilter === null
+			? 'All media'
+			: folderFilter === 0
+				? 'Root'
+				: selectedFolder?.name ?? 'Folder';
+
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
 	);
@@ -359,7 +633,15 @@ export default function MediaScreen() {
 		return items.find((m) => m.id === dragMediaId) ?? null;
 	}, [dragMediaId, items]);
 
+	const [dragFolderId, setDragFolderId] = useState<number | null>(null);
+	const dragFolder = useMemo(() => {
+		if (!dragFolderId) return null;
+		return foldersById.get(dragFolderId) ?? null;
+	}, [dragFolderId, foldersById]);
+
 	const [movingMediaId, setMovingMediaId] = useState<number | null>(null);
+	const [movingFolderId, setMovingFolderId] = useState<number | null>(null);
+	const dragDisabled = movingMediaId !== null || movingFolderId !== null;
 
 	async function moveMediaToFolder(mediaId: number, folderId: number) {
 		if (movingMediaId) return;
@@ -385,9 +667,69 @@ export default function MediaScreen() {
 		}
 	}
 
+	function wouldCreateFolderCycle(folderId: number, parentId: number): boolean {
+		if (parentId <= 0) return false;
+
+		let cur = parentId;
+		for (let i = 0; i < 2000; i++) {
+			if (cur === folderId) return true;
+			const next = foldersById.get(cur)?.parent_id ?? null;
+			if (!next) return false;
+			cur = next;
+		}
+
+		return true;
+	}
+
+	async function moveFolderToParent(folderId: number, parentId: number) {
+		if (movingFolderId) return;
+
+		const folder = foldersById.get(folderId);
+		if (!folder) return;
+
+		const currentParentId = folder.parent_id ?? 0;
+		if (currentParentId === parentId) return;
+		if (folderId === parentId) return;
+
+		if (wouldCreateFolderCycle(folderId, parentId)) {
+			setFolderActionError('Cannot move a folder into itself or a descendant folder.');
+			return;
+		}
+
+		setMovingFolderId(folderId);
+		try {
+			await apiFetch<MediaFolder>(`/api/admin/media/folders/${folderId}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ parent_id: parentId }),
+				nextPath: '/admin/media',
+			});
+			setFolderActionError(null);
+			await reloadFolders();
+		} catch (e) {
+			setFolderActionError(toErrorMessage(e));
+		} finally {
+			setMovingFolderId(null);
+		}
+	}
+
+	function suppressNextFolderOpen() {
+		suppressNextFolderOpenRef.current = true;
+		setTimeout(() => {
+			suppressNextFolderOpenRef.current = false;
+		}, 0);
+	}
+
 	function onDragStart(event: DragStartEvent) {
 		const data = event.active.data.current as DndData | undefined;
-		if (data?.kind === 'media') setDragMediaId(data.mediaId);
+		if (data?.kind === 'media') {
+			setDragMediaId(data.mediaId);
+			setDragFolderId(null);
+		}
+		if (data?.kind === 'folder') {
+			setDragFolderId(data.folderId);
+			setDragMediaId(null);
+		}
 	}
 
 	function onDragEnd(event: DragEndEvent) {
@@ -396,14 +738,22 @@ export default function MediaScreen() {
 		const overData = over?.data.current as DndData | undefined;
 
 		if (activeData?.kind === 'media' && overData?.kind === 'folder') {
+			suppressNextFolderOpen();
 			void moveMediaToFolder(activeData.mediaId, overData.folderId);
 		}
 
+		if (activeData?.kind === 'folder' && overData?.kind === 'folder') {
+			suppressNextFolderOpen();
+			void moveFolderToParent(activeData.folderId, overData.folderId);
+		}
+
 		setDragMediaId(null);
+		setDragFolderId(null);
 	}
 
 	function onDragCancel() {
 		setDragMediaId(null);
+		setDragFolderId(null);
 	}
 
 	function onPickFiles(list: FileList | null) {
@@ -426,10 +776,23 @@ export default function MediaScreen() {
 		updateUrl({ page: 1, q: '' });
 	}
 
+	function setViewMode(next: ViewMode) {
+		setView(next);
+		updateUrl({ view: next });
+	}
+
 	function selectFolder(next: number | null) {
 		setOffset(0);
 		setFolderFilter(next);
 		updateUrl({ page: 1, folder: next });
+	}
+
+	function onFolderClick(next: number | null) {
+		if (suppressNextFolderOpenRef.current) {
+			suppressNextFolderOpenRef.current = false;
+			return;
+		}
+		selectFolder(next);
 	}
 
 	function openCreateFolder() {
@@ -610,7 +973,7 @@ export default function MediaScreen() {
 									<div className='space-y-1'>
 										<div className='text-sm font-medium'>Folders</div>
 										<div className='text-xs text-muted-foreground'>
-											Drop media onto a folder to move it.
+											Drag media or folders onto a folder to move.
 										</div>
 									</div>
 									<Button
@@ -637,13 +1000,13 @@ export default function MediaScreen() {
 											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted',
 											folderFilter === null && 'bg-muted font-medium'
 										)}
-										onClick={() => selectFolder(null)}>
+										onClick={() => onFolderClick(null)}>
 										All media
 									</button>
 
 									<FolderDropTarget
 										folderId={0}
-										onClick={() => selectFolder(0)}
+										onClick={() => onFolderClick(0)}
 										className={cn(
 											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted flex items-center gap-2',
 											folderFilter === 0 && 'bg-muted font-medium'
@@ -656,7 +1019,7 @@ export default function MediaScreen() {
 										<FolderDropTarget
 											key={folder.id}
 											folderId={folder.id}
-											onClick={() => selectFolder(folder.id)}
+											onClick={() => onFolderClick(folder.id)}
 											style={{ paddingLeft: `${8 + depth * 12}px` }}
 											className={cn(
 												'w-full rounded-md py-1 pr-2 text-left text-sm hover:bg-muted flex items-center gap-2',
@@ -689,50 +1052,94 @@ export default function MediaScreen() {
 								<p className='text-sm text-red-600'>{actionError}</p>
 							) : null}
 
-							{childFolders.length > 0 ? (
-								<div className='rounded-xl border p-4'>
-									<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3'>
-										{childFolders.map((f) => (
-											<FolderDropTarget
-												key={f.id}
-												folderId={f.id}
-												onClick={() => selectFolder(f.id)}
-												className='rounded-lg border overflow-hidden text-left hover:ring-2 hover:ring-ring'>
-												<div className='flex items-center justify-center aspect-video bg-muted/20'>
-													<Folder className='h-9 w-9 text-muted-foreground' />
-												</div>
-												<div className='p-2'>
-													<div className='text-sm font-medium truncate'>
-														{f.name}
-													</div>
-												</div>
-											</FolderDropTarget>
-										))}
+							<div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
+								<div className='space-y-0.5'>
+									<div className='text-sm font-medium'>{currentLocationLabel}</div>
+									<div className='text-xs text-muted-foreground'>
+										Drag items onto folders to organize them.
 									</div>
 								</div>
-							) : null}
 
-							{!loading && !error && items.length === 0 ? (
+								<div className='flex items-center gap-2'>
+									<Button
+										size='sm'
+										variant={view === 'icons' ? 'secondary' : 'outline'}
+										onClick={() => setViewMode('icons')}
+										disabled={loading}>
+										<LayoutGrid className='h-4 w-4 mr-2' />
+										Icons
+									</Button>
+									<Button
+										size='sm'
+										variant={view === 'details' ? 'secondary' : 'outline'}
+										onClick={() => setViewMode('details')}
+										disabled={loading}>
+										<List className='h-4 w-4 mr-2' />
+										Details
+									</Button>
+								</div>
+							</div>
+
+							{!loading && !error && browserNodes.length === 0 ? (
 								<div className='rounded-xl border p-6'>
 									<p className='text-sm text-muted-foreground'>
-										No media in this folder.
+										Nothing here yet. Upload media or create a folder.
 									</p>
 								</div>
 							) : null}
 
-							{!loading && !error && items.length > 0 ? (
-								<div className='rounded-xl border p-4'>
-									<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
-										{items.map((m) => (
-											<MediaTile
-												key={m.id}
-												media={m}
-												onDelete={() => setConfirmDelete(m)}
-												dragDisabled={movingMediaId === m.id}
-											/>
-										))}
+							{!loading && !error && browserNodes.length > 0 ? (
+								view === 'details' ? (
+									<div className='rounded-xl border overflow-hidden divide-y'>
+										<div className='hidden sm:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3 bg-muted/40 text-xs font-medium text-muted-foreground'>
+											<div />
+											<div />
+											<div>Name</div>
+											<div>Size</div>
+											<div>Date</div>
+											<div />
+										</div>
+										{browserNodes.map((n) =>
+											n.kind === 'folder' ? (
+												<FolderRow
+													key={`folder:${n.folder.id}`}
+													folder={n.folder}
+													onOpen={() => onFolderClick(n.folder.id)}
+													dragDisabled={dragDisabled}
+												/>
+											) : (
+												<MediaRow
+													key={`media:${n.media.id}`}
+													media={n.media}
+													onDelete={() => setConfirmDelete(n.media)}
+													dragDisabled={dragDisabled}
+												/>
+											)
+										)}
 									</div>
-								</div>
+								) : (
+									<div className='rounded-xl border p-4'>
+										<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
+											{browserNodes.map((n) =>
+												n.kind === 'folder' ? (
+													<FolderTile
+														key={`folder:${n.folder.id}`}
+														folder={n.folder}
+														onOpen={() => onFolderClick(n.folder.id)}
+														dragDisabled={dragDisabled}
+													/>
+												) : (
+													<MediaTile
+														key={`media:${n.media.id}`}
+														media={n.media}
+														onDelete={() => setConfirmDelete(n.media)}
+														dragDisabled={dragDisabled}
+													/>
+												)
+											)}
+										</div>
+									</div>
+								)
 							) : null}
 						</div>
 					</div>
@@ -752,6 +1159,15 @@ export default function MediaScreen() {
 								</div>
 								<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
 									{dragMedia.original_name}
+								</div>
+							</div>
+						) : dragFolder ? (
+							<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
+								<div className='flex items-center justify-center aspect-video bg-muted/20'>
+									<Folder className='h-10 w-10 text-muted-foreground' />
+								</div>
+								<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
+									{dragFolder.name}
 								</div>
 							</div>
 						) : null}

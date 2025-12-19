@@ -199,7 +199,7 @@ Blocks:
 - [x] Feature 01 – Auth/session + admin gate (login/logout/me + middleware + admin ping)
 - [x] Admin shell UI (shadcn `sidebar-16`) shared by admin + public edit mode
 - [x] TipTap visual editing on public route (wiring complete; edit gated by session)
-- [x] Media manager MVP (images: upload/list/search/delete + migration + editor picker)
+- [x] Media manager MVP (images: upload/list/search/delete + folders/subfolders + drag/drop move + icons/details view)
 - [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
 - [x] Page templates foundation (DB + admin CRUD + page settings wiring)
