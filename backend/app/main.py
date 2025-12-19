@@ -5,7 +5,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
 from app.db import init_db
-from app.routers import auth, bootstrap, pages, media, components, blocks
+from app.routers import auth, bootstrap, pages, media, components, blocks, templates
 
 app = FastAPI(title=settings.APP_NAME)
 
@@ -39,3 +39,4 @@ app.include_router(pages.router)
 app.include_router(media.router)
 app.include_router(components.router)
 app.include_router(blocks.router)
+app.include_router(templates.router)

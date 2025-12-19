@@ -6,6 +6,7 @@ import {
 	Blocks,
 	FileText,
 	ImageIcon,
+	LayoutTemplate,
 	LayoutDashboard,
 	LogOut,
 	Puzzle,
@@ -25,6 +26,7 @@ import {
 const nav = [
 	{ title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
 	{ title: 'Pages', href: '/admin/pages', icon: FileText },
+	{ title: 'Templates', href: '/admin/templates', icon: LayoutTemplate },
 	{ title: 'Components', href: '/admin/components', icon: Puzzle },
 	{ title: 'Blocks', href: '/admin/blocks', icon: Blocks },
 	{ title: 'Media', href: '/admin/media', icon: ImageIcon },

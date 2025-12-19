@@ -1,9 +1,9 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import type { Page } from '@/lib/types';
+import type { Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { apiFetch } from '@/lib/http';
 import {
 	comparableJsonFromBlocks,
@@ -53,12 +53,16 @@ export function PublicPageClient({
 	const router = useRouter();
 
 	const [page, setPage] = useState<Page>(initialPage);
+	const [hydrated, setHydrated] = useState(false);
 
 	// view/edit
 	const [editMode, setEditMode] = useState<boolean>(isAdmin && defaultEdit);
 
 	// settings modal
 	const [settingsOpen, setSettingsOpen] = useState(false);
+	const [templates, setTemplates] = useState<PageTemplate[]>([]);
+	const [templatesLoading, setTemplatesLoading] = useState(false);
+	const [templatesError, setTemplatesError] = useState<string | null>(null);
 
 	// editable fields
 	const [title, setTitle] = useState(page.title);
@@ -78,6 +82,46 @@ export function PublicPageClient({
 
 	const viewState = useMemo(() => parsePageBuilderState(page.blocks), [page.blocks]);
 	const activeMenuId = editMode ? builder.template.menu : viewState.template.menu;
+
+	const templatesBySlug = useMemo(() => {
+		const m = new Map<string, PageTemplate>();
+		for (const t of templates) m.set(t.slug, t);
+		return m;
+	}, [templates]);
+
+	useEffect(() => {
+		setHydrated(true);
+	}, []);
+
+	useEffect(() => {
+		if (!settingsOpen) return;
+		if (!isAdmin) return;
+
+		let canceled = false;
+		async function load() {
+			setTemplatesLoading(true);
+			setTemplatesError(null);
+			try {
+				const res = await apiFetch<PageTemplateListOut>(`/api/admin/templates?limit=200&offset=0`, {
+					cache: 'no-store',
+					nextPath: `/${page.slug}?edit=1`,
+				});
+				if (canceled) return;
+				setTemplates(res.items ?? []);
+			} catch (e) {
+				if (canceled) return;
+				setTemplatesError(e instanceof Error ? e.message : String(e));
+				setTemplates([]);
+			} finally {
+				if (!canceled) setTemplatesLoading(false);
+			}
+		}
+
+		void load();
+		return () => {
+			canceled = true;
+		};
+	}, [settingsOpen, isAdmin, page.slug]);
 
 	const dirty = useMemo(() => {
 		if (baselineBlocks !== comparableJsonFromState(builder)) return true;
@@ -231,11 +275,15 @@ export function PublicPageClient({
 
 			{/* Body */}
 			{editMode ? (
-				<PageBuilder
-					value={builder}
-					onChange={setBuilder}
-					disabled={saving}
-				/>
+				hydrated ? (
+					<PageBuilder
+						value={builder}
+						onChange={setBuilder}
+						disabled={saving}
+					/>
+				) : (
+					<PageRenderer state={viewState} />
+				)
 			) : (
 				<PageRenderer state={viewState} />
 			)}
@@ -256,33 +304,62 @@ export function PublicPageClient({
 
 					<div className='space-y-4'>
 						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-							<div className='space-y-2'>
-								<Label>Template</Label>
-								<Select
-									value={builder.template.id}
-									onValueChange={(v) =>
-										setBuilder({
-											...builder,
-											template: {
-												...builder.template,
-												id: v,
-											},
-										})
-									}
-									disabled={saving}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='default'>
-											default
-										</SelectItem>
-										<SelectItem value='blank'>
-											blank
-										</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
+								<div className='space-y-2'>
+									<Label>Template</Label>
+									<Select
+										value={builder.template.id}
+										onValueChange={(v) =>
+											setBuilder((prev) => {
+												const tmpl = templatesBySlug.get(v);
+												return {
+													...prev,
+													template: {
+														...prev.template,
+														id: v,
+														menu: tmpl ? tmpl.menu : prev.template.menu,
+													},
+												};
+											})
+										}
+										disabled={saving || templatesLoading}>
+										<SelectTrigger>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											{templates.length > 0 ? (
+												<>
+													{!templatesBySlug.has(builder.template.id) ? (
+														<SelectItem value={builder.template.id}>
+															{builder.template.id} (missing)
+														</SelectItem>
+													) : null}
+													{templates.map((t) => (
+														<SelectItem
+															key={t.id}
+															value={t.slug}>
+															{t.slug}
+														</SelectItem>
+													))}
+												</>
+											) : (
+												<>
+													<SelectItem value='default'>
+														default
+													</SelectItem>
+													<SelectItem value='blank'>
+														blank
+													</SelectItem>
+												</>
+											)}
+										</SelectContent>
+									</Select>
+									{templatesLoading ? (
+										<p className='text-xs text-muted-foreground'>Loading templates…</p>
+									) : null}
+									{templatesError ? (
+										<p className='text-xs text-red-600'>{templatesError}</p>
+									) : null}
+								</div>
 
 							<div className='space-y-2'>
 								<Label>Menu</Label>

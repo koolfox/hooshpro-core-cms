@@ -4,18 +4,11 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { apiFetch } from '@/lib/http';
-import type { BlockListOut, BlockTemplate } from '@/lib/types';
-import {
-	defaultPageBuilderState,
-	parsePageBuilderState,
-	serializePageBuilderState,
-	type PageBuilderState,
-} from '@/lib/page-builder';
+import type { PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { useApiList } from '@/hooks/use-api-list';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
-import { PageBuilder } from '@/components/page-builder/page-builder';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -29,7 +22,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Textarea } from '@/components/ui/textarea';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select';
 
 import {
 	AlertDialog,
@@ -43,17 +42,17 @@ import {
 } from '@/components/ui/alert-dialog';
 
 const LIMIT = 30;
-const EMPTY_BLOCKS: BlockTemplate[] = [];
+const EMPTY_TEMPLATES: PageTemplate[] = [];
+
+function toErrorMessage(error: unknown): string {
+	if (error instanceof Error) return error.message;
+	return String(error);
+}
 
 function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : NaN;
 	if (!Number.isFinite(n) || n < 1) return 1;
 	return n;
-}
-
-function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
 }
 
 function formatIso(iso: string) {
@@ -66,22 +65,15 @@ function formatIso(iso: string) {
 	}
 }
 
-function getBlockStats(definition: unknown) {
-	const state = parsePageBuilderState(definition);
-	const rows = state.rows.length;
-	const columns = state.rows.reduce((sum, r) => sum + r.columns.length, 0);
-	const components = state.rows.reduce((sum, r) => {
-		return (
-			sum +
-			r.columns.reduce((colSum, c) => {
-				return colSum + c.blocks.length;
-			}, 0)
-		);
-	}, 0);
-	return { rows, columns, components };
+function slugify(input: string) {
+	return input
+		.trim()
+		.toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-')
+		.replace(/(^-|-$)/g, '');
 }
 
-export default function AdminBlocksScreen() {
+export default function AdminTemplatesScreen() {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
@@ -128,14 +120,14 @@ export default function AdminBlocksScreen() {
 		params.set('limit', String(LIMIT));
 		params.set('offset', String(offset));
 		if (q.trim()) params.set('q', q.trim());
-		return `/api/admin/blocks?${params.toString()}`;
+		return `/api/admin/templates?${params.toString()}`;
 	}, [offset, q]);
 
-	const { data, loading, error, reload } = useApiList<BlockListOut>(listUrl, {
-		nextPath: '/admin/blocks',
+	const { data, loading, error, reload } = useApiList<PageTemplateListOut>(listUrl, {
+		nextPath: '/admin/templates',
 	});
 
-	const items = data?.items ?? EMPTY_BLOCKS;
+	const items = data?.items ?? EMPTY_TEMPLATES;
 	const total = data?.total ?? 0;
 
 	function applyFilters() {
@@ -154,35 +146,40 @@ export default function AdminBlocksScreen() {
 	}
 
 	const [editorOpen, setEditorOpen] = useState(false);
-	const [editing, setEditing] = useState<BlockTemplate | null>(null);
+	const [editing, setEditing] = useState<PageTemplate | null>(null);
 
 	const [title, setTitle] = useState('');
 	const [slug, setSlug] = useState('');
+	const [slugTouched, setSlugTouched] = useState(false);
+	const [menu, setMenu] = useState('main');
 	const [description, setDescription] = useState('');
-	const [builder, setBuilder] = useState<PageBuilderState>(() => defaultPageBuilderState());
 
 	const [saving, setSaving] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 
-	const [confirmDelete, setConfirmDelete] = useState<BlockTemplate | null>(null);
+	function resetForm() {
+		setTitle('');
+		setSlug('');
+		setSlugTouched(false);
+		setMenu('main');
+		setDescription('');
+		setFormError(null);
+	}
 
 	function openCreate() {
 		setEditing(null);
-		setTitle('');
-		setSlug('');
-		setDescription('');
-		setBuilder(defaultPageBuilderState());
-		setFormError(null);
+		resetForm();
 		setEditorOpen(true);
 	}
 
-	function openEdit(b: BlockTemplate) {
-		setEditing(b);
-		setTitle(b.title);
-		setSlug(b.slug);
-		setDescription(b.description ?? '');
-		setBuilder(parsePageBuilderState(b.definition));
+	function openEdit(t: PageTemplate) {
+		setEditing(t);
+		setTitle(t.title);
+		setSlug(t.slug);
+		setSlugTouched(true);
+		setMenu(t.menu);
+		setDescription(t.description ?? '');
 		setFormError(null);
 		setEditorOpen(true);
 	}
@@ -194,24 +191,24 @@ export default function AdminBlocksScreen() {
 		const payload = {
 			title: title.trim(),
 			slug: slug.trim(),
+			menu: menu.trim() || 'main',
 			description: description.trim() ? description.trim() : null,
-			definition: serializePageBuilderState(builder) as Record<string, unknown>,
 		};
 
 		try {
 			if (editing) {
-				await apiFetch<BlockTemplate>(`/api/admin/blocks/${editing.id}`, {
+				await apiFetch<PageTemplate>(`/api/admin/templates/${editing.id}`, {
 					method: 'PUT',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(payload),
-					nextPath: '/admin/blocks',
+					nextPath: '/admin/templates',
 				});
 			} else {
-				await apiFetch<BlockTemplate>('/api/admin/blocks', {
+				await apiFetch<PageTemplate>('/api/admin/templates', {
 					method: 'POST',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(payload),
-					nextPath: '/admin/blocks',
+					nextPath: '/admin/templates',
 				});
 			}
 			setEditorOpen(false);
@@ -224,42 +221,44 @@ export default function AdminBlocksScreen() {
 		}
 	}
 
-	async function doDelete(b: BlockTemplate) {
+	const [confirmDelete, setConfirmDelete] = useState<PageTemplate | null>(null);
+
+	async function doDelete(t: PageTemplate) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/blocks/${b.id}`, {
+			await apiFetch<{ ok: boolean }>(`/api/admin/templates/${t.id}`, {
 				method: 'DELETE',
-				nextPath: '/admin/blocks',
+				nextPath: '/admin/templates',
 			});
 			setConfirmDelete(null);
 			setActionError(null);
 
 			const nextTotal = Math.max(0, total - 1);
-				const lastOffset = Math.max(
-					0,
-					Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
-				);
-				const nextOffset = Math.min(offset, lastOffset);
-				goToOffset(nextOffset);
-				if (nextOffset === offset) await reload();
-			} catch (e) {
-				setActionError(toErrorMessage(e));
-			}
+			const lastOffset = Math.max(
+				0,
+				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
+			);
+			const nextOffset = Math.min(offset, lastOffset);
+			goToOffset(nextOffset);
+			if (nextOffset === offset) await reload();
+		} catch (e) {
+			setActionError(toErrorMessage(e));
+		}
 	}
 
 	return (
 		<AdminListPage
-			title='Blocks'
-			description='Reusable sections (blocks) composed of multiple components.'
+			title='Templates'
+			description='Reusable layout presets (template + menu) that pages can reference.'
 			actions={
 				<Button
 					onClick={openCreate}
 					disabled={loading}>
-					New block
+					New template
 				</Button>
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
-					<div className='md:col-span-10 space-y-2'>
+					<div className='md:col-span-9 space-y-2'>
 						<Label>Search</Label>
 						<Input
 							ref={qRef}
@@ -272,7 +271,7 @@ export default function AdminBlocksScreen() {
 							}}
 						/>
 					</div>
-					<div className='md:col-span-2 flex gap-2 justify-end'>
+					<div className='md:col-span-3 flex gap-2 justify-end'>
 						<Button
 							variant='outline'
 							onClick={resetFilters}
@@ -300,54 +299,45 @@ export default function AdminBlocksScreen() {
 
 			<AdminDataTable
 				rows={items}
-				getRowKey={(b) => b.id}
+				getRowKey={(t) => t.id}
 				columns={[
 					{
 						header: 'Title',
-						cell: (b) => (
+						cell: (t) => (
 							<div className='space-y-1'>
-								<div className='font-medium'>{b.title}</div>
-								<div className='text-xs text-muted-foreground'>/{b.slug}</div>
+								<div className='font-medium'>{t.title}</div>
+								<div className='text-xs text-muted-foreground'>/{t.slug}</div>
 							</div>
 						),
 					},
 					{
-						header: 'Structure',
-						cell: (b) => {
-							const stats = getBlockStats(b.definition);
-							return (
-								<span className='text-xs text-muted-foreground'>
-									{stats.rows} row{stats.rows === 1 ? '' : 's'} · {stats.columns} col
-									{stats.columns === 1 ? '' : 's'} · {stats.components} item
-									{stats.components === 1 ? '' : 's'}
-								</span>
-							);
-						},
-						headerClassName: 'w-[260px]',
+						header: 'Menu',
+						cell: (t) => <Badge variant='secondary'>{t.menu}</Badge>,
+						headerClassName: 'w-[140px]',
 					},
 					{
 						header: 'Updated',
-						cell: (b) => (
+						cell: (t) => (
 							<span className='text-xs text-muted-foreground'>
-								{formatIso(b.updated_at)}
+								{formatIso(t.updated_at)}
 							</span>
 						),
 						headerClassName: 'w-[220px]',
 					},
 					{
 						header: '',
-						cell: (b) => (
+						cell: (t) => (
 							<div className='flex items-center justify-end gap-2'>
 								<Button
 									size='sm'
 									variant='outline'
-									onClick={() => openEdit(b)}>
+									onClick={() => openEdit(t)}>
 									Edit
 								</Button>
 								<Button
 									size='sm'
 									variant='destructive'
-									onClick={() => setConfirmDelete(b)}>
+									onClick={() => setConfirmDelete(t)}>
 									Delete
 								</Button>
 							</div>
@@ -364,11 +354,13 @@ export default function AdminBlocksScreen() {
 					setEditorOpen(open);
 					if (!open) setEditing(null);
 				}}>
-				<DialogContent className='sm:max-w-6xl max-h-[90svh] overflow-y-auto'>
+				<DialogContent className='sm:max-w-2xl'>
 					<DialogHeader>
-						<DialogTitle>{editing ? 'Edit block' : 'New block'}</DialogTitle>
+						<DialogTitle>
+							{editing ? 'Edit template' : 'New template'}
+						</DialogTitle>
 						<DialogDescription>
-							Blocks are reusable section templates (one or more rows).
+							Templates define the default menu/layout choice for pages.
 						</DialogDescription>
 					</DialogHeader>
 
@@ -378,7 +370,11 @@ export default function AdminBlocksScreen() {
 								<Label>Title</Label>
 								<Input
 									value={title}
-									onChange={(e) => setTitle(e.target.value)}
+									onChange={(e) => {
+										const v = e.target.value;
+										setTitle(v);
+										if (!slugTouched) setSlug(slugify(v));
+									}}
 									disabled={saving}
 								/>
 							</div>
@@ -386,8 +382,11 @@ export default function AdminBlocksScreen() {
 								<Label>Slug</Label>
 								<Input
 									value={slug}
-									onChange={(e) => setSlug(e.target.value)}
-									placeholder='e.g. hero-section'
+									onChange={(e) => {
+										setSlugTouched(true);
+										setSlug(slugify(e.target.value));
+									}}
+									placeholder='e.g. landing-default'
 									disabled={saving || !!editing}
 								/>
 								{editing ? (
@@ -398,43 +397,35 @@ export default function AdminBlocksScreen() {
 							</div>
 						</div>
 
-						<div className='space-y-2'>
-							<Label>Description</Label>
-							<Input
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-								disabled={saving}
-							/>
-						</div>
-
-						<div className='space-y-2'>
-							<Label>Layout</Label>
-							<div className='rounded-xl border p-4'>
-								<PageBuilder
-									value={builder}
-									onChange={setBuilder}
+						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
+							<div className='space-y-2'>
+								<Label>Menu</Label>
+								<Select
+									value={menu}
+									onValueChange={(v) => setMenu(v)}
+									disabled={saving}>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='main'>main</SelectItem>
+										<SelectItem value='none'>none</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+							<div className='space-y-2'>
+								<Label>Description</Label>
+								<Input
+									value={description}
+									onChange={(e) => setDescription(e.target.value)}
 									disabled={saving}
 								/>
 							</div>
 						</div>
 
-						<details className='rounded-xl border p-4'>
-							<summary className='cursor-pointer text-sm font-medium'>
-								Advanced (JSON)
-							</summary>
-							<div className='mt-3 space-y-2'>
-								<p className='text-xs text-muted-foreground'>
-									This is the stored definition payload (v3 grid layout).
-								</p>
-								<Textarea
-									value={JSON.stringify(serializePageBuilderState(builder), null, 2)}
-									readOnly
-									className='font-mono text-xs min-h-[220px]'
-								/>
-							</div>
-						</details>
-
-						{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
+						{formError ? (
+							<p className='text-sm text-red-600'>{formError}</p>
+						) : null}
 					</div>
 
 					<DialogFooter>
@@ -460,9 +451,9 @@ export default function AdminBlocksScreen() {
 				}}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Delete block?</AlertDialogTitle>
+						<AlertDialogTitle>Delete template?</AlertDialogTitle>
 						<AlertDialogDescription>
-							This removes <strong>{confirmDelete?.title}</strong> from the blocks library.
+							This will permanently delete <b>{confirmDelete?.title}</b>.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					<AlertDialogFooter>
@@ -480,13 +471,7 @@ export default function AdminBlocksScreen() {
 
 			{items.length === 0 && !loading && !error ? (
 				<div className='rounded-xl border p-6'>
-					<p className='text-sm text-muted-foreground'>No blocks yet.</p>
-					<div className='mt-3'>
-						<Badge variant='secondary'>Tip</Badge>
-						<span className='ml-2 text-sm text-muted-foreground'>
-							Blocks are “sections”: saved row/column/component layouts.
-						</span>
-					</div>
+					<p className='text-sm text-muted-foreground'>No templates yet.</p>
 				</div>
 			) : null}
 		</AdminListPage>

@@ -1,6 +1,7 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { apiFetch } from '@/lib/http';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
@@ -8,6 +9,7 @@ import { useApiList } from '@/hooks/use-api-list';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
+import { ComponentPreview } from '@/components/components/component-preview';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -42,6 +44,13 @@ import {
 } from '@/components/ui/alert-dialog';
 
 const LIMIT = 50;
+const EMPTY_COMPONENTS: ComponentDef[] = [];
+
+function parsePageParam(value: string | null): number {
+	const n = value ? Number.parseInt(value, 10) : NaN;
+	if (!Number.isFinite(n) || n < 1) return 1;
+	return n;
+}
 
 function toErrorMessage(error: unknown): string {
 	if (error instanceof Error) return error.message;
@@ -51,7 +60,8 @@ function toErrorMessage(error: unknown): string {
 function formatIso(iso: string) {
 	try {
 		const d = new Date(iso);
-		return d.toLocaleString();
+		if (Number.isNaN(d.getTime())) return iso;
+		return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
 	} catch {
 		return iso;
 	}
@@ -61,15 +71,73 @@ function defaultDataJson() {
 	return JSON.stringify({}, null, 2);
 }
 
-export default function AdminComponentsScreen() {
-	const [offset, setOffset] = useState(0);
-	const [qInput, setQInput] = useState('');
-	const [typeInput, setTypeInput] = useState<'all' | string>('all');
+function nextCloneSlug(base: string, existingSlugs: Set<string>): string {
+	const normalized = base.trim().toLowerCase();
+	const baseSlug = normalized.endsWith('-variant')
+		? normalized
+		: `${normalized}-variant`;
 
-	const [q, setQ] = useState('');
-	const [type, setType] = useState<'all' | string>('all');
+	if (!existingSlugs.has(baseSlug)) return baseSlug;
+
+	for (let i = 2; i < 1000; i++) {
+		const candidate = `${baseSlug}-${i}`;
+		if (!existingSlugs.has(candidate)) return candidate;
+	}
+
+	return `${baseSlug}-${Math.floor(Math.random() * 100000)}`;
+}
+
+export default function AdminComponentsScreen() {
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+
+	const urlQ = (searchParams.get('q') ?? '').trim();
+	const urlType = (searchParams.get('type') ?? 'all').trim() || 'all';
+	const urlPage = parsePageParam(searchParams.get('page'));
+	const urlOffset = (urlPage - 1) * LIMIT;
+
+	const [offset, setOffset] = useState(urlOffset);
+	const [qInput, setQInput] = useState(urlQ);
+	const [typeInput, setTypeInput] = useState<'all' | string>(urlType);
+
+	const [q, setQ] = useState(urlQ);
+	const [type, setType] = useState<'all' | string>(urlType);
 
 	const qRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		setOffset(urlOffset);
+		setQ(urlQ);
+		setType(urlType);
+		setQInput(urlQ);
+		setTypeInput(urlType);
+	}, [urlOffset, urlQ, urlType]);
+
+	function updateUrl(next: { page?: number; q?: string; type?: string }) {
+		const params = new URLSearchParams(searchParams.toString());
+
+		const page = next.page ?? parsePageParam(params.get('page'));
+		if (page > 1) params.set('page', String(page));
+		else params.delete('page');
+
+		const nextQ = (next.q ?? params.get('q') ?? '').trim();
+		if (nextQ) params.set('q', nextQ);
+		else params.delete('q');
+
+		const nextType = (next.type ?? params.get('type') ?? 'all').trim() || 'all';
+		if (nextType !== 'all') params.set('type', nextType);
+		else params.delete('type');
+
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname);
+	}
+
+	function goToOffset(nextOffset: number) {
+		const safeOffset = Math.max(0, Math.floor(nextOffset / LIMIT) * LIMIT);
+		setOffset(safeOffset);
+		updateUrl({ page: safeOffset / LIMIT + 1 });
+	}
 
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
@@ -84,13 +152,18 @@ export default function AdminComponentsScreen() {
 		nextPath: '/admin/components',
 	});
 
-	const items = data?.items ?? [];
+	const items = data?.items ?? EMPTY_COMPONENTS;
 	const total = data?.total ?? 0;
 
+	const existingSlugs = useMemo(() => new Set(items.map((i) => i.slug)), [items]);
+
 	function applyFilters() {
+		const nextQ = qInput.trim();
+		const nextType = typeInput;
 		setOffset(0);
-		setQ(qInput.trim());
-		setType(typeInput);
+		setQ(nextQ);
+		setType(nextType);
+		updateUrl({ page: 1, q: nextQ, type: nextType });
 	}
 
 	function resetFilters() {
@@ -99,6 +172,7 @@ export default function AdminComponentsScreen() {
 		setTypeInput('all');
 		setQ('');
 		setType('all');
+		updateUrl({ page: 1, q: '', type: 'all' });
 		qRef.current?.focus();
 	}
 
@@ -124,6 +198,17 @@ export default function AdminComponentsScreen() {
 		setCompType('editor');
 		setDescription('');
 		setDataJson(defaultDataJson());
+		setFormError(null);
+		setEditorOpen(true);
+	}
+
+	function openClone(c: ComponentDef) {
+		setEditing(null);
+		setTitle(`${c.title} (variant)`);
+		setSlug(nextCloneSlug(c.slug, existingSlugs));
+		setCompType(c.type);
+		setDescription(c.description ?? '');
+		setDataJson(JSON.stringify(c.data ?? {}, null, 2));
 		setFormError(null);
 		setEditorOpen(true);
 	}
@@ -200,16 +285,28 @@ export default function AdminComponentsScreen() {
 			setActionError(null);
 
 			const nextTotal = Math.max(0, total - 1);
-			const lastOffset = Math.max(
-				0,
-				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
-			);
-			const nextOffset = Math.min(offset, lastOffset);
-			setOffset(nextOffset);
-			if (nextOffset === offset) await reload();
-		} catch (e) {
-			setActionError(toErrorMessage(e));
+				const lastOffset = Math.max(
+					0,
+					Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
+				);
+				const nextOffset = Math.min(offset, lastOffset);
+				goToOffset(nextOffset);
+				if (nextOffset === offset) await reload();
+			} catch (e) {
+				setActionError(toErrorMessage(e));
+			}
+	}
+
+	let previewData: unknown = {};
+	let previewError: string | null = null;
+	try {
+		const parsed = dataJson.trim() ? JSON.parse(dataJson) : {};
+		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+			throw new Error('Data JSON must be an object.');
 		}
+		previewData = parsed;
+	} catch (e) {
+		previewError = toErrorMessage(e);
 	}
 
 	return (
@@ -277,8 +374,9 @@ export default function AdminComponentsScreen() {
 			offset={offset}
 			limit={LIMIT}
 			loading={loading}
-			onPrev={() => setOffset((v) => Math.max(0, v - LIMIT))}
-			onNext={() => setOffset((v) => v + LIMIT)}>
+			onPrev={() => goToOffset(offset - LIMIT)}
+			onNext={() => goToOffset(offset + LIMIT)}
+			onSetOffset={goToOffset}>
 			{loading ? <p className='text-sm text-muted-foreground'>Loading…</p> : null}
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
 			{actionError ? <p className='text-sm text-red-600'>{actionError}</p> : null}
@@ -286,20 +384,34 @@ export default function AdminComponentsScreen() {
 			<AdminDataTable
 				rows={items}
 				getRowKey={(c) => c.id}
-				columns={[
-					{
-						header: 'Title',
-						cell: (c) => (
-							<div className='space-y-1'>
-								<div className='font-medium'>{c.title}</div>
-								<div className='text-xs text-muted-foreground'>/{c.slug}</div>
-							</div>
-						),
-					},
-					{
-						header: 'Type',
-						cell: (c) => (
-							<Badge variant='secondary'>{c.type}</Badge>
+					columns={[
+						{
+							header: 'Title',
+							cell: (c) => (
+								<div className='space-y-1'>
+									<div className='font-medium'>{c.title}</div>
+									<div className='text-xs text-muted-foreground'>/{c.slug}</div>
+								</div>
+							),
+						},
+						{
+							header: 'Preview',
+							cell: (c) => (
+								<ComponentPreview
+									component={{
+										title: c.title,
+										type: c.type,
+										data: c.data,
+									}}
+									className='max-w-[420px]'
+								/>
+							),
+							headerClassName: 'w-[460px]',
+						},
+						{
+							header: 'Type',
+							cell: (c) => (
+								<Badge variant='secondary'>{c.type}</Badge>
 						),
 						headerClassName: 'w-[140px]',
 					},
@@ -313,28 +425,34 @@ export default function AdminComponentsScreen() {
 						headerClassName: 'w-[220px]',
 					},
 					{
-						header: '',
-						cell: (c) => (
-							<div className='flex items-center justify-end gap-2'>
-								<Button
-									size='sm'
-									variant='outline'
-									onClick={() => openEdit(c)}>
-									Edit
-								</Button>
-								<Button
-									size='sm'
-									variant='destructive'
-									onClick={() => setConfirmDelete(c)}>
-									Delete
-								</Button>
-							</div>
-						),
-						headerClassName: 'w-[190px]',
-						cellClassName: 'text-right',
-					},
-				]}
-			/>
+							header: '',
+							cell: (c) => (
+								<div className='flex items-center justify-end gap-2'>
+									<Button
+										size='sm'
+										variant='outline'
+										onClick={() => openEdit(c)}>
+										Edit
+									</Button>
+									<Button
+										size='sm'
+										variant='secondary'
+										onClick={() => openClone(c)}>
+										Clone
+									</Button>
+									<Button
+										size='sm'
+										variant='destructive'
+										onClick={() => setConfirmDelete(c)}>
+										Delete
+									</Button>
+								</div>
+							),
+							headerClassName: 'w-[260px]',
+							cellClassName: 'text-right',
+						},
+					]}
+				/>
 
 			<Dialog
 				open={editorOpen}
@@ -352,79 +470,108 @@ export default function AdminComponentsScreen() {
 						</DialogDescription>
 					</DialogHeader>
 
-					<div className='space-y-4'>
-						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-							<div className='space-y-2'>
-								<Label>Title</Label>
-								<Input
-									value={title}
-									onChange={(e) => setTitle(e.target.value)}
-									disabled={saving}
-								/>
+					<div className='grid grid-cols-1 lg:grid-cols-2 gap-6'>
+						<div className='space-y-4'>
+							<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
+								<div className='space-y-2'>
+									<Label>Title</Label>
+									<Input
+										value={title}
+										onChange={(e) => setTitle(e.target.value)}
+										disabled={saving}
+									/>
+								</div>
+								<div className='space-y-2'>
+									<Label>Slug</Label>
+									<Input
+										value={slug}
+										onChange={(e) => setSlug(e.target.value)}
+										placeholder='e.g. hero-title'
+										disabled={saving || !!editing}
+									/>
+									{editing ? (
+										<p className='text-xs text-muted-foreground'>
+											Slug changes are disabled for now (keeps references stable).
+										</p>
+									) : null}
+								</div>
 							</div>
-							<div className='space-y-2'>
-								<Label>Slug</Label>
-								<Input
-									value={slug}
-									onChange={(e) => setSlug(e.target.value)}
-									placeholder='e.g. hero-title'
-									disabled={saving || !!editing}
-								/>
-								{editing ? (
-									<p className='text-xs text-muted-foreground'>
-										Slug changes are disabled for now (keeps references stable).
-									</p>
-								) : null}
-							</div>
-						</div>
 
-						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-							<div className='space-y-2'>
-								<Label>Type</Label>
-								<Select
-									value={compType}
-									onValueChange={(v) => setCompType(v)}
-									disabled={saving}>
-									<SelectTrigger>
-										<SelectValue placeholder='Type' />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='editor'>editor</SelectItem>
-										<SelectItem value='image'>image</SelectItem>
-										<SelectItem value='button'>button</SelectItem>
-										<SelectItem value='card'>card</SelectItem>
-										<SelectItem value='separator'>separator</SelectItem>
-										<SelectItem value='shadcn'>shadcn</SelectItem>
-									</SelectContent>
-								</Select>
+							<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
+								<div className='space-y-2'>
+									<Label>Type</Label>
+									<Select
+										value={compType}
+										onValueChange={(v) => setCompType(v)}
+										disabled={saving}>
+										<SelectTrigger>
+											<SelectValue placeholder='Type' />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value='editor'>editor</SelectItem>
+											<SelectItem value='image'>image</SelectItem>
+											<SelectItem value='button'>button</SelectItem>
+											<SelectItem value='card'>card</SelectItem>
+											<SelectItem value='separator'>separator</SelectItem>
+											<SelectItem value='shadcn'>shadcn</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-2'>
+									<Label>Description</Label>
+									<Input
+										value={description}
+										onChange={(e) => setDescription(e.target.value)}
+										disabled={saving}
+									/>
+								</div>
 							</div>
+
 							<div className='space-y-2'>
-								<Label>Description</Label>
-								<Input
-									value={description}
-									onChange={(e) => setDescription(e.target.value)}
+								<Label>Data (JSON)</Label>
+								<Textarea
+									value={dataJson}
+									onChange={(e) => setDataJson(e.target.value)}
+									className='font-mono text-xs min-h-[220px]'
 									disabled={saving}
 								/>
+								<p className='text-xs text-muted-foreground'>
+									Stored as JSON and used as the default <code>data</code> when inserted.
+								</p>
 							</div>
+
+							{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
 						</div>
 
 						<div className='space-y-2'>
-							<Label>Data (JSON)</Label>
-							<Textarea
-								value={dataJson}
-								onChange={(e) => setDataJson(e.target.value)}
-								className='font-mono text-xs min-h-[220px]'
-								disabled={saving}
-							/>
+							<Label>Preview</Label>
+							{previewError ? (
+								<p className='text-sm text-red-600'>{previewError}</p>
+							) : null}
+							<div className='rounded-xl border bg-muted/10 p-3'>
+								<ComponentPreview
+									component={{
+										title: title.trim() ? title.trim() : undefined,
+										type: compType,
+										data: previewData,
+									}}
+								/>
+							</div>
 							<p className='text-xs text-muted-foreground'>
-								Stored as JSON and used as the default <code>data</code> when inserted.
+								This is a lightweight preview of the saved <code>type</code> + <code>data</code>.
 							</p>
 						</div>
-
-						{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
 					</div>
 
 					<DialogFooter>
+						{editing ? (
+							<Button
+								variant='secondary'
+								onClick={() => openClone(editing)}
+								disabled={saving}>
+								Clone as variant
+							</Button>
+						) : null}
 						<Button
 							variant='outline'
 							onClick={() => setEditorOpen(false)}
@@ -467,4 +614,3 @@ export default function AdminComponentsScreen() {
 		</AdminListPage>
 	);
 }
-

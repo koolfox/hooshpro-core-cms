@@ -1,15 +1,35 @@
 'use client';
 
 import Image from 'next/image';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import {
+	DndContext,
+	DragOverlay,
+	PointerSensor,
+	type DragEndEvent,
+	type DragStartEvent,
+	useDraggable,
+	useDroppable,
+	useSensor,
+	useSensors,
+} from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
+import { Folder, GripVertical } from 'lucide-react';
 import { apiFetch } from '@/lib/http';
+import { cn } from '@/lib/utils';
 import { useApiList } from '@/hooks/use-api-list';
 import { AdminListPage } from '@/components/admin/admin-list-page';
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import type { MediaAsset, MediaListOut } from '@/lib/types';
+import type {
+	MediaAsset,
+	MediaFolder,
+	MediaFolderListOut,
+	MediaListOut,
+} from '@/lib/types';
 
 import {
 	Dialog,
@@ -19,6 +39,13 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select';
 
 import {
 	AlertDialog,
@@ -34,6 +61,23 @@ import {
 const LIMIT = 40;
 const SUPPORTED_TYPES_LABEL = 'JPG, PNG, WEBP, GIF, SVG';
 const MAX_BYTES_LABEL = '10MB';
+const EMPTY_FOLDERS: MediaFolder[] = [];
+const EMPTY_MEDIA: MediaAsset[] = [];
+
+function parsePageParam(value: string | null): number {
+	const n = value ? Number.parseInt(value, 10) : NaN;
+	if (!Number.isFinite(n) || n < 1) return 1;
+	return n;
+}
+
+function parseFolderParam(value: string | null): number | null {
+	const v = (value ?? '').trim().toLowerCase();
+	if (!v) return 0;
+	if (v === 'all') return null;
+	const n = Number.parseInt(v, 10);
+	if (!Number.isFinite(n) || n < 0) return 0;
+	return n;
+}
 
 function toErrorMessage(error: unknown): string {
 	if (error instanceof Error) return error.message;
@@ -49,10 +93,176 @@ function prettyBytes(n: number) {
 	return `${mb.toFixed(1)} MB`;
 }
 
+type FolderNode = { folder: MediaFolder; depth: number };
+
+function compareFolderName(a: string, b: string): number {
+	const aa = a.trim().toLowerCase();
+	const bb = b.trim().toLowerCase();
+
+	if (aa < bb) return -1;
+	if (aa > bb) return 1;
+	if (a < b) return -1;
+	if (a > b) return 1;
+	return 0;
+}
+
+function buildFolderNodes(folders: MediaFolder[]): FolderNode[] {
+	const byParent = new Map<number, MediaFolder[]>();
+
+	for (const f of folders) {
+		const key = f.parent_id ?? 0;
+		const list = byParent.get(key) ?? [];
+		list.push(f);
+		byParent.set(key, list);
+	}
+
+	for (const list of byParent.values()) {
+		list.sort((a, b) => compareFolderName(a.name, b.name));
+	}
+
+	const out: FolderNode[] = [];
+
+	function walk(parentId: number, depth: number) {
+		const children = byParent.get(parentId) ?? [];
+		for (const f of children) {
+			out.push({ folder: f, depth });
+			walk(f.id, depth + 1);
+		}
+	}
+
+	walk(0, 0);
+	return out;
+}
+
+type DndMediaData = { kind: 'media'; mediaId: number };
+type DndFolderData = { kind: 'folder'; folderId: number };
+type DndData = DndMediaData | DndFolderData;
+
+function mediaDndId(mediaId: number) {
+	return `media:${mediaId}`;
+}
+
+function folderDndId(folderId: number) {
+	return `folder:${folderId}`;
+}
+
+function FolderDropTarget({
+	folderId,
+	onClick,
+	className,
+	style,
+	children,
+}: {
+	folderId: number;
+	onClick?: () => void;
+	className?: string;
+	style?: CSSProperties;
+	children: ReactNode;
+}) {
+	const { setNodeRef, isOver } = useDroppable({
+		id: folderDndId(folderId),
+		data: { kind: 'folder', folderId } satisfies DndData,
+	});
+
+	return (
+		<button
+			ref={setNodeRef}
+			type='button'
+			onClick={onClick}
+			style={style}
+			className={cn(className, isOver && 'ring-2 ring-ring')}>
+			{children}
+		</button>
+	);
+}
+
+function MediaTile({
+	media,
+	onDelete,
+	dragDisabled,
+}: {
+	media: MediaAsset;
+	onDelete: () => void;
+	dragDisabled?: boolean;
+}) {
+	const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+		id: mediaDndId(media.id),
+		data: { kind: 'media', mediaId: media.id } satisfies DndData,
+		disabled: !!dragDisabled,
+	});
+
+	const style: CSSProperties | undefined = transform
+		? { transform: CSS.Transform.toString(transform) }
+		: undefined;
+
+	return (
+		<div
+			ref={setNodeRef}
+			style={style}
+			className={cn(
+				'rounded-lg border overflow-hidden bg-background',
+				isDragging && 'opacity-60'
+			)}>
+			<div className='relative aspect-video bg-muted/30'>
+				<Image
+					src={media.url}
+					alt={media.original_name}
+					fill
+					unoptimized
+					sizes='(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw'
+					className='object-cover'
+				/>
+				<button
+					type='button'
+					{...listeners}
+					{...attributes}
+					className='absolute top-2 right-2 rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground'>
+					<GripVertical className='h-4 w-4' />
+				</button>
+			</div>
+			<div className='p-3 space-y-2'>
+				<div className='text-xs text-muted-foreground line-clamp-2'>
+					{media.original_name}
+				</div>
+				<div className='text-xs text-muted-foreground flex items-center justify-between'>
+					<span>{prettyBytes(media.size_bytes)}</span>
+					<Button
+						size='sm'
+						variant='destructive'
+						onClick={onDelete}>
+						Delete
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 export default function MediaScreen() {
-	const [offset, setOffset] = useState(0);
-	const [qInput, setQInput] = useState('');
-	const [q, setQ] = useState('');
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
+
+	const urlQ = (searchParams.get('q') ?? '').trim();
+	const urlPage = parsePageParam(searchParams.get('page'));
+	const urlOffset = (urlPage - 1) * LIMIT;
+	const urlFolderFilter = parseFolderParam(searchParams.get('folder_id'));
+
+	const [offset, setOffset] = useState(urlOffset);
+	const [qInput, setQInput] = useState(urlQ);
+	const [q, setQ] = useState(urlQ);
+
+	// folders: null = all media, 0 = root
+	const [folderFilter, setFolderFilter] = useState<number | null>(urlFolderFilter);
+
+	const [folderCreateOpen, setFolderCreateOpen] = useState(false);
+	const [folderCreateName, setFolderCreateName] = useState('');
+	const [folderCreateParentId, setFolderCreateParentId] = useState<number>(0);
+	const [folderCreateSaving, setFolderCreateSaving] = useState(false);
+	const [folderCreateError, setFolderCreateError] = useState<string | null>(null);
+
+	const [confirmDeleteFolder, setConfirmDeleteFolder] = useState<MediaFolder | null>(null);
+	const [folderActionError, setFolderActionError] = useState<string | null>(null);
 
 	const [uploadOpen, setUploadOpen] = useState(false);
 	const [uploading, setUploading] = useState(false);
@@ -65,20 +275,136 @@ export default function MediaScreen() {
 	const [confirmDelete, setConfirmDelete] = useState<MediaAsset | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
 
+	const { data: foldersData, loading: foldersLoading, error: foldersError, reload: reloadFolders } =
+		useApiList<MediaFolderListOut>('/api/admin/media/folders', {
+			nextPath: '/admin/media',
+		});
+
+	const folders = foldersData?.items ?? EMPTY_FOLDERS;
+	const folderNodes = useMemo(() => buildFolderNodes(folders), [folders]);
+	const selectedFolder = useMemo(() => {
+		if (folderFilter === null || folderFilter === 0) return null;
+		return folders.find((f) => f.id === folderFilter) ?? null;
+	}, [folders, folderFilter]);
+
+	const childFolders = useMemo(() => {
+		const children =
+			folderFilter === null || folderFilter === 0
+				? folders.filter((f) => f.parent_id == null)
+				: folders.filter((f) => f.parent_id === folderFilter);
+
+		return [...children].sort((a, b) => compareFolderName(a.name, b.name));
+	}, [folders, folderFilter]);
+
+	useEffect(() => {
+		setOffset(urlOffset);
+		setQ(urlQ);
+		setQInput(urlQ);
+		setFolderFilter(urlFolderFilter);
+	}, [urlOffset, urlQ, urlFolderFilter]);
+
+	function updateUrl(next: { page?: number; q?: string; folder?: number | null }) {
+		const params = new URLSearchParams(searchParams.toString());
+
+		const page = next.page ?? parsePageParam(params.get('page'));
+		if (page > 1) params.set('page', String(page));
+		else params.delete('page');
+
+		const nextQ = (next.q ?? params.get('q') ?? '').trim();
+		if (nextQ) params.set('q', nextQ);
+		else params.delete('q');
+
+		const rawFolder = next.folder ?? parseFolderParam(params.get('folder_id'));
+		if (rawFolder === null) {
+			params.set('folder_id', 'all');
+		} else if (rawFolder === 0) {
+			params.delete('folder_id');
+		} else {
+			params.set('folder_id', String(rawFolder));
+		}
+
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname);
+	}
+
+	function goToOffset(nextOffset: number) {
+		const safeOffset = Math.max(0, Math.floor(nextOffset / LIMIT) * LIMIT);
+		setOffset(safeOffset);
+		updateUrl({ page: safeOffset / LIMIT + 1 });
+	}
+
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
 		params.set('limit', String(LIMIT));
 		params.set('offset', String(offset));
+		if (folderFilter !== null) params.set('folder_id', String(folderFilter));
 		if (q.trim()) params.set('q', q.trim());
 		return `/api/admin/media?${params.toString()}`;
-	}, [offset, q]);
+	}, [offset, q, folderFilter]);
 
 	const { data, loading, error, reload } = useApiList<MediaListOut>(listUrl, {
 		nextPath: '/admin/media',
 	});
 
-	const items = data?.items ?? [];
+	const items = data?.items ?? EMPTY_MEDIA;
 	const total = data?.total ?? 0;
+
+	const sensors = useSensors(
+		useSensor(PointerSensor, { activationConstraint: { distance: 8 } })
+	);
+
+	const [dragMediaId, setDragMediaId] = useState<number | null>(null);
+	const dragMedia = useMemo(() => {
+		if (!dragMediaId) return null;
+		return items.find((m) => m.id === dragMediaId) ?? null;
+	}, [dragMediaId, items]);
+
+	const [movingMediaId, setMovingMediaId] = useState<number | null>(null);
+
+	async function moveMediaToFolder(mediaId: number, folderId: number) {
+		if (movingMediaId) return;
+
+		const current = items.find((m) => m.id === mediaId);
+		const currentFolderId = typeof current?.folder_id === 'number' ? current.folder_id : 0;
+		if (currentFolderId === folderId) return;
+
+		setMovingMediaId(mediaId);
+		try {
+			await apiFetch<MediaAsset>(`/api/admin/media/${mediaId}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({ folder_id: folderId }),
+				nextPath: '/admin/media',
+			});
+			setActionError(null);
+			await reload();
+		} catch (e) {
+			setActionError(toErrorMessage(e));
+		} finally {
+			setMovingMediaId(null);
+		}
+	}
+
+	function onDragStart(event: DragStartEvent) {
+		const data = event.active.data.current as DndData | undefined;
+		if (data?.kind === 'media') setDragMediaId(data.mediaId);
+	}
+
+	function onDragEnd(event: DragEndEvent) {
+		const { active, over } = event;
+		const activeData = active.data.current as DndData | undefined;
+		const overData = over?.data.current as DndData | undefined;
+
+		if (activeData?.kind === 'media' && overData?.kind === 'folder') {
+			void moveMediaToFolder(activeData.mediaId, overData.folderId);
+		}
+
+		setDragMediaId(null);
+	}
+
+	function onDragCancel() {
+		setDragMediaId(null);
+	}
 
 	function onPickFiles(list: FileList | null) {
 		const files = Array.from(list ?? []);
@@ -87,14 +413,79 @@ export default function MediaScreen() {
 	}
 
 	function applyFilters() {
+		const nextQ = qInput.trim();
 		setOffset(0);
-		setQ(qInput.trim());
+		setQ(nextQ);
+		updateUrl({ page: 1, q: nextQ });
 	}
 
 	function resetFilters() {
 		setOffset(0);
 		setQInput('');
 		setQ('');
+		updateUrl({ page: 1, q: '' });
+	}
+
+	function selectFolder(next: number | null) {
+		setOffset(0);
+		setFolderFilter(next);
+		updateUrl({ page: 1, folder: next });
+	}
+
+	function openCreateFolder() {
+		setFolderCreateName('');
+		setFolderCreateParentId(
+			folderFilter !== null && folderFilter > 0 ? folderFilter : 0
+		);
+		setFolderCreateError(null);
+		setFolderCreateOpen(true);
+	}
+
+	async function doCreateFolder() {
+		setFolderCreateSaving(true);
+		setFolderCreateError(null);
+
+		try {
+			const payload = {
+				name: folderCreateName.trim(),
+				parent_id: folderCreateParentId === 0 ? null : folderCreateParentId,
+			};
+
+			const created = await apiFetch<MediaFolder>('/api/admin/media/folders', {
+				method: 'POST',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify(payload),
+				nextPath: '/admin/media',
+			});
+
+			setFolderCreateOpen(false);
+			setFolderCreateName('');
+			setFolderCreateParentId(0);
+			setFolderActionError(null);
+
+			await reloadFolders();
+			selectFolder(created.id);
+		} catch (e) {
+			setFolderCreateError(toErrorMessage(e));
+		} finally {
+			setFolderCreateSaving(false);
+		}
+	}
+
+	async function doDeleteFolder(f: MediaFolder) {
+		try {
+			await apiFetch<{ ok: boolean }>(`/api/admin/media/folders/${f.id}`, {
+				method: 'DELETE',
+				nextPath: '/admin/media',
+			});
+			setConfirmDeleteFolder(null);
+			setFolderActionError(null);
+
+			if (folderFilter === f.id) selectFolder(0);
+			await reloadFolders();
+		} catch (e) {
+			setFolderActionError(toErrorMessage(e));
+		}
 	}
 
 	async function doUpload() {
@@ -114,6 +505,7 @@ export default function MediaScreen() {
 
 				const fd = new FormData();
 				fd.append('file', f);
+				fd.append('folder_id', String(folderFilter ?? 0));
 
 				await apiFetch<MediaAsset>('/api/admin/media/upload', {
 					method: 'POST',
@@ -145,16 +537,16 @@ export default function MediaScreen() {
 			setConfirmDelete(null);
 
 			const nextTotal = Math.max(0, total - 1);
-			const lastOffset = Math.max(
-				0,
-				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
-			);
-			const nextOffset = Math.min(offset, lastOffset);
-			setOffset(nextOffset);
-			setActionError(null);
-			if (nextOffset === offset) await reload();
-		} catch (e) {
-			setActionError(toErrorMessage(e));
+				const lastOffset = Math.max(
+					0,
+					Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
+				);
+				const nextOffset = Math.min(offset, lastOffset);
+				goToOffset(nextOffset);
+				setActionError(null);
+				if (nextOffset === offset) await reload();
+			} catch (e) {
+				setActionError(toErrorMessage(e));
 		}
 	}
 
@@ -202,61 +594,269 @@ export default function MediaScreen() {
 			offset={offset}
 			limit={LIMIT}
 			loading={loading}
-			onPrev={() => setOffset((v) => Math.max(0, v - LIMIT))}
-			onNext={() => setOffset((v) => v + LIMIT)}>
+			onPrev={() => goToOffset(offset - LIMIT)}
+			onNext={() => goToOffset(offset + LIMIT)}
+			onSetOffset={goToOffset}>
 
-			{loading ? (
-				<p className='text-sm text-muted-foreground'>Loading…</p>
-			) : null}
-			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
-			{actionError ? (
-				<p className='text-sm text-red-600'>{actionError}</p>
-			) : null}
+				<DndContext
+					sensors={sensors}
+					onDragStart={onDragStart}
+					onDragEnd={onDragEnd}
+					onDragCancel={onDragCancel}>
+					<div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
+						<div className='lg:col-span-3'>
+							<div className='rounded-xl border p-4 space-y-3'>
+								<div className='flex items-start justify-between gap-3'>
+									<div className='space-y-1'>
+										<div className='text-sm font-medium'>Folders</div>
+										<div className='text-xs text-muted-foreground'>
+											Drop media onto a folder to move it.
+										</div>
+									</div>
+									<Button
+										size='sm'
+										variant='outline'
+										onClick={openCreateFolder}
+										disabled={foldersLoading}>
+										New
+									</Button>
+								</div>
 
-			{!loading && !error && items.length === 0 ? (
-				<div className='rounded-xl border p-6'>
-					<p className='text-sm text-muted-foreground'>
-						No media yet.
-					</p>
-				</div>
-			) : null}
+								{foldersLoading ? (
+									<p className='text-sm text-muted-foreground'>Loading folders…</p>
+								) : null}
+								{foldersError ? <p className='text-sm text-red-600'>{foldersError}</p> : null}
+								{folderActionError ? (
+									<p className='text-sm text-red-600'>{folderActionError}</p>
+								) : null}
 
-			{!loading && !error && items.length > 0 ? (
-				<div className='rounded-xl border p-4'>
-					<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
-						{items.map((m) => (
-							<div
-								key={m.id}
-								className='rounded-lg border overflow-hidden'>
+								<div className='space-y-1'>
+									<button
+										type='button'
+										className={cn(
+											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted',
+											folderFilter === null && 'bg-muted font-medium'
+										)}
+										onClick={() => selectFolder(null)}>
+										All media
+									</button>
+
+									<FolderDropTarget
+										folderId={0}
+										onClick={() => selectFolder(0)}
+										className={cn(
+											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted flex items-center gap-2',
+											folderFilter === 0 && 'bg-muted font-medium'
+										)}>
+										<Folder className='h-4 w-4 text-muted-foreground' />
+										<span>Root</span>
+									</FolderDropTarget>
+
+									{folderNodes.map(({ folder, depth }) => (
+										<FolderDropTarget
+											key={folder.id}
+											folderId={folder.id}
+											onClick={() => selectFolder(folder.id)}
+											style={{ paddingLeft: `${8 + depth * 12}px` }}
+											className={cn(
+												'w-full rounded-md py-1 pr-2 text-left text-sm hover:bg-muted flex items-center gap-2',
+												folderFilter === folder.id && 'bg-muted font-medium'
+											)}>
+											<Folder className='h-4 w-4 text-muted-foreground shrink-0' />
+											<span className='truncate'>{folder.name}</span>
+										</FolderDropTarget>
+									))}
+								</div>
+
+								{selectedFolder ? (
+									<Button
+										size='sm'
+										variant='destructive'
+										onClick={() => setConfirmDeleteFolder(selectedFolder)}
+										disabled={foldersLoading}>
+										Delete “{selectedFolder.name}”
+									</Button>
+								) : null}
+							</div>
+						</div>
+
+						<div className='lg:col-span-9 space-y-4'>
+							{loading ? (
+								<p className='text-sm text-muted-foreground'>Loading…</p>
+							) : null}
+							{error ? <p className='text-sm text-red-600'>{error}</p> : null}
+							{actionError ? (
+								<p className='text-sm text-red-600'>{actionError}</p>
+							) : null}
+
+							{childFolders.length > 0 ? (
+								<div className='rounded-xl border p-4'>
+									<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3'>
+										{childFolders.map((f) => (
+											<FolderDropTarget
+												key={f.id}
+												folderId={f.id}
+												onClick={() => selectFolder(f.id)}
+												className='rounded-lg border overflow-hidden text-left hover:ring-2 hover:ring-ring'>
+												<div className='flex items-center justify-center aspect-video bg-muted/20'>
+													<Folder className='h-9 w-9 text-muted-foreground' />
+												</div>
+												<div className='p-2'>
+													<div className='text-sm font-medium truncate'>
+														{f.name}
+													</div>
+												</div>
+											</FolderDropTarget>
+										))}
+									</div>
+								</div>
+							) : null}
+
+							{!loading && !error && items.length === 0 ? (
+								<div className='rounded-xl border p-6'>
+									<p className='text-sm text-muted-foreground'>
+										No media in this folder.
+									</p>
+								</div>
+							) : null}
+
+							{!loading && !error && items.length > 0 ? (
+								<div className='rounded-xl border p-4'>
+									<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
+										{items.map((m) => (
+											<MediaTile
+												key={m.id}
+												media={m}
+												onDelete={() => setConfirmDelete(m)}
+												dragDisabled={movingMediaId === m.id}
+											/>
+										))}
+									</div>
+								</div>
+							) : null}
+						</div>
+					</div>
+
+					<DragOverlay>
+						{dragMedia ? (
+							<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
 								<div className='relative aspect-video bg-muted/30'>
 									<Image
-										src={m.url}
-										alt={m.original_name}
+										src={dragMedia.url}
+										alt={dragMedia.original_name}
 										fill
 										unoptimized
-										sizes='(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw'
+										sizes='240px'
 										className='object-cover'
 									/>
 								</div>
-								<div className='p-3 space-y-2'>
-									<div className='text-xs text-muted-foreground line-clamp-2'>
-										{m.original_name}
-									</div>
-									<div className='text-xs text-muted-foreground flex items-center justify-between'>
-										<span>{prettyBytes(m.size_bytes)}</span>
-										<Button
-											size='sm'
-											variant='destructive'
-											onClick={() => setConfirmDelete(m)}>
-											Delete
-										</Button>
-									</div>
+								<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
+									{dragMedia.original_name}
 								</div>
 							</div>
-						))}
+						) : null}
+					</DragOverlay>
+				</DndContext>
+
+			<Dialog
+				open={folderCreateOpen}
+				onOpenChange={(v) => {
+					setFolderCreateOpen(v);
+					if (!v) {
+						setFolderCreateName('');
+						setFolderCreateParentId(0);
+						setFolderCreateError(null);
+						setFolderCreateSaving(false);
+					}
+				}}>
+				<DialogContent className='sm:max-w-lg'>
+					<DialogHeader>
+						<DialogTitle>New folder</DialogTitle>
+						<DialogDescription>
+							Create folders and subfolders to organize uploads.
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className='space-y-4'>
+						<div className='space-y-2'>
+							<Label>Name</Label>
+							<Input
+								value={folderCreateName}
+								onChange={(e) => setFolderCreateName(e.target.value)}
+								placeholder='e.g. Homepage'
+								disabled={folderCreateSaving}
+							/>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Parent</Label>
+							<Select
+								value={String(folderCreateParentId)}
+								onValueChange={(v) => setFolderCreateParentId(Number(v))}
+								disabled={folderCreateSaving}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='0'>Root</SelectItem>
+									{folderNodes.map(({ folder, depth }) => (
+										<SelectItem
+											key={folder.id}
+											value={String(folder.id)}>
+											{depth > 0 ? `${'—'.repeat(depth)} ` : ''}
+											{folder.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+
+						{folderCreateError ? (
+							<p className='text-sm text-red-600'>{folderCreateError}</p>
+						) : null}
 					</div>
-				</div>
-			) : null}
+
+					<DialogFooter>
+						<Button
+							variant='outline'
+							onClick={() => setFolderCreateOpen(false)}
+							disabled={folderCreateSaving}>
+							Cancel
+						</Button>
+						<Button
+							onClick={doCreateFolder}
+							disabled={folderCreateSaving || !folderCreateName.trim()}>
+							{folderCreateSaving ? 'Creating…' : 'Create'}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			<AlertDialog
+				open={!!confirmDeleteFolder}
+				onOpenChange={(v) => !v && setConfirmDeleteFolder(null)}>
+				<AlertDialogContent>
+					<AlertDialogHeader>
+						<AlertDialogTitle>Delete folder?</AlertDialogTitle>
+						<AlertDialogDescription>
+							This will permanently delete{' '}
+							<b>{confirmDeleteFolder?.name}</b>. Folder must be empty (no subfolders or media).
+						</AlertDialogDescription>
+					</AlertDialogHeader>
+					<AlertDialogFooter>
+						<AlertDialogCancel disabled={foldersLoading}>
+							Cancel
+						</AlertDialogCancel>
+						<AlertDialogAction
+							disabled={foldersLoading}
+							onClick={() =>
+								confirmDeleteFolder && doDeleteFolder(confirmDeleteFolder)
+							}>
+							Delete
+						</AlertDialogAction>
+					</AlertDialogFooter>
+				</AlertDialogContent>
+			</AlertDialog>
 
 			<Dialog
 				open={uploadOpen}

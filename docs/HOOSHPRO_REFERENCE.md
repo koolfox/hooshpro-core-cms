@@ -41,7 +41,7 @@ Quick check:
 
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/components`, `/admin/blocks`, `/admin/media`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/media`
 - Root health splash: `/`
 
 ### Backend Routes (from code)
@@ -84,9 +84,23 @@ Quick check:
   - DELETE `/api/admin/blocks/{block_id}`
 
 - Media (admin only):
-  - GET  `/api/admin/media` (pagination + q)
-  - POST `/api/admin/media/upload`
+  - GET  `/api/admin/media` (pagination + q + `folder_id` filter; `folder_id=0` = root)
+  - POST `/api/admin/media/upload` (multipart; accepts `folder_id` form field; `0` = root)
   - DELETE `/api/admin/media/{media_id}`
+  - PUT `/api/admin/media/{media_id}` (move media to folder; `{ folder_id: number }`, `0` = root)
+
+- Media folders (admin only):
+  - GET    `/api/admin/media/folders`
+  - POST   `/api/admin/media/folders`
+  - PUT    `/api/admin/media/folders/{folder_id}`
+  - DELETE `/api/admin/media/folders/{folder_id}` (only if empty)
+
+- Templates (admin only; used by page editor):
+  - GET    `/api/admin/templates` (pagination + q)
+  - POST   `/api/admin/templates`
+  - GET    `/api/admin/templates/{template_id}`
+  - PUT    `/api/admin/templates/{template_id}`
+  - DELETE `/api/admin/templates/{template_id}`
 
 - Static media files: `/media/{filename}` (served by FastAPI StaticFiles; media dir auto-created on startup)
 
@@ -136,13 +150,15 @@ Important:
 - users: id, email (unique), password_hash, created_at
 - sessions: id, user_id -> users, token_hash, expires_at, created_at
 - pages: id, title, slug (unique), status (draft|published), seo_title, seo_description, blocks_json (TEXT, default version 1), published_at, created_at, updated_at
-- media_assets: id, original_name, stored_name (unique), content_type, size_bytes, created_at
+- page_templates: id, slug (unique), title, description, menu, created_at, updated_at
+- media_folders: id, name, parent_id -> media_folders, created_at, updated_at
+- media_assets: id, folder_id -> media_folders (nullable), original_name, stored_name (unique), content_type, size_bytes, created_at
 - components: id, slug (unique), title, type, description, data_json, created_at, updated_at
 - blocks: id, slug (unique), title, description, definition_json, created_at, updated_at
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components on startup.
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components/templates on startup.
 
 Reserved slugs:
 
@@ -186,6 +202,8 @@ Blocks:
 - [x] Media manager MVP (images: upload/list/search/delete + migration + editor picker)
 - [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
+- [x] Page templates foundation (DB + admin CRUD + page settings wiring)
+- [x] Admin list template: numbered pagination (top+bottom) + URL query param state
 
 ### In Progress
 

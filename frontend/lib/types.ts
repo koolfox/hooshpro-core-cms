@@ -25,6 +25,7 @@ export type PageListOut = {
 export type MediaAsset = {
 	id: number;
 	url: string;
+	folder_id?: number | null;
 	original_name: string;
 	content_type: string;
 	size_bytes: number;
@@ -36,6 +37,18 @@ export type MediaListOut = {
 	total: number;
 	limit: number;
 	offset: number;
+};
+
+export type MediaFolder = {
+	id: number;
+	name: string;
+	parent_id?: number | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type MediaFolderListOut = {
+	items: MediaFolder[];
 };
 
 export type ComponentDef = {
@@ -68,6 +81,23 @@ export type BlockTemplate = {
 
 export type BlockListOut = {
 	items: BlockTemplate[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type PageTemplate = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	menu: string;
+	created_at: string;
+	updated_at: string;
+};
+
+export type PageTemplateListOut = {
+	items: PageTemplate[];
 	total: number;
 	limit: number;
 	offset: number;

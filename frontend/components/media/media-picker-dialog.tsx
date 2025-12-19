@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { useMemo, useState } from 'react';
 
-import type { MediaAsset, MediaListOut } from '@/lib/types';
+import type { MediaAsset, MediaFolderListOut, MediaListOut } from '@/lib/types';
 import { useApiList } from '@/hooks/use-api-list';
 
 import { Button } from '@/components/ui/button';
@@ -17,6 +17,13 @@ import {
 	DialogHeader,
 	DialogTitle,
 } from '@/components/ui/dialog';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select';
 
 const LIMIT = 30;
 
@@ -30,14 +37,24 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 	const [offset, setOffset] = useState(0);
 	const [qInput, setQInput] = useState('');
 	const [q, setQ] = useState('');
+	const [folderFilter, setFolderFilter] = useState<number | null>(0);
+
+	const { data: foldersData, loading: foldersLoading, error: foldersError } =
+		useApiList<MediaFolderListOut>('/api/admin/media/folders', {
+			nextPath: '/admin/media',
+			enabled: open,
+		});
+
+	const folders = foldersData?.items ?? [];
 
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
 		params.set('limit', String(LIMIT));
 		params.set('offset', String(offset));
+		if (folderFilter !== null) params.set('folder_id', String(folderFilter));
 		if (q.trim()) params.set('q', q.trim());
 		return `/api/admin/media?${params.toString()}`;
-	}, [offset, q]);
+	}, [offset, q, folderFilter]);
 
 	const { data, loading, error } = useApiList<MediaListOut>(listUrl, {
 		nextPath: '/admin/media',
@@ -59,6 +76,7 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 		setOffset(0);
 		setQInput('');
 		setQ('');
+		setFolderFilter(0);
 	}
 
 	return (
@@ -70,6 +88,7 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 					setOffset(0);
 					setQInput('');
 					setQ('');
+					setFolderFilter(0);
 				}
 			}}>
 			<DialogContent className='sm:max-w-3xl'>
@@ -82,7 +101,33 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 
 				<div className='space-y-3'>
 					<div className='grid grid-cols-1 sm:grid-cols-12 gap-3 items-end'>
-						<div className='sm:col-span-9 space-y-2'>
+						<div className='sm:col-span-4 space-y-2'>
+							<Label>Folder</Label>
+							<Select
+								value={folderFilter === null ? 'all' : String(folderFilter)}
+								onValueChange={(v) => {
+									setOffset(0);
+									setFolderFilter(v === 'all' ? null : Number(v));
+								}}
+								disabled={loading || foldersLoading}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='all'>All media</SelectItem>
+									<SelectItem value='0'>Root</SelectItem>
+									{folders.map((f) => (
+										<SelectItem
+											key={f.id}
+											value={String(f.id)}>
+											{f.name}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className='sm:col-span-5 space-y-2'>
 							<Label>Search</Label>
 							<Input
 								value={qInput}
@@ -94,6 +139,7 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 								}}
 							/>
 						</div>
+
 						<div className='sm:col-span-3 flex gap-2 justify-end'>
 							<Button
 								variant='outline'
@@ -111,6 +157,9 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 
 					{loading ? (
 						<p className='text-sm text-muted-foreground'>Loading…</p>
+					) : null}
+					{foldersError ? (
+						<p className='text-sm text-red-600'>{foldersError}</p>
 					) : null}
 					{error ? (
 						<p className='text-sm text-red-600'>{error}</p>

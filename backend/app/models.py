@@ -67,10 +67,54 @@ class Page(Base):
     )
 
 
+class PageTemplate(Base):
+    __tablename__ = "page_templates"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    menu: Mapped[str] = mapped_column(String(60), nullable=False, default="main")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class MediaFolder(Base):
+    __tablename__ = "media_folders"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    parent_id: Mapped[int | None] = mapped_column(
+        ForeignKey("media_folders.id"),
+        nullable=True,
+        index=True,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
 class MediaAsset(Base):
     __tablename__ = "media_assets"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    folder_id: Mapped[int | None] = mapped_column(
+        ForeignKey("media_folders.id"),
+        nullable=True,
+        index=True,
+    )
 
     original_name: Mapped[str] = mapped_column(String(400), nullable=False)
     stored_name: Mapped[str] = mapped_column(String(400), unique=True, index=True, nullable=False)

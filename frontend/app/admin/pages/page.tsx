@@ -1,7 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -47,6 +48,23 @@ import { AdminDataTable } from '@/components/admin/admin-data-table';
 
 const LIMIT = 20;
 type StatusFilter = 'all' | 'draft' | 'published';
+const EMPTY_PAGES: Page[] = [];
+
+function parsePageParam(value: string | null): number {
+	const n = value ? Number.parseInt(value, 10) : NaN;
+	if (!Number.isFinite(n) || n < 1) return 1;
+	return n;
+}
+
+function formatIso(iso: string) {
+	try {
+		const d = new Date(iso);
+		if (Number.isNaN(d.getTime())) return iso;
+		return d.toISOString().replace('T', ' ').replace('Z', ' UTC');
+	} catch {
+		return iso;
+	}
+}
 
 function defaultPageBlocks() {
 	return serializePageBuilderState(defaultPageBuilderState());
@@ -61,14 +79,60 @@ function slugify(input: string) {
 }
 
 export default function AdminPagesScreen() {
-	const [offset, setOffset] = useState(0);
-	const [qInput, setQInput] = useState('');
-	const [statusInput, setStatusInput] = useState<StatusFilter>('all');
+	const router = useRouter();
+	const pathname = usePathname();
+	const searchParams = useSearchParams();
 
-	const [q, setQ] = useState('');
-	const [status, setStatus] = useState<StatusFilter>('all');
+	const urlQ = (searchParams.get('q') ?? '').trim();
+	const urlStatusRaw = (searchParams.get('status') ?? 'all').trim();
+	const urlStatus: StatusFilter =
+		urlStatusRaw === 'draft' || urlStatusRaw === 'published' ? urlStatusRaw : 'all';
+	const urlPage = parsePageParam(searchParams.get('page'));
+	const urlOffset = (urlPage - 1) * LIMIT;
+
+	const [offset, setOffset] = useState(urlOffset);
+	const [qInput, setQInput] = useState(urlQ);
+	const [statusInput, setStatusInput] = useState<StatusFilter>(urlStatus);
+
+	const [q, setQ] = useState(urlQ);
+	const [status, setStatus] = useState<StatusFilter>(urlStatus);
 
 	const qRef = useRef<HTMLInputElement | null>(null);
+
+	useEffect(() => {
+		setOffset(urlOffset);
+		setQ(urlQ);
+		setStatus(urlStatus);
+		setQInput(urlQ);
+		setStatusInput(urlStatus);
+	}, [urlOffset, urlQ, urlStatus]);
+
+	function updateUrl(next: { page?: number; q?: string; status?: StatusFilter }) {
+		const params = new URLSearchParams(searchParams.toString());
+
+		const page = next.page ?? parsePageParam(params.get('page'));
+		if (page > 1) params.set('page', String(page));
+		else params.delete('page');
+
+		const nextQ = (next.q ?? params.get('q') ?? '').trim();
+		if (nextQ) params.set('q', nextQ);
+		else params.delete('q');
+
+		const rawStatus = (next.status ?? (params.get('status') ?? 'all')).trim();
+		const nextStatus: StatusFilter =
+			rawStatus === 'draft' || rawStatus === 'published' ? rawStatus : 'all';
+		if (nextStatus !== 'all') params.set('status', nextStatus);
+		else params.delete('status');
+
+		const qs = params.toString();
+		router.replace(qs ? `${pathname}?${qs}` : pathname);
+	}
+
+	function goToOffset(nextOffset: number) {
+		const safeOffset = Math.max(0, Math.floor(nextOffset / LIMIT) * LIMIT);
+		setOffset(safeOffset);
+		updateUrl({ page: safeOffset / LIMIT + 1 });
+	}
 
 	const listUrl = useMemo(() => {
 		const params = new URLSearchParams();
@@ -83,13 +147,16 @@ export default function AdminPagesScreen() {
 		nextPath: '/admin/pages',
 	});
 
-	const items = data?.items ?? [];
+	const items = data?.items ?? EMPTY_PAGES;
 	const total = data?.total ?? 0;
 
 	function applyFilters() {
+		const nextQ = qInput.trim();
+		const nextStatus = statusInput;
 		setOffset(0);
-		setQ(qInput.trim());
-		setStatus(statusInput);
+		setQ(nextQ);
+		setStatus(nextStatus);
+		updateUrl({ page: 1, q: nextQ, status: nextStatus });
 	}
 
 	function resetFilters() {
@@ -98,6 +165,7 @@ export default function AdminPagesScreen() {
 		setStatusInput('all');
 		setQ('');
 		setStatus('all');
+		updateUrl({ page: 1, q: '', status: 'all' });
 		qRef.current?.focus();
 	}
 
@@ -168,16 +236,16 @@ export default function AdminPagesScreen() {
 			setActionError(null);
 
 			const nextTotal = Math.max(0, total - 1);
-			const lastOffset = Math.max(
-				0,
-				Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
-			);
-			const nextOffset = Math.min(offset, lastOffset);
-			setOffset(nextOffset);
-			if (nextOffset === offset) await reload();
-		} catch (e) {
-			setActionError(e instanceof Error ? e.message : String(e));
-		}
+				const lastOffset = Math.max(
+					0,
+					Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
+				);
+				const nextOffset = Math.min(offset, lastOffset);
+				goToOffset(nextOffset);
+				if (nextOffset === offset) await reload();
+			} catch (e) {
+				setActionError(e instanceof Error ? e.message : String(e));
+			}
 	}
 
 	return (
@@ -244,8 +312,9 @@ export default function AdminPagesScreen() {
 			offset={offset}
 			limit={LIMIT}
 			loading={loading}
-			onPrev={() => setOffset((v) => Math.max(0, v - LIMIT))}
-			onNext={() => setOffset((v) => v + LIMIT)}>
+			onPrev={() => goToOffset(offset - LIMIT)}
+			onNext={() => goToOffset(offset + LIMIT)}
+			onSetOffset={goToOffset}>
 
 			{loading ? (
 				<p className='text-sm text-muted-foreground'>Loading…</p>
@@ -293,8 +362,7 @@ export default function AdminPagesScreen() {
 						},
 						{
 							header: 'Updated',
-							cell: (p) =>
-								new Date(p.updated_at).toLocaleString(),
+							cell: (p) => formatIso(p.updated_at),
 							cellClassName: 'text-muted-foreground',
 						},
 						{
