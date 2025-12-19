@@ -37,3 +37,38 @@ export type MediaListOut = {
 	limit: number;
 	offset: number;
 };
+
+export type ComponentDef = {
+	id: number;
+	slug: string;
+	title: string;
+	type: string;
+	description?: string | null;
+	data: unknown;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ComponentListOut = {
+	items: ComponentDef[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type BlockTemplate = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	definition: unknown;
+	created_at: string;
+	updated_at: string;
+};
+
+export type BlockListOut = {
+	items: BlockTemplate[];
+	total: number;
+	limit: number;
+	offset: number;
+};

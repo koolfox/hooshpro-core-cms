@@ -79,3 +79,47 @@ class MediaAsset(Base):
     size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Component(Base):
+    __tablename__ = "components"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    type: Mapped[str] = mapped_column(String(60), index=True, nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    data_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class BlockTemplate(Base):
+    __tablename__ = "blocks"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    definition_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default='{"version":3,"layout":{"rows":[]}}',
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )

@@ -37,11 +37,40 @@ def _safe_load_blocks(blocks_json: str | None) -> dict:
 def _extract_body(blocks: dict) -> str:
     """
     Legacy body extractor:
-    - If our blocks contain "tiptap" html, try to return a plain-ish fallback.
+    - If our blocks contain "editor"/legacy "tiptap" html, try to return a plain-ish fallback.
     - Otherwise if blocks contain "paragraph" with text.
     """
+    version = blocks.get("version")
+
+    # v3 grid layout: { layout: { rows: [ { columns: [ { blocks: [...] } ] } ] } }
+    if version == 3:
+        layout = blocks.get("layout") or {}
+        rows = layout.get("rows") or []
+        parts: list[str] = []
+        for r in rows:
+            if not isinstance(r, dict):
+                continue
+            cols = r.get("columns") or []
+            for c in cols:
+                if not isinstance(c, dict):
+                    continue
+                c_blocks = c.get("blocks") or []
+                for b in c_blocks:
+                    if not isinstance(b, dict):
+                        continue
+                    if b.get("type") not in ("editor", "tiptap"):
+                        continue
+                    data = b.get("data") or {}
+                    if not isinstance(data, dict):
+                        continue
+                    html = data.get("html") or ""
+                    if html:
+                        parts.append(str(html))
+        if parts:
+            return "".join(parts)
+
     for b in (blocks.get("blocks") or []):
-        if b.get("type") == "tiptap":
+        if b.get("type") in ("editor", "tiptap"):
             data = b.get("data") or {}
             html = data.get("html") or ""
             return str(html)

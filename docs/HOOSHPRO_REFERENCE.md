@@ -25,7 +25,7 @@ A simple, professional blog/site builder with admin login + page editor + public
 ## 2) Current Branch (ALWAYS update)
 
 - Branch: `main`
-- Feature: `Pages MVP + Public Visual Editing (TipTap) + Media MVP`
+- Feature: `Pages MVP + Public Visual Editing (Components + Blocks) + Media MVP`
 - Status: `In progress`
 
 Quick check:
@@ -41,7 +41,7 @@ Quick check:
 
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/media`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/components`, `/admin/blocks`, `/admin/media`
 - Root health splash: `/`
 
 ### Backend Routes (from code)
@@ -68,6 +68,20 @@ Quick check:
 
   - Public:
     - GET `/api/public/pages/{slug}` (published only)
+
+- Components (admin only; used by page editor):
+  - GET    `/api/admin/components` (pagination + filters)
+  - POST   `/api/admin/components`
+  - GET    `/api/admin/components/{component_id}`
+  - PUT    `/api/admin/components/{component_id}`
+  - DELETE `/api/admin/components/{component_id}`
+
+- Blocks (admin only; “sections” composed of components):
+  - GET    `/api/admin/blocks` (pagination + q)
+  - POST   `/api/admin/blocks`
+  - GET    `/api/admin/blocks/{block_id}`
+  - PUT    `/api/admin/blocks/{block_id}`
+  - DELETE `/api/admin/blocks/{block_id}`
 
 - Media (admin only):
   - GET  `/api/admin/media` (pagination + q)
@@ -123,10 +137,12 @@ Important:
 - sessions: id, user_id -> users, token_hash, expires_at, created_at
 - pages: id, title, slug (unique), status (draft|published), seo_title, seo_description, blocks_json (TEXT, default version 1), published_at, created_at, updated_at
 - media_assets: id, original_name, stored_name (unique), content_type, size_bytes, created_at
+- components: id, slug (unique), title, type, description, data_json, created_at, updated_at
+- blocks: id, slug (unique), title, description, definition_json, created_at, updated_at
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations).
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components on startup.
 
 Reserved slugs:
 
@@ -135,7 +151,13 @@ Reserved slugs:
 Blocks:
 
 - Legacy: `{ version: 1, blocks: [ { type:'hero' }, { type:'paragraph' } ] }`
-- TipTap MVP: `{ version: 2, blocks: [ { id, type:'tiptap', data:{ doc, html } }, ... ] }` (multi-section; order matters; `id` is used for drag/drop)
+- TipTap V2 (legacy): `{ version: 2, blocks: [ { id, type:'tiptap', data:{ doc, html } }, ... ] }`
+- Page Builder V3 (current): `{ version: 3, template:{ id, menu }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
+  - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
+  - Row `settings.columns`: supports `1..12`; frontend renders responsively (mobile stacks to 1 column).
+  - Drag/drop reorder uses dnd-kit (rows + columns + components).
+  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (placeholder component).
+  - Templates drive the public top menu (`template.menu`), so pages can share a consistent navigation bar.
 
 ---
 
@@ -162,13 +184,14 @@ Blocks:
 - [x] Admin shell UI (shadcn `sidebar-16`) shared by admin + public edit mode
 - [x] TipTap visual editing on public route (wiring complete; edit gated by session)
 - [x] Media manager MVP (images: upload/list/search/delete + migration + editor picker)
-- [x] Page editor sections (multi-block) + drag/drop reorder (dnd-kit)
+- [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)
+- [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
 
 ### In Progress
 
 - [ ] Feature 02 – Pages MVP (CRUD admin + public render + SEO metadata)
   - Admin list/create/delete implemented with slug validation and filters.
-  - Public `/[slug]` renders sanitized TipTap blocks and mounts `PublicPageClient`.
+  - Public `/[slug]` renders the V3 grid via `PageRenderer` and mounts `PublicPageClient`.
   - Admin visual editing flow is wired to `/[slug]` with session gating.
 - [ ] Pages polishing (SEO metadata completeness + editor templates)
 
@@ -199,7 +222,10 @@ Per feature:
 ## 10) Current TODO (next 1–3 hours)
 
 - [ ] Verify `/[slug]?edit=1` flow end-to-end (admin gating + save)
-- [ ] Verify page editor drag/drop reorder + multi-section save
+- [ ] Verify page builder drag/drop reorder (rows + columns + components) + save
+- [ ] Verify components list CRUD + component picker uses DB entries
+- [ ] Create a sample Block and verify “Insert block” works
+- [ ] Verify template/menu selection shows correct public top nav
 - [ ] Verify middleware/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
@@ -217,6 +243,8 @@ Use this pattern for any new admin resource (pages, media, users, etc.):
 Existing examples:
 
 - Pages list: `frontend/app/admin/pages/page.tsx`
+- Components list: `frontend/app/admin/components/page.tsx`
+- Blocks list: `frontend/app/admin/blocks/page.tsx`
 - Media library: `frontend/app/admin/media/page.tsx`
 
 ---
@@ -231,11 +259,16 @@ Existing examples:
 
 ---
 
-## 13) Editor (TipTap MVP)
+## 13) Page Builder (V3 grid)
 
-- TipTap editor (toolbar + Blocks sheet): `frontend/components/tiptap-editor.tsx`
-- Media picker dialog (insert images): `frontend/components/media/media-picker-dialog.tsx`
-- Public edit client (legacy v1 -> TipTap fallback + multi-section + drag/drop via dnd-kit): `frontend/app/[slug]/page-client.tsx`
+- Schema + parsing/serialization: `frontend/lib/page-builder.ts`
+- Builder UI (grid + dnd-kit): `frontend/components/page-builder/page-builder.tsx`
+- Component picker modal (DB-backed): `frontend/components/page-builder/block-picker-dialog.tsx`
+- Block picker modal (DB-backed sections): `frontend/components/page-builder/block-template-picker-dialog.tsx`
+- Public top nav (menu): `frontend/components/public/public-top-nav.tsx`
+- Editor block (TipTap + floating toolbar): `frontend/components/editor-block.tsx`
+- Media picker dialog (used by components): `frontend/components/media/media-picker-dialog.tsx`
+- Public edit client mounts the builder in `?edit=1`: `frontend/app/[slug]/page-client.tsx`
 
 ---
 

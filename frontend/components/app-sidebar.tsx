@@ -2,7 +2,14 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { FileText, ImageIcon, LayoutDashboard, LogOut } from 'lucide-react';
+import {
+	Blocks,
+	FileText,
+	ImageIcon,
+	LayoutDashboard,
+	LogOut,
+	Puzzle,
+} from 'lucide-react';
 
 import {
 	Sidebar,
@@ -18,6 +25,8 @@ import {
 const nav = [
 	{ title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
 	{ title: 'Pages', href: '/admin/pages', icon: FileText },
+	{ title: 'Components', href: '/admin/components', icon: Puzzle },
+	{ title: 'Blocks', href: '/admin/blocks', icon: Blocks },
 	{ title: 'Media', href: '/admin/media', icon: ImageIcon },
 ] as const;
 

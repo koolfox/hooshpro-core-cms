@@ -2,7 +2,6 @@
 
 import Link from 'next/link';
 import { useMemo, useRef, useState } from 'react';
-import type { JSONContent } from '@tiptap/core';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -38,6 +37,10 @@ import {
 
 import { apiFetch } from '@/lib/http';
 import type { Page, PageListOut } from '@/lib/types';
+import {
+	defaultPageBuilderState,
+	serializePageBuilderState,
+} from '@/lib/page-builder';
 import { useApiList } from '@/hooks/use-api-list';
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
@@ -45,24 +48,8 @@ import { AdminDataTable } from '@/components/admin/admin-data-table';
 const LIMIT = 20;
 type StatusFilter = 'all' | 'draft' | 'published';
 
-function defaultTipTapBlocks() {
-	const doc: JSONContent = {
-		type: 'doc',
-		content: [{ type: 'paragraph' }],
-	};
-
-	return {
-		version: 2,
-		blocks: [
-			{
-				type: 'tiptap',
-				data: {
-					doc,
-					html: '<p></p>',
-				},
-			},
-		],
-	};
+function defaultPageBlocks() {
+	return serializePageBuilderState(defaultPageBuilderState());
 }
 
 function slugify(input: string) {
@@ -150,7 +137,7 @@ export default function AdminPagesScreen() {
 			title: title.trim(),
 			slug: slug.trim(),
 			status: pageStatus,
-			blocks: defaultTipTapBlocks(),
+			blocks: defaultPageBlocks(),
 		};
 
 		try {
