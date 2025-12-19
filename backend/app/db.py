@@ -8,7 +8,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, Session as OrmSession
 
-from app.models import Component, PageTemplate
+from app.models import Component, Menu, MenuItem, PageTemplate
 from app.core.config import DB_FILE
 
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_FILE}"
@@ -45,6 +45,8 @@ def run_migrations() -> None:
             "components",
             "blocks",
             "page_templates",
+            "menus",
+            "menu_items",
         }
     ):
         command.stamp(cfg, ALEMBIC_BASELINE_REVISION)
@@ -58,6 +60,35 @@ def seed_defaults() -> None:
 
     db = SessionLocal()
     try:
+        if "menus" in tables:
+            main = db.query(Menu).filter(Menu.slug == "main").first()
+            if not main:
+                main = Menu(
+                    slug="main",
+                    title="Main",
+                    description="Primary site navigation.",
+                )
+                db.add(main)
+                db.flush()
+
+            if "menu_items" in tables:
+                has_home = (
+                    db.query(MenuItem)
+                    .filter(MenuItem.menu_id == main.id, MenuItem.type == "link", MenuItem.href == "/")
+                    .first()
+                    is not None
+                )
+                if not has_home:
+                    db.add(
+                        MenuItem(
+                            menu_id=main.id,
+                            type="link",
+                            label="Home",
+                            href="/",
+                            order_index=0,
+                        )
+                    )
+
         if "page_templates" in tables:
             template_defaults = [
                 {

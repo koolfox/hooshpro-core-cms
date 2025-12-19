@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import type { Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
+import type { Menu, MenuListOut, Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { apiFetch } from '@/lib/http';
 import {
 	comparableJsonFromBlocks,
@@ -63,6 +63,9 @@ export function PublicPageClient({
 	const [templates, setTemplates] = useState<PageTemplate[]>([]);
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 	const [templatesError, setTemplatesError] = useState<string | null>(null);
+	const [menus, setMenus] = useState<Menu[]>([]);
+	const [menusLoading, setMenusLoading] = useState(false);
+	const [menusError, setMenusError] = useState<string | null>(null);
 
 	// editable fields
 	const [title, setTitle] = useState(page.title);
@@ -89,6 +92,8 @@ export function PublicPageClient({
 		return m;
 	}, [templates]);
 
+	const menuSlugs = useMemo(() => new Set(menus.map((m) => m.slug)), [menus]);
+
 	useEffect(() => {
 		setHydrated(true);
 	}, []);
@@ -114,6 +119,36 @@ export function PublicPageClient({
 				setTemplates([]);
 			} finally {
 				if (!canceled) setTemplatesLoading(false);
+			}
+		}
+
+		void load();
+		return () => {
+			canceled = true;
+		};
+	}, [settingsOpen, isAdmin, page.slug]);
+
+	useEffect(() => {
+		if (!settingsOpen) return;
+		if (!isAdmin) return;
+
+		let canceled = false;
+		async function load() {
+			setMenusLoading(true);
+			setMenusError(null);
+			try {
+				const res = await apiFetch<MenuListOut>(`/api/admin/menus?limit=200&offset=0`, {
+					cache: 'no-store',
+					nextPath: `/${page.slug}?edit=1`,
+				});
+				if (canceled) return;
+				setMenus(res.items ?? []);
+			} catch (e) {
+				if (canceled) return;
+				setMenusError(e instanceof Error ? e.message : String(e));
+				setMenus([]);
+			} finally {
+				if (!canceled) setMenusLoading(false);
 			}
 		}
 
@@ -374,19 +409,34 @@ export function PublicPageClient({
 											},
 										})
 									}
-									disabled={saving}>
+									disabled={saving || menusLoading}>
 									<SelectTrigger>
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value='main'>
-											main
-										</SelectItem>
 										<SelectItem value='none'>
 											none
 										</SelectItem>
+										{builder.template.menu !== 'none' && !menuSlugs.has(builder.template.menu) ? (
+											<SelectItem value={builder.template.menu}>
+												{builder.template.menu} (missing)
+											</SelectItem>
+										) : null}
+										{menus.map((m) => (
+											<SelectItem
+												key={m.id}
+												value={m.slug}>
+												{m.slug}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
+								{menusLoading ? (
+									<p className='text-xs text-muted-foreground'>Loading menus…</p>
+								) : null}
+								{menusError ? (
+									<p className='text-xs text-red-600'>{menusError}</p>
+								) : null}
 							</div>
 						</div>
 

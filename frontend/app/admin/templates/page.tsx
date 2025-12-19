@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { apiFetch } from '@/lib/http';
-import type { PageTemplate, PageTemplateListOut } from '@/lib/types';
+import type { MenuListOut, PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { useApiList } from '@/hooks/use-api-list';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
@@ -126,6 +126,16 @@ export default function AdminTemplatesScreen() {
 	const { data, loading, error, reload } = useApiList<PageTemplateListOut>(listUrl, {
 		nextPath: '/admin/templates',
 	});
+
+	const { data: menusData } = useApiList<MenuListOut>('/api/admin/menus?limit=200&offset=0', {
+		nextPath: '/admin/templates',
+	});
+
+	const menuSlugs = useMemo(() => {
+		const set = new Set<string>();
+		for (const m of menusData?.items ?? []) set.add(m.slug);
+		return set;
+	}, [menusData]);
 
 	const items = data?.items ?? EMPTY_TEMPLATES;
 	const total = data?.total ?? 0;
@@ -408,8 +418,17 @@ export default function AdminTemplatesScreen() {
 										<SelectValue />
 									</SelectTrigger>
 									<SelectContent>
-										<SelectItem value='main'>main</SelectItem>
 										<SelectItem value='none'>none</SelectItem>
+										{menu !== 'none' && !menuSlugs.has(menu) ? (
+											<SelectItem value={menu}>{menu} (missing)</SelectItem>
+										) : null}
+										{(menusData?.items ?? []).map((m) => (
+											<SelectItem
+												key={m.id}
+												value={m.slug}>
+												{m.slug}
+											</SelectItem>
+										))}
 									</SelectContent>
 								</Select>
 							</div>

@@ -2,28 +2,51 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
+import { useEffect, useState } from 'react';
 
+import { apiFetch } from '@/lib/http';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
+import type { PublicMenuOut } from '@/lib/types';
 
 type MenuItem = {
 	label: string;
 	href: string;
 };
 
-const MENUS: Record<string, { items: MenuItem[] }> = {
-	main: {
-		items: [
-			{ label: 'Home', href: '/' },
-		],
-	},
+const FALLBACK_MENU: { items: MenuItem[] } = {
+	items: [{ label: 'Home', href: '/' }],
 };
 
 export function PublicTopNav({ menuId }: { menuId: string }) {
 	const pathname = usePathname();
-	if (menuId === 'none') return null;
+	const [menu, setMenu] = useState<{ items: MenuItem[] }>(FALLBACK_MENU);
 
-	const menu = MENUS[menuId] ?? MENUS.main;
+	useEffect(() => {
+		if (menuId === 'none') return;
+
+		let canceled = false;
+
+		async function load() {
+			try {
+				const out = await apiFetch<PublicMenuOut>(`/api/public/menus/${encodeURIComponent(menuId)}`, {
+					cache: 'no-store',
+				});
+				if (canceled) return;
+				setMenu({ items: out.items ?? [] });
+			} catch {
+				if (canceled) return;
+				setMenu(FALLBACK_MENU);
+			}
+		}
+
+		void load();
+		return () => {
+			canceled = true;
+		};
+	}, [menuId]);
+
+	if (menuId === 'none') return null;
 
 	return (
 		<header className='bg-background/80 backdrop-blur border-b'>
@@ -60,4 +83,3 @@ export function PublicTopNav({ menuId }: { menuId: string }) {
 		</header>
 	);
 }
-

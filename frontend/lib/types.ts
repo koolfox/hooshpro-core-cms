@@ -102,3 +102,48 @@ export type PageTemplateListOut = {
 	limit: number;
 	offset: number;
 };
+
+export type Menu = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type MenuListOut = {
+	items: Menu[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type MenuItem = {
+	id: number;
+	menu_id: number;
+	type: 'page' | 'link' | string;
+	label: string;
+	page_id?: number | null;
+	href?: string | null;
+	order_index: number;
+	page_slug?: string | null;
+	page_title?: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type MenuItemListOut = {
+	items: MenuItem[];
+};
+
+export type PublicMenuItem = {
+	label: string;
+	href: string;
+};
+
+export type PublicMenuOut = {
+	slug: string;
+	title: string;
+	items: PublicMenuItem[];
+};

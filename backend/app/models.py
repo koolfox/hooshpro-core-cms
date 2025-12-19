@@ -86,6 +86,59 @@ class PageTemplate(Base):
     )
 
 
+class Menu(Base):
+    __tablename__ = "menus"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    items: Mapped[list["MenuItem"]] = relationship(
+        back_populates="menu",
+        cascade="all, delete-orphan",
+        order_by="MenuItem.order_index",
+    )
+
+
+class MenuItem(Base):
+    __tablename__ = "menu_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    menu_id: Mapped[int] = mapped_column(ForeignKey("menus.id"), index=True)
+
+    type: Mapped[str] = mapped_column(String(20), nullable=False, default="link")
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+
+    page_id: Mapped[int | None] = mapped_column(
+        ForeignKey("pages.id"),
+        nullable=True,
+        index=True,
+    )
+
+    href: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    menu: Mapped["Menu"] = relationship(back_populates="items")
+
+
 class MediaFolder(Base):
     __tablename__ = "media_folders"
 

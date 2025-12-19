@@ -41,7 +41,7 @@ Quick check:
 
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/media`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/menus`, `/admin/media`
 - Root health splash: `/`
 
 ### Backend Routes (from code)
@@ -68,6 +68,21 @@ Quick check:
 
   - Public:
     - GET `/api/public/pages/{slug}` (published only)
+
+- Menus:
+  - Admin (CRUD + items + reorder):
+    - GET    `/api/admin/menus` (pagination + q)
+    - POST   `/api/admin/menus`
+    - GET    `/api/admin/menus/{menu_id}`
+    - PUT    `/api/admin/menus/{menu_id}`
+    - DELETE `/api/admin/menus/{menu_id}`
+    - GET    `/api/admin/menus/{menu_id}/items`
+    - POST   `/api/admin/menus/{menu_id}/items`
+    - PUT    `/api/admin/menus/{menu_id}/items/{item_id}`
+    - DELETE `/api/admin/menus/{menu_id}/items/{item_id}`
+    - PUT    `/api/admin/menus/{menu_id}/items/reorder`
+  - Public:
+    - GET `/api/public/menus/{slug}` (renders published page links + custom links)
 
 - Components (admin only; used by page editor):
   - GET    `/api/admin/components` (pagination + filters)
@@ -151,6 +166,8 @@ Important:
 - sessions: id, user_id -> users, token_hash, expires_at, created_at
 - pages: id, title, slug (unique), status (draft|published), seo_title, seo_description, blocks_json (TEXT, default version 1), published_at, created_at, updated_at
 - page_templates: id, slug (unique), title, description, menu, created_at, updated_at
+- menus: id, slug (unique), title, description, created_at, updated_at
+- menu_items: id, menu_id -> menus, type (page|link), label, page_id -> pages (nullable), href (nullable), order_index, created_at, updated_at
 - media_folders: id, name, parent_id -> media_folders, created_at, updated_at
 - media_assets: id, folder_id -> media_folders (nullable), original_name, stored_name (unique), content_type, size_bytes, created_at
 - components: id, slug (unique), title, type, description, data_json, created_at, updated_at
@@ -158,7 +175,7 @@ Important:
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components/templates on startup.
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components/templates/menus on startup.
 
 Reserved slugs:
 
@@ -203,6 +220,7 @@ Blocks:
 - [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
 - [x] Page templates foundation (DB + admin CRUD + page settings wiring)
+- [x] Menu manager foundation (DB + admin drag/drop builder + public rendering)
 - [x] Admin list template: numbered pagination (top+bottom) + URL query param state
 
 ### In Progress
