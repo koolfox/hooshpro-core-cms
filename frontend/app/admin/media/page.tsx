@@ -202,6 +202,30 @@ function FolderDropTarget({
 	);
 }
 
+function FolderDropTargetStatic({
+	onClick,
+	className,
+	style,
+	children,
+}: {
+	scope?: FolderDropScope;
+	folderId: number;
+	onClick?: () => void;
+	className?: string;
+	style?: CSSProperties;
+	children: ReactNode;
+}) {
+	return (
+		<button
+			type='button'
+			onClick={onClick}
+			style={style}
+			className={className}>
+			{children}
+		</button>
+	);
+}
+
 function FolderTile({
 	folder,
 	onOpen,
@@ -255,6 +279,41 @@ function FolderTile({
 					{...attributes}
 					onClick={(e) => e.stopPropagation()}
 					className='absolute top-2 right-2 rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground'>
+					<GripVertical className='h-4 w-4' />
+				</button>
+			</div>
+			<div className='p-2'>
+				<div className='text-sm font-medium truncate'>{folder.name}</div>
+				<div className='text-xs text-muted-foreground'>Folder</div>
+			</div>
+		</div>
+	);
+}
+
+function FolderTileStatic({
+	folder,
+	onOpen,
+}: {
+	folder: MediaFolder;
+	onOpen: () => void;
+	dragDisabled?: boolean;
+}) {
+	return (
+		<div
+			className={cn('rounded-lg border overflow-hidden bg-background cursor-pointer')}
+			role='button'
+			tabIndex={0}
+			onClick={onOpen}
+			onKeyDown={(e) => {
+				if (e.key === 'Enter' || e.key === ' ') onOpen();
+			}}>
+			<div className='relative aspect-video bg-muted/20 flex items-center justify-center'>
+				<Folder className='h-9 w-9 text-muted-foreground' />
+				<button
+					type='button'
+					disabled
+					onClick={(e) => e.stopPropagation()}
+					className='absolute top-2 right-2 rounded-md border bg-background/80 p-1 text-muted-foreground'>
 					<GripVertical className='h-4 w-4' />
 				</button>
 			</div>
@@ -328,6 +387,50 @@ function MediaTile({
 	);
 }
 
+function MediaTileStatic({
+	media,
+	onDelete,
+}: {
+	media: MediaAsset;
+	onDelete: () => void;
+	dragDisabled?: boolean;
+}) {
+	return (
+		<div className={cn('rounded-lg border overflow-hidden bg-background')}>
+			<div className='relative aspect-video bg-muted/30'>
+				<Image
+					src={media.url}
+					alt={media.original_name}
+					fill
+					unoptimized
+					sizes='(min-width: 1024px) 20vw, (min-width: 640px) 33vw, 50vw'
+					className='object-cover'
+				/>
+				<button
+					type='button'
+					disabled
+					className='absolute top-2 right-2 rounded-md border bg-background/80 p-1 text-muted-foreground'>
+					<GripVertical className='h-4 w-4' />
+				</button>
+			</div>
+			<div className='p-3 space-y-2'>
+				<div className='text-xs text-muted-foreground line-clamp-2'>
+					{media.original_name}
+				</div>
+				<div className='text-xs text-muted-foreground flex items-center justify-between'>
+					<span>{prettyBytes(media.size_bytes)}</span>
+					<Button
+						size='sm'
+						variant='destructive'
+						onClick={onDelete}>
+						Delete
+					</Button>
+				</div>
+			</div>
+		</div>
+	);
+}
+
 function FolderRow({
 	folder,
 	onOpen,
@@ -373,6 +476,50 @@ function FolderRow({
 				{...attributes}
 				disabled={!!dragDisabled}
 				className='rounded-md border bg-background/80 p-1 text-muted-foreground hover:text-foreground cursor-grab active:cursor-grabbing'>
+				<GripVertical className='h-4 w-4' />
+			</button>
+
+			<div className='rounded-md border bg-muted/20 h-10 w-10 flex items-center justify-center'>
+				<Folder className='h-5 w-5 text-muted-foreground' />
+			</div>
+
+			<button
+				type='button'
+				onClick={onOpen}
+				className='min-w-0 text-left'>
+				<div className='font-medium truncate'>{folder.name}</div>
+				<div className='text-xs text-muted-foreground'>Folder</div>
+			</button>
+
+			<div className='hidden sm:block text-xs text-muted-foreground'>—</div>
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{formatIsoUtc(folder.updated_at)}
+			</div>
+
+			<Button
+				size='sm'
+				variant='outline'
+				onClick={onOpen}>
+				Open
+			</Button>
+		</div>
+	);
+}
+
+function FolderRowStatic({
+	folder,
+	onOpen,
+}: {
+	folder: MediaFolder;
+	onOpen: () => void;
+	dragDisabled?: boolean;
+}) {
+	return (
+		<div className='grid grid-cols-[auto_auto_1fr_auto] sm:grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3'>
+			<button
+				type='button'
+				disabled
+				className='rounded-md border bg-background/80 p-1 text-muted-foreground'>
 				<GripVertical className='h-4 w-4' />
 			</button>
 
@@ -475,10 +622,68 @@ function MediaRow({
 	);
 }
 
+function MediaRowStatic({
+	media,
+	onDelete,
+}: {
+	media: MediaAsset;
+	onDelete: () => void;
+	dragDisabled?: boolean;
+}) {
+	return (
+		<div className='grid grid-cols-[auto_auto_1fr_auto] sm:grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3'>
+			<button
+				type='button'
+				disabled
+				className='rounded-md border bg-background/80 p-1 text-muted-foreground'>
+				<GripVertical className='h-4 w-4' />
+			</button>
+
+			<div className='rounded-md border bg-muted/20 h-10 w-10 overflow-hidden relative'>
+				<Image
+					src={media.url}
+					alt={media.original_name}
+					fill
+					unoptimized
+					sizes='40px'
+					className='object-cover'
+				/>
+			</div>
+
+			<div className='min-w-0'>
+				<div className='font-medium truncate'>{media.original_name}</div>
+				<div className='text-xs text-muted-foreground flex items-center gap-2'>
+					<FileImage className='h-3.5 w-3.5' />
+					<span className='truncate'>{media.content_type}</span>
+				</div>
+			</div>
+
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{prettyBytes(media.size_bytes)}
+			</div>
+			<div className='hidden sm:block text-xs text-muted-foreground'>
+				{formatIsoUtc(media.created_at)}
+			</div>
+
+			<Button
+				size='sm'
+				variant='destructive'
+				onClick={onDelete}>
+				Delete
+			</Button>
+		</div>
+	);
+}
+
 export default function MediaScreen() {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+
+	const [hydrated, setHydrated] = useState(false);
+	useEffect(() => {
+		setHydrated(true);
+	}, []);
 
 	const urlQ = (searchParams.get('q') ?? '').trim();
 	const urlPage = parsePageParam(searchParams.get('page'));
@@ -961,175 +1166,161 @@ export default function MediaScreen() {
 			onNext={() => goToOffset(offset + LIMIT)}
 			onSetOffset={goToOffset}>
 
-				<DndContext
-					sensors={sensors}
-					onDragStart={onDragStart}
-					onDragEnd={onDragEnd}
-					onDragCancel={onDragCancel}>
-					<div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
-						<div className='lg:col-span-3'>
-							<div className='rounded-xl border p-4 space-y-3'>
-								<div className='flex items-start justify-between gap-3'>
+				{(() => {
+					const DropTarget = hydrated ? FolderDropTarget : FolderDropTargetStatic;
+					const BrowserFolderTile = hydrated ? FolderTile : FolderTileStatic;
+					const BrowserMediaTile = hydrated ? MediaTile : MediaTileStatic;
+					const BrowserFolderRow = hydrated ? FolderRow : FolderRowStatic;
+					const BrowserMediaRow = hydrated ? MediaRow : MediaRowStatic;
+
+					const content = (
+						<div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
+							<div className='lg:col-span-3'>
+								<div className='rounded-xl border p-4 space-y-3'>
+									<div className='flex items-start justify-between gap-3'>
+										<div className='space-y-1'>
+											<div className='text-sm font-medium'>Folders</div>
+											<div className='text-xs text-muted-foreground'>
+												{hydrated
+													? 'Drag media or folders onto a folder to move.'
+													: 'Loading drag & drop…'}
+											</div>
+										</div>
+										<Button
+											size='sm'
+											variant='outline'
+											onClick={openCreateFolder}
+											disabled={foldersLoading}>
+											New
+										</Button>
+									</div>
+
+									{foldersLoading ? (
+										<p className='text-sm text-muted-foreground'>Loading folders…</p>
+									) : null}
+									{foldersError ? <p className='text-sm text-red-600'>{foldersError}</p> : null}
+									{folderActionError ? (
+										<p className='text-sm text-red-600'>{folderActionError}</p>
+									) : null}
+
 									<div className='space-y-1'>
-										<div className='text-sm font-medium'>Folders</div>
-										<div className='text-xs text-muted-foreground'>
-											Drag media or folders onto a folder to move.
-										</div>
-									</div>
-									<Button
-										size='sm'
-										variant='outline'
-										onClick={openCreateFolder}
-										disabled={foldersLoading}>
-										New
-									</Button>
-								</div>
-
-								{foldersLoading ? (
-									<p className='text-sm text-muted-foreground'>Loading folders…</p>
-								) : null}
-								{foldersError ? <p className='text-sm text-red-600'>{foldersError}</p> : null}
-								{folderActionError ? (
-									<p className='text-sm text-red-600'>{folderActionError}</p>
-								) : null}
-
-								<div className='space-y-1'>
-									<button
-										type='button'
-										className={cn(
-											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted',
-											folderFilter === null && 'bg-muted font-medium'
-										)}
-										onClick={() => onFolderClick(null)}>
-										All media
-									</button>
-
-									<FolderDropTarget
-										folderId={0}
-										onClick={() => onFolderClick(0)}
-										className={cn(
-											'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted flex items-center gap-2',
-											folderFilter === 0 && 'bg-muted font-medium'
-										)}>
-										<Folder className='h-4 w-4 text-muted-foreground' />
-										<span>Root</span>
-									</FolderDropTarget>
-
-									{folderNodes.map(({ folder, depth }) => (
-										<FolderDropTarget
-											key={folder.id}
-											folderId={folder.id}
-											onClick={() => onFolderClick(folder.id)}
-											style={{ paddingLeft: `${8 + depth * 12}px` }}
+										<button
+											type='button'
 											className={cn(
-												'w-full rounded-md py-1 pr-2 text-left text-sm hover:bg-muted flex items-center gap-2',
-												folderFilter === folder.id && 'bg-muted font-medium'
+												'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted',
+												folderFilter === null && 'bg-muted font-medium'
+											)}
+											onClick={() => onFolderClick(null)}>
+											All media
+										</button>
+
+										<DropTarget
+											folderId={0}
+											onClick={() => onFolderClick(0)}
+											className={cn(
+												'w-full rounded-md px-2 py-1 text-left text-sm hover:bg-muted flex items-center gap-2',
+												folderFilter === 0 && 'bg-muted font-medium'
 											)}>
-											<Folder className='h-4 w-4 text-muted-foreground shrink-0' />
-											<span className='truncate'>{folder.name}</span>
-										</FolderDropTarget>
-									))}
-								</div>
+											<Folder className='h-4 w-4 text-muted-foreground' />
+											<span>Root</span>
+										</DropTarget>
 
-								{selectedFolder ? (
-									<Button
-										size='sm'
-										variant='destructive'
-										onClick={() => setConfirmDeleteFolder(selectedFolder)}
-										disabled={foldersLoading}>
-										Delete “{selectedFolder.name}”
-									</Button>
+										{folderNodes.map(({ folder, depth }) => (
+											<DropTarget
+												key={folder.id}
+												folderId={folder.id}
+												onClick={() => onFolderClick(folder.id)}
+												style={{ paddingLeft: `${8 + depth * 12}px` }}
+												className={cn(
+													'w-full rounded-md py-1 pr-2 text-left text-sm hover:bg-muted flex items-center gap-2',
+													folderFilter === folder.id && 'bg-muted font-medium'
+												)}>
+												<Folder className='h-4 w-4 text-muted-foreground shrink-0' />
+												<span className='truncate'>{folder.name}</span>
+											</DropTarget>
+										))}
+									</div>
+
+									{selectedFolder ? (
+										<Button
+											size='sm'
+											variant='destructive'
+											onClick={() => setConfirmDeleteFolder(selectedFolder)}
+											disabled={foldersLoading}>
+											Delete “{selectedFolder.name}”
+										</Button>
+									) : null}
+								</div>
+							</div>
+
+							<div className='lg:col-span-9 space-y-4'>
+								{loading ? (
+									<p className='text-sm text-muted-foreground'>Loading…</p>
 								) : null}
-							</div>
-						</div>
+								{error ? <p className='text-sm text-red-600'>{error}</p> : null}
+								{actionError ? (
+									<p className='text-sm text-red-600'>{actionError}</p>
+								) : null}
 
-						<div className='lg:col-span-9 space-y-4'>
-							{loading ? (
-								<p className='text-sm text-muted-foreground'>Loading…</p>
-							) : null}
-							{error ? <p className='text-sm text-red-600'>{error}</p> : null}
-							{actionError ? (
-								<p className='text-sm text-red-600'>{actionError}</p>
-							) : null}
-
-							<div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
-								<div className='space-y-0.5'>
-									<div className='text-sm font-medium'>{currentLocationLabel}</div>
-									<div className='text-xs text-muted-foreground'>
-										Drag items onto folders to organize them.
-									</div>
-								</div>
-
-								<div className='flex items-center gap-2'>
-									<Button
-										size='sm'
-										variant={view === 'icons' ? 'secondary' : 'outline'}
-										onClick={() => setViewMode('icons')}
-										disabled={loading}>
-										<LayoutGrid className='h-4 w-4 mr-2' />
-										Icons
-									</Button>
-									<Button
-										size='sm'
-										variant={view === 'details' ? 'secondary' : 'outline'}
-										onClick={() => setViewMode('details')}
-										disabled={loading}>
-										<List className='h-4 w-4 mr-2' />
-										Details
-									</Button>
-								</div>
-							</div>
-
-							{!loading && !error && browserNodes.length === 0 ? (
-								<div className='rounded-xl border p-6'>
-									<p className='text-sm text-muted-foreground'>
-										Nothing here yet. Upload media or create a folder.
-									</p>
-								</div>
-							) : null}
-
-							{!loading && !error && browserNodes.length > 0 ? (
-								view === 'details' ? (
-									<div className='rounded-xl border overflow-hidden divide-y'>
-										<div className='hidden sm:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3 bg-muted/40 text-xs font-medium text-muted-foreground'>
-											<div />
-											<div />
-											<div>Name</div>
-											<div>Size</div>
-											<div>Date</div>
-											<div />
+								<div className='flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3'>
+									<div className='space-y-0.5'>
+										<div className='text-sm font-medium'>{currentLocationLabel}</div>
+										<div className='text-xs text-muted-foreground'>
+											{hydrated
+												? 'Drag items onto folders to organize them.'
+												: 'Drag & drop is enabled after load.'}
 										</div>
-										{browserNodes.map((n) =>
-											n.kind === 'folder' ? (
-												<FolderRow
-													key={`folder:${n.folder.id}`}
-													folder={n.folder}
-													onOpen={() => onFolderClick(n.folder.id)}
-													dragDisabled={dragDisabled}
-												/>
-											) : (
-												<MediaRow
-													key={`media:${n.media.id}`}
-													media={n.media}
-													onDelete={() => setConfirmDelete(n.media)}
-													dragDisabled={dragDisabled}
-												/>
-											)
-										)}
 									</div>
-								) : (
-									<div className='rounded-xl border p-4'>
-										<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
+
+									<div className='flex items-center gap-2'>
+										<Button
+											size='sm'
+											variant={view === 'icons' ? 'secondary' : 'outline'}
+											onClick={() => setViewMode('icons')}
+											disabled={loading}>
+											<LayoutGrid className='h-4 w-4 mr-2' />
+											Icons
+										</Button>
+										<Button
+											size='sm'
+											variant={view === 'details' ? 'secondary' : 'outline'}
+											onClick={() => setViewMode('details')}
+											disabled={loading}>
+											<List className='h-4 w-4 mr-2' />
+											Details
+										</Button>
+									</div>
+								</div>
+
+								{!loading && !error && browserNodes.length === 0 ? (
+									<div className='rounded-xl border p-6'>
+										<p className='text-sm text-muted-foreground'>
+											Nothing here yet. Upload media or create a folder.
+										</p>
+									</div>
+								) : null}
+
+								{!loading && !error && browserNodes.length > 0 ? (
+									view === 'details' ? (
+										<div className='rounded-xl border overflow-hidden divide-y'>
+											<div className='hidden sm:grid grid-cols-[auto_auto_1fr_auto_auto_auto] gap-3 items-center p-3 bg-muted/40 text-xs font-medium text-muted-foreground'>
+												<div />
+												<div />
+												<div>Name</div>
+												<div>Size</div>
+												<div>Date</div>
+												<div />
+											</div>
 											{browserNodes.map((n) =>
 												n.kind === 'folder' ? (
-													<FolderTile
+													<BrowserFolderRow
 														key={`folder:${n.folder.id}`}
 														folder={n.folder}
 														onOpen={() => onFolderClick(n.folder.id)}
 														dragDisabled={dragDisabled}
 													/>
 												) : (
-													<MediaTile
+													<BrowserMediaRow
 														key={`media:${n.media.id}`}
 														media={n.media}
 														onDelete={() => setConfirmDelete(n.media)}
@@ -1138,41 +1329,74 @@ export default function MediaScreen() {
 												)
 											)}
 										</div>
-									</div>
-								)
-							) : null}
+									) : (
+										<div className='rounded-xl border p-4'>
+											<div className='grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3'>
+												{browserNodes.map((n) =>
+													n.kind === 'folder' ? (
+														<BrowserFolderTile
+															key={`folder:${n.folder.id}`}
+															folder={n.folder}
+															onOpen={() => onFolderClick(n.folder.id)}
+															dragDisabled={dragDisabled}
+														/>
+													) : (
+														<BrowserMediaTile
+															key={`media:${n.media.id}`}
+															media={n.media}
+															onDelete={() => setConfirmDelete(n.media)}
+															dragDisabled={dragDisabled}
+														/>
+													)
+												)}
+											</div>
+										</div>
+									)
+								) : null}
+							</div>
 						</div>
-					</div>
+					);
 
-					<DragOverlay>
-						{dragMedia ? (
-							<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
-								<div className='relative aspect-video bg-muted/30'>
-									<Image
-										src={dragMedia.url}
-										alt={dragMedia.original_name}
-										fill
-										unoptimized
-										sizes='240px'
-										className='object-cover'
-									/>
-								</div>
-								<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
-									{dragMedia.original_name}
-								</div>
-							</div>
-						) : dragFolder ? (
-							<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
-								<div className='flex items-center justify-center aspect-video bg-muted/20'>
-									<Folder className='h-10 w-10 text-muted-foreground' />
-								</div>
-								<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
-									{dragFolder.name}
-								</div>
-							</div>
-						) : null}
-					</DragOverlay>
-				</DndContext>
+					if (!hydrated) return content;
+
+					return (
+						<DndContext
+							sensors={sensors}
+							onDragStart={onDragStart}
+							onDragEnd={onDragEnd}
+							onDragCancel={onDragCancel}>
+							{content}
+							<DragOverlay>
+								{dragMedia ? (
+									<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
+										<div className='relative aspect-video bg-muted/30'>
+											<Image
+												src={dragMedia.url}
+												alt={dragMedia.original_name}
+												fill
+												unoptimized
+												sizes='240px'
+												className='object-cover'
+											/>
+										</div>
+										<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
+											{dragMedia.original_name}
+										</div>
+									</div>
+								) : dragFolder ? (
+									<div className='rounded-lg border bg-background overflow-hidden w-[240px]'>
+										<div className='flex items-center justify-center aspect-video bg-muted/20'>
+											<Folder className='h-10 w-10 text-muted-foreground' />
+										</div>
+										<div className='p-2 text-xs text-muted-foreground line-clamp-2'>
+											{dragFolder.name}
+										</div>
+									</div>
+								) : null}
+							</DragOverlay>
+						</DndContext>
+					);
+				})()}
 
 			<Dialog
 				open={folderCreateOpen}

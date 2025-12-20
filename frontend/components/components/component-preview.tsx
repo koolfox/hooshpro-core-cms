@@ -17,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
@@ -30,7 +31,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { AlertCircle, CheckCircle2 } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronDown } from 'lucide-react';
 
 export type ComponentPreviewModel = {
 	title?: string;
@@ -272,15 +273,28 @@ export function ComponentPreview({
 	if (type === 'button') {
 		const d = isRecord(data) ? data : {};
 		const label = typeof d['label'] === 'string' ? d['label'] : 'Button';
+		const href = typeof d['href'] === 'string' ? d['href'] : '';
 		const variantRaw = typeof d['variant'] === 'string' ? d['variant'] : 'default';
 		const variant =
 			variantRaw &&
-			['default', 'secondary', 'outline', 'destructive', 'ghost'].includes(variantRaw)
-				? (variantRaw as 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost')
+			['default', 'secondary', 'outline', 'destructive', 'ghost', 'link'].includes(variantRaw)
+				? (variantRaw as 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' | 'link')
 				: 'default';
 		return (
 			<div className={className}>
-				<Button variant={variant}>{label}</Button>
+				<Button
+					variant={variant}
+					asChild={!!href.trim()}>
+					{href.trim() ? (
+						<a
+							href={href}
+							onClick={(e) => e.preventDefault()}>
+							{label}
+						</a>
+					) : (
+						label
+					)}
+				</Button>
 			</div>
 		);
 	}
@@ -347,21 +361,75 @@ export function ComponentPreview({
 				['default', 'secondary', 'outline', 'destructive'].includes(variantRaw)
 					? (variantRaw as 'default' | 'secondary' | 'outline' | 'destructive')
 					: 'default';
+			const text = typeof d['text'] === 'string' && d['text'].trim() ? d['text'] : 'Badge';
 			return (
 				<div className={className}>
-					<Badge variant={variant}>Badge</Badge>
+					<Badge variant={variant}>{text}</Badge>
 				</div>
 			);
 		}
 
 		if (componentId === 'button') {
+			const hasCustomProps =
+				typeof d['label'] === 'string' ||
+				typeof d['href'] === 'string' ||
+				typeof d['variant'] === 'string' ||
+				typeof d['size'] === 'string';
+
+			if (!hasCustomProps) {
+				return (
+					<div className={className}>
+						<div className='flex flex-wrap gap-2'>
+							<Button>Default</Button>
+							<Button variant='secondary'>Secondary</Button>
+							<Button variant='outline'>Outline</Button>
+							<Button variant='ghost'>Ghost</Button>
+							<Button variant='destructive'>Destructive</Button>
+							<Button variant='link'>Link</Button>
+						</div>
+					</div>
+				);
+			}
+
+			const label = typeof d['label'] === 'string' && d['label'].trim() ? d['label'] : 'Button';
+			const href = typeof d['href'] === 'string' ? d['href'] : '';
+
+			const variantRaw = typeof d['variant'] === 'string' ? d['variant'] : 'default';
+			const variant =
+				variantRaw &&
+				['default', 'secondary', 'outline', 'destructive', 'ghost', 'link'].includes(variantRaw)
+					? (variantRaw as 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' | 'link')
+					: 'default';
+
+			const sizeRaw = typeof d['size'] === 'string' ? d['size'] : 'default';
+			const size =
+				sizeRaw &&
+				['default', 'sm', 'lg', 'icon', 'icon-sm', 'icon-lg'].includes(sizeRaw)
+					? (sizeRaw as
+							| 'default'
+							| 'sm'
+							| 'lg'
+							| 'icon'
+							| 'icon-sm'
+							| 'icon-lg')
+					: 'default';
+
 			return (
 				<div className={className}>
-					<div className='flex flex-wrap gap-2'>
-						<Button>Button</Button>
-						<Button variant='secondary'>Secondary</Button>
-						<Button variant='outline'>Outline</Button>
-					</div>
+					<Button
+						variant={variant}
+						size={size}
+						asChild={!!href.trim()}>
+						{href.trim() ? (
+							<a
+								href={href}
+								onClick={(e) => e.preventDefault()}>
+								{label}
+							</a>
+						) : (
+							label
+						)}
+					</Button>
 				</div>
 			);
 		}
@@ -429,10 +497,162 @@ export function ComponentPreview({
 			);
 		}
 
+		if (componentId === 'label') {
+			return (
+				<div className={className}>
+					<div className='space-y-2'>
+						<Label>Label</Label>
+						<Input placeholder='Input' readOnly />
+					</div>
+				</div>
+			);
+		}
+
 		if (componentId === 'textarea') {
 			return (
 				<div className={className}>
 					<Textarea placeholder='Textarea' readOnly />
+				</div>
+			);
+		}
+
+		if (componentId === 'select') {
+			const value = typeof d['value'] === 'string' && d['value'].trim() ? d['value'] : 'Select';
+			return (
+				<div className={className}>
+					<div className='inline-flex items-center gap-2 rounded-md border bg-background px-3 py-2 text-sm'>
+						<span className='text-muted-foreground'>{value}</span>
+						<ChevronDown className='h-4 w-4 text-muted-foreground' />
+					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'dropdown-menu') {
+			return (
+				<div className={className}>
+					<Card>
+						<CardHeader className='py-3'>
+							<CardTitle className='text-sm'>Dropdown Menu</CardTitle>
+						</CardHeader>
+						<CardContent className='pb-3 space-y-2'>
+							<Button variant='outline' size='sm'>
+								Open menu
+							</Button>
+							<div className='space-y-1'>
+								<div className='rounded-md border bg-muted/10 px-2 py-1 text-sm'>Item one</div>
+								<div className='rounded-md border bg-muted/10 px-2 py-1 text-sm'>Item two</div>
+								<div className='rounded-md border bg-muted/10 px-2 py-1 text-sm'>Item three</div>
+							</div>
+						</CardContent>
+					</Card>
+				</div>
+			);
+		}
+
+		if (componentId === 'tooltip') {
+			return (
+				<div className={className}>
+					<div className='inline-flex items-center gap-2 rounded-md border bg-muted/10 px-3 py-2 text-sm'>
+						<span>Hover me</span>
+						<span className='rounded-full bg-muted px-2 py-0.5 text-xs text-muted-foreground'>
+							Tooltip
+						</span>
+					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'dialog') {
+			return (
+				<div className={className}>
+					<Card>
+						<CardHeader className='py-3'>
+							<CardTitle className='text-sm'>Dialog</CardTitle>
+						</CardHeader>
+						<CardContent className='pb-3 space-y-2'>
+							<p className='text-sm text-muted-foreground'>
+								Dialogs open a modal for focused tasks.
+							</p>
+							<Button variant='outline' size='sm'>
+								Open dialog
+							</Button>
+						</CardContent>
+					</Card>
+				</div>
+			);
+		}
+
+		if (componentId === 'alert-dialog') {
+			return (
+				<div className={className}>
+					<Alert variant='destructive'>
+						<AlertCircle className='h-4 w-4' />
+						<AlertTitle>Alert Dialog</AlertTitle>
+						<AlertDescription>Confirm a destructive action.</AlertDescription>
+					</Alert>
+				</div>
+			);
+		}
+
+		if (componentId === 'sheet') {
+			return (
+				<div className={className}>
+					<div className='rounded-lg border bg-muted/10 p-3 space-y-2'>
+						<div className='text-sm font-medium'>Sheet</div>
+						<div className='text-xs text-muted-foreground'>A panel that slides in from an edge.</div>
+						<div className='flex items-center gap-2'>
+							<Button variant='outline' size='sm'>
+								Open
+							</Button>
+							<span className='text-xs text-muted-foreground'>→</span>
+						</div>
+					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'collapsible') {
+			return (
+				<div className={className}>
+					<div className='rounded-lg border bg-muted/10 p-3 space-y-2'>
+						<div className='text-sm font-medium'>Collapsible</div>
+						<div className='text-xs text-muted-foreground'>A section that can expand/collapse.</div>
+						<div className='rounded-md border bg-background px-2 py-2 text-sm text-muted-foreground'>
+							Collapsible content…
+						</div>
+					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'sidebar') {
+			return (
+				<div className={className}>
+					<div className='rounded-lg border overflow-hidden grid grid-cols-[120px_1fr]'>
+						<div className='bg-muted/20 p-2 space-y-1'>
+							<div className='text-xs font-medium'>Sidebar</div>
+							<div className='text-xs text-muted-foreground'>Item</div>
+							<div className='text-xs text-muted-foreground'>Item</div>
+							<div className='text-xs text-muted-foreground'>Item</div>
+						</div>
+						<div className='p-3'>
+							<div className='text-sm font-medium'>Content</div>
+							<div className='text-xs text-muted-foreground'>Main area</div>
+						</div>
+					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'resizable') {
+			return (
+				<div className={className}>
+					<div className='rounded-lg border overflow-hidden flex'>
+						<div className='flex-1 p-3 bg-muted/10 text-xs text-muted-foreground'>Panel</div>
+						<div className='w-2 bg-border' />
+						<div className='flex-1 p-3 bg-muted/5 text-xs text-muted-foreground'>Panel</div>
+					</div>
 				</div>
 			);
 		}

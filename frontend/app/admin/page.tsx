@@ -213,11 +213,9 @@ export default function AdminHome() {
 
 	useEffect(() => {
 		let canceled = false;
+		setHydrated(true);
 
-		const t = setTimeout(() => {
-			if (canceled) return;
-			setHydrated(true);
-
+		try {
 			const saved = window.localStorage.getItem('hooshpro_dashboard_widget_order');
 			if (saved) {
 				try {
@@ -226,13 +224,15 @@ export default function AdminHome() {
 						const ids = WIDGETS.map((w) => w.id);
 						const next = parsed.filter((id) => ids.includes(id));
 						for (const id of ids) if (!next.includes(id)) next.push(id);
-						setWidgetOrder(next);
+						if (!canceled) setWidgetOrder(next);
 					}
 				} catch {
 					// ignore
 				}
 			}
-		}, 0);
+		} catch {
+			// ignore
+		}
 
 		async function load() {
 			setLoadingCounts(true);
@@ -287,7 +287,6 @@ export default function AdminHome() {
 
 		void load();
 		return () => {
-			clearTimeout(t);
 			canceled = true;
 		};
 	}, []);

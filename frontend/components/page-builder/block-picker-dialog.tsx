@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { apiFetch } from '@/lib/http';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
 
+import { ComponentPreview } from '@/components/components/component-preview';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -100,19 +101,37 @@ export function BlockPickerDialog({
 							<div className='text-sm text-red-600'>{error}</div>
 						) : items.length > 0 ? (
 							items.map((c) => (
-								<Button
+								<div
 									key={c.id}
-									type='button'
-									variant='outline'
-									className='h-auto items-start justify-start text-left whitespace-normal'
-									onClick={() => onPick(c)}>
-									<div className='space-y-1'>
-										<div className='font-medium'>{c.title}</div>
-										<div className='text-xs text-muted-foreground'>
-											/{c.slug} · {c.type}
+									className='rounded-md border bg-card p-3 space-y-3'>
+									<div className='flex items-start justify-between gap-3'>
+										<div className='min-w-0 space-y-1'>
+											<div className='font-medium truncate'>{c.title}</div>
+											<div className='text-xs text-muted-foreground truncate'>
+												/{c.slug} · {c.type}
+											</div>
 										</div>
+
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => onPick(c)}>
+											Add
+										</Button>
 									</div>
-								</Button>
+
+									<div className='rounded-md border bg-muted/10 p-3'>
+										<ComponentPreview
+											component={{
+												title: c.title,
+												type: c.type,
+												data: c.data,
+											}}
+											className='max-w-none'
+										/>
+									</div>
+								</div>
 							))
 						) : (
 							<div className='text-sm text-muted-foreground'>

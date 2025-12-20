@@ -48,11 +48,13 @@ export function PublicPageClient({
 	isAdmin,
 	defaultEdit,
 	menuOverride,
+	footerOverride,
 }: {
 	initialPage: Page;
 	isAdmin: boolean;
 	defaultEdit: boolean;
 	menuOverride?: string | null;
+	footerOverride?: string | null;
 }) {
 	const router = useRouter();
 
@@ -94,7 +96,13 @@ export function PublicPageClient({
 			: editMode
 				? builder.template.menu
 				: viewState.template.menu;
-	const activeFooterId = editMode ? builder.template.footer : viewState.template.footer;
+
+	const activeFooterId =
+		!editMode && footerOverride && footerOverride.trim()
+			? footerOverride.trim()
+			: editMode
+				? builder.template.footer
+				: viewState.template.footer;
 
 	const templatesBySlug = useMemo(() => {
 		const m = new Map<string, PageTemplate>();
@@ -105,8 +113,7 @@ export function PublicPageClient({
 	const menuSlugs = useMemo(() => new Set(menus.map((m) => m.slug)), [menus]);
 
 	useEffect(() => {
-		const t = setTimeout(() => setHydrated(true), 0);
-		return () => clearTimeout(t);
+		setHydrated(true);
 	}, []);
 
 	useEffect(() => {

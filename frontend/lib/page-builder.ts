@@ -54,7 +54,7 @@ export type ButtonBlock = {
 	data: {
 		label: string;
 		href?: string;
-		variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost';
+		variant?: 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' | 'link';
 	};
 };
 

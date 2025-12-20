@@ -71,6 +71,10 @@ export default async function Home({
 	const menuValue = Array.isArray(sp.menu) ? sp.menu[0] : sp.menu;
 	const menuOverride = typeof menuValue === 'string' && menuValue.trim() ? menuValue.trim() : null;
 
+	const footerValue = Array.isArray(sp.footer) ? sp.footer[0] : sp.footer;
+	const footerOverride =
+		typeof footerValue === 'string' && footerValue.trim() ? footerValue.trim() : null;
+
 	const token = (await cookies()).get(COOKIE_NAME)?.value ?? '';
 	const isAdmin = token ? await isAdminSession(token) : false;
 
@@ -110,6 +114,7 @@ export default async function Home({
 			isAdmin={isAdmin}
 			defaultEdit={edit}
 			menuOverride={menuOverride}
+			footerOverride={footerOverride}
 		/>
 	);
 }

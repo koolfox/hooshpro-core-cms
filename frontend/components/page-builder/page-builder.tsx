@@ -1,8 +1,6 @@
 'use client';
 
 import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import Link from 'next/link';
-import Image from 'next/image';
 import {
 	DndContext,
 	KeyboardSensor,
@@ -15,7 +13,7 @@ import {
 import {
 	SortableContext,
 	arrayMove,
-	rectSortingStrategy,
+	horizontalListSortingStrategy,
 	sortableKeyboardCoordinates,
 	useSortable,
 	verticalListSortingStrategy,
@@ -37,19 +35,17 @@ import {
 	isRecord,
 	parsePageBuilderState,
 } from '@/lib/page-builder';
-import { sanitizeRichHtml } from '@/lib/sanitize';
 import type { BlockTemplate, ComponentDef } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { shadcnDocsUrl } from '@/lib/shadcn-docs';
 
 import { EditorBlock } from '@/components/editor-block';
-import { ComponentPreview } from '@/components/components/component-preview';
+import { renderBlockPreview } from './page-renderer';
 import { BlockPickerDialog, type ComponentPickerItem } from './block-picker-dialog';
 import { BlockTemplatePickerDialog } from './block-template-picker-dialog';
 import { MediaPickerDialog } from '@/components/media/media-picker-dialog';
 
 import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -166,92 +162,6 @@ function ensureRowColumns(row: PageRow, count: number): PageRow {
 	};
 }
 
-function renderBlockPreview(block: PageBlock) {
-	if (block.type === 'editor') {
-		const html = block.data.html;
-		const safe = sanitizeRichHtml(html);
-		return (
-			<div
-				className='prose prose-neutral dark:prose-invert max-w-none'
-				dangerouslySetInnerHTML={{ __html: safe || '<p></p>' }}
-			/>
-		);
-	}
-
-	if (block.type === 'separator') {
-		return <Separator />;
-	}
-
-	if (block.type === 'button') {
-		const href = block.data.href?.trim();
-		return (
-			<Button
-				variant={block.data.variant ?? 'default'}
-				asChild={!!href}>
-				{href ? <Link href={href}>{block.data.label}</Link> : block.data.label}
-			</Button>
-		);
-	}
-
-	if (block.type === 'card') {
-		return (
-			<Card>
-				{block.data.title ? (
-					<CardHeader>
-						<CardTitle>{block.data.title}</CardTitle>
-					</CardHeader>
-				) : null}
-				<CardContent>
-					{block.data.body ? (
-						<p className='text-sm text-muted-foreground whitespace-pre-wrap'>
-							{block.data.body}
-						</p>
-					) : (
-						<p className='text-sm text-muted-foreground'>Card</p>
-					)}
-				</CardContent>
-			</Card>
-		);
-	}
-
-	if (block.type === 'image') {
-		if (!block.data.url) {
-			return (
-				<div className='rounded-lg border p-4 text-sm text-muted-foreground'>
-					Image (no URL)
-				</div>
-			);
-		}
-		return (
-			<div className='relative aspect-video rounded-lg border overflow-hidden bg-muted/30'>
-				<Image
-					src={block.data.url}
-					alt={block.data.alt ?? ''}
-					fill
-					unoptimized
-					sizes='(min-width: 1024px) 50vw, 100vw'
-					className='object-cover'
-				/>
-			</div>
-		);
-	}
-
-	if (block.type === 'shadcn') {
-		const data = { component: block.data.component, ...(block.data.props ?? {}) };
-		return (
-			<div className='rounded-lg border bg-muted/10 p-3'>
-				<ComponentPreview component={{ type: 'shadcn', data }} />
-			</div>
-		);
-	}
-
-	return (
-		<div className='rounded-lg border p-3 text-sm text-muted-foreground'>
-			Unknown component: <code>{block.data.originalType}</code>
-		</div>
-	);
-}
-
 function describeBlock(block: PageBlock): string {
 	if (block.type === 'unknown') return block.data.originalType;
 	if (block.type === 'shadcn') return `shadcn/${block.data.component || 'component'}`;
@@ -296,7 +206,7 @@ function SortableRow({
 			<div
 				className={cn(
 					'rounded-md border bg-background',
-					compact && 'group/row hover:ring-2 hover:ring-ring'
+					compact && 'group/row border-dashed hover:ring-2 hover:ring-ring'
 				)}>
 				{compact ? (
 					<div className='p-4 pt-9 relative'>
@@ -405,46 +315,40 @@ function SortableRow({
 	);
 }
 
-function SortableColumn({
-	column,
-	rowId,
+function ColumnFrame({
 	disabled,
 	compact,
+	isDragging,
+	isOver,
+	setActivatorNodeRef,
+	listeners,
+	attributes,
 	onAddBlock,
 	children,
 }: {
-	column: PageColumn;
-	rowId: string;
 	disabled: boolean;
 	compact: boolean;
+	isDragging: boolean;
+	isOver: boolean;
+	setActivatorNodeRef: (node: HTMLElement | null) => void;
+	listeners: ReturnType<typeof useSortable>['listeners'];
+	attributes: ReturnType<typeof useSortable>['attributes'];
 	onAddBlock: () => void;
 	children: React.ReactNode;
 }) {
-	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging, isOver } =
-		useSortable({
-			id: column.id,
-			data: { kind: 'column', rowId, columnId: column.id } satisfies SortableColumnData,
-			disabled,
-		});
-
-	const style: CSSProperties = {
-		transform: CSS.Transform.toString(transform),
-		transition,
-	};
-
 	return (
 		<div
-			ref={setNodeRef}
-			style={style}
-			className={[
-				isDragging ? 'opacity-70' : '',
-				isOver ? 'ring-2 ring-ring rounded-md' : '',
-			].join(' ')}
-			{...attributes}>
+			className={cn(
+				'h-full',
+				isDragging && 'opacity-70',
+				isOver && 'ring-2 ring-ring rounded-md'
+			)}>
 			<div
 				className={cn(
-					'rounded-md border bg-background min-h-[120px]',
-					compact ? 'relative p-3 pt-9 group/col' : 'p-3 space-y-3'
+					'rounded-md border min-h-[120px] h-full transition-colors',
+					compact
+						? 'relative p-3 pt-9 group/col border-dashed bg-muted/5 hover:bg-muted/10 hover:ring-2 hover:ring-ring/20'
+						: 'p-3 space-y-3 bg-background'
 				)}>
 				{compact ? (
 					<>
@@ -456,7 +360,8 @@ function SortableColumn({
 								className='cursor-grab active:cursor-grabbing touch-none'
 								ref={setActivatorNodeRef}
 								disabled={disabled}
-								{...listeners}>
+											{...attributes}
+											{...listeners}>
 								<GripVertical className='h-4 w-4' />
 								<span className='sr-only'>Drag column</span>
 							</Button>
@@ -485,6 +390,7 @@ function SortableColumn({
 									className='cursor-grab active:cursor-grabbing touch-none'
 									ref={setActivatorNodeRef}
 									disabled={disabled}
+									{...attributes}
 									{...listeners}>
 									<GripVertical className='h-4 w-4' />
 									<span className='sr-only'>Drag column</span>
@@ -508,6 +414,57 @@ function SortableColumn({
 				)}
 			</div>
 		</div>
+	);
+}
+
+function SortableResizableColumnPanel({
+	column,
+	rowId,
+	disabled,
+	compact,
+	defaultSize,
+	onAddBlock,
+	children,
+}: {
+	column: PageColumn;
+	rowId: string;
+	disabled: boolean;
+	compact: boolean;
+	defaultSize: number;
+	onAddBlock: () => void;
+	children: React.ReactNode;
+}) {
+	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging, isOver } =
+		useSortable({
+			id: column.id,
+			data: { kind: 'column', rowId, columnId: column.id } satisfies SortableColumnData,
+			disabled,
+		});
+
+	const style: CSSProperties = {
+		transform: CSS.Transform.toString(transform),
+		transition,
+	};
+
+	return (
+		<ResizablePanel
+			id={column.id}
+			elementRef={setNodeRef}
+			style={style}
+			defaultSize={defaultSize}
+			minSize={5}>
+			<ColumnFrame
+				disabled={disabled}
+				compact={compact}
+				isDragging={isDragging}
+				isOver={isOver}
+				setActivatorNodeRef={setActivatorNodeRef}
+				listeners={listeners}
+				attributes={attributes}
+				onAddBlock={onAddBlock}>
+				{children}
+			</ColumnFrame>
+		</ResizablePanel>
 	);
 }
 
@@ -754,8 +711,12 @@ function renderBlockBody({
 				<div className='space-y-3'>
 					{renderBlockPreview(block)}
 					<details
-						open={!compact}
-						className='rounded-lg border bg-muted/10 p-3'>
+						open={!compact ? true : undefined}
+						className={cn(
+							'rounded-lg border bg-muted/10 p-3',
+							compact &&
+								'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+						)}>
 						<summary className='text-sm font-medium cursor-pointer select-none'>
 							Settings
 						</summary>
@@ -786,6 +747,59 @@ function renderBlockBody({
 									disabled={disabled}
 								/>
 							</div>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Variant</Label>
+								<Select
+									value={
+										block.data.variant &&
+										[
+											'default',
+											'secondary',
+											'outline',
+											'destructive',
+											'ghost',
+											'link',
+										].includes(block.data.variant)
+											? block.data.variant
+											: 'default'
+									}
+									onValueChange={(v) =>
+										onUpdate({
+											...block,
+											data: {
+												...block.data,
+												variant: v as
+													| 'default'
+													| 'secondary'
+													| 'outline'
+													| 'destructive'
+													| 'ghost'
+													| 'link',
+											},
+										})
+									}
+									disabled={disabled}>
+									<SelectTrigger className='h-8'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										{[
+											'default',
+											'secondary',
+											'outline',
+											'destructive',
+											'ghost',
+											'link',
+										].map((variant) => (
+											<SelectItem
+												key={variant}
+												value={variant}>
+												{variant}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
+							</div>
 						</div>
 					</details>
 				</div>
@@ -795,8 +809,12 @@ function renderBlockBody({
 				<div className='space-y-3'>
 					{renderBlockPreview(block)}
 					<details
-						open={!compact}
-						className='rounded-lg border bg-muted/10 p-3'>
+						open={!compact ? true : undefined}
+						className={cn(
+							'rounded-lg border bg-muted/10 p-3',
+							compact &&
+								'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+						)}>
 						<summary className='text-sm font-medium cursor-pointer select-none'>
 							Settings
 						</summary>
@@ -838,8 +856,12 @@ function renderBlockBody({
 				<div className='space-y-3'>
 					{renderBlockPreview(block)}
 					<details
-						open={!compact}
-						className='rounded-lg border bg-muted/10 p-3'>
+						open={!compact ? true : undefined}
+						className={cn(
+							'rounded-lg border bg-muted/10 p-3',
+							compact &&
+								'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+						)}>
 						<summary className='text-sm font-medium cursor-pointer select-none'>
 							Settings
 						</summary>
@@ -918,8 +940,12 @@ function renderBlockBody({
 						<div className='space-y-3'>
 							{renderBlockPreview(block)}
 							<details
-								open={!compact}
-								className='rounded-lg border bg-muted/10 p-3'>
+								open={!compact ? true : undefined}
+								className={cn(
+									'rounded-lg border bg-muted/10 p-3',
+									compact &&
+										'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+								)}>
 								<summary className='text-sm font-medium cursor-pointer select-none'>
 									Settings
 								</summary>
@@ -1099,7 +1125,170 @@ function renderBlockBody({
 										})()
 									) : null}
 
-									{componentId !== 'alert' && componentId !== 'typography' ? (
+									{componentId === 'button' ? (
+										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+											<div className='space-y-1 sm:col-span-2'>
+												<Label className='text-xs'>Label</Label>
+												<Input
+													value={
+														typeof props['label'] === 'string'
+															? props['label']
+															: ''
+													}
+													onChange={(e) =>
+														updateProps({ label: e.target.value })
+													}
+													disabled={disabled}
+												/>
+											</div>
+											<div className='space-y-1 sm:col-span-2'>
+												<Label className='text-xs'>Href</Label>
+												<Input
+													value={
+														typeof props['href'] === 'string'
+															? props['href']
+															: ''
+													}
+													onChange={(e) =>
+														updateProps({ href: e.target.value })
+													}
+													disabled={disabled}
+												/>
+											</div>
+											<div className='space-y-1'>
+												<Label className='text-xs'>Variant</Label>
+												<Select
+													value={
+														typeof props['variant'] === 'string' &&
+														[
+															'default',
+															'secondary',
+															'outline',
+															'destructive',
+															'ghost',
+															'link',
+														].includes(props['variant'])
+															? (props['variant'] as string)
+															: 'default'
+													}
+													onValueChange={(v) => updateProps({ variant: v })}
+													disabled={disabled}>
+													<SelectTrigger className='h-8'>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														{[
+															'default',
+															'secondary',
+															'outline',
+															'destructive',
+															'ghost',
+															'link',
+														].map((v) => (
+															<SelectItem
+																key={v}
+																value={v}>
+																{v}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</div>
+											<div className='space-y-1'>
+												<Label className='text-xs'>Size</Label>
+												<Select
+													value={
+														typeof props['size'] === 'string' &&
+														[
+															'default',
+															'sm',
+															'lg',
+															'icon',
+															'icon-sm',
+															'icon-lg',
+														].includes(props['size'])
+															? (props['size'] as string)
+															: 'default'
+													}
+													onValueChange={(v) => updateProps({ size: v })}
+													disabled={disabled}>
+													<SelectTrigger className='h-8'>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														{[
+															'default',
+															'sm',
+															'lg',
+															'icon',
+															'icon-sm',
+															'icon-lg',
+														].map((v) => (
+															<SelectItem
+																key={v}
+																value={v}>
+																{v}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</div>
+										</div>
+									) : null}
+
+									{componentId === 'badge' ? (
+										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+											<div className='space-y-1 sm:col-span-2'>
+												<Label className='text-xs'>Text</Label>
+												<Input
+													value={
+														typeof props['text'] === 'string'
+															? props['text']
+															: ''
+													}
+													onChange={(e) =>
+														updateProps({ text: e.target.value })
+													}
+													disabled={disabled}
+												/>
+											</div>
+											<div className='space-y-1'>
+												<Label className='text-xs'>Variant</Label>
+												<Select
+													value={
+														typeof props['variant'] === 'string' &&
+														[
+															'default',
+															'secondary',
+															'outline',
+															'destructive',
+														].includes(props['variant'])
+															? (props['variant'] as string)
+															: 'default'
+													}
+													onValueChange={(v) => updateProps({ variant: v })}
+													disabled={disabled}>
+													<SelectTrigger className='h-8'>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														{['default', 'secondary', 'outline', 'destructive'].map((v) => (
+															<SelectItem
+																key={v}
+																value={v}>
+																{v}
+															</SelectItem>
+														))}
+													</SelectContent>
+												</Select>
+											</div>
+										</div>
+									) : null}
+
+									{componentId !== 'alert' &&
+									componentId !== 'typography' &&
+									componentId !== 'button' &&
+									componentId !== 'badge' ? (
 										<div className='space-y-2'>
 											<p className='text-xs text-muted-foreground'>
 												No settings UI yet for <code>shadcn/{componentId || 'component'}</code>. You can still edit raw props below.
@@ -1184,8 +1373,9 @@ function renderBlockBody({
 		const href = typeof d['href'] === 'string' ? d['href'] : '';
 		const rawVariant = typeof d['variant'] === 'string' ? d['variant'] : undefined;
 		const variant =
-			rawVariant && ['default', 'secondary', 'outline', 'destructive', 'ghost'].includes(rawVariant)
-				? (rawVariant as 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost')
+			rawVariant &&
+			['default', 'secondary', 'outline', 'destructive', 'ghost', 'link'].includes(rawVariant)
+				? (rawVariant as 'default' | 'secondary' | 'outline' | 'destructive' | 'ghost' | 'link')
 				: undefined;
 		return {
 			id: createId('blk'),
@@ -1258,8 +1448,8 @@ export function PageBuilder({
 	});
 
 	useEffect(() => {
-		const t = setTimeout(() => setMounted(true), 0);
-		return () => clearTimeout(t);
+		const frame = window.requestAnimationFrame(() => setMounted(true));
+		return () => window.cancelAnimationFrame(frame);
 	}, []);
 
 	const sensors = useSensors(
@@ -1710,7 +1900,7 @@ export function PageBuilder({
 									onSetColumns={setColumns}>
 									<SortableContext
 										items={columnIds}
-										strategy={rectSortingStrategy}>
+										strategy={horizontalListSortingStrategy}>
 										<ResizablePanelGroup
 											direction='horizontal'
 											className='w-full'
@@ -1721,48 +1911,48 @@ export function PageBuilder({
 											}}>
 											{row.columns.map((col, idx) => (
 												<Fragment key={col.id}>
-													<ResizablePanel
-														id={col.id}
+													<SortableResizableColumnPanel
+														column={col}
+														rowId={row.id}
+														disabled={disabledFlag}
+														compact={compact}
 														defaultSize={sizes[idx] ?? 100}
-														minSize={5}>
-														<SortableColumn
-															key={col.id}
-															column={col}
-															rowId={row.id}
-															disabled={disabledFlag}
-															compact={compact}
-															onAddBlock={() => openAddBlock(row.id, col.id)}>
-															<SortableContext
-																items={col.blocks.map((b) => b.id)}
-																strategy={verticalListSortingStrategy}>
-																<div className='space-y-3'>
-																	{col.blocks.map((b) => (
-																		<SortableBlock
-																			key={b.id}
-																			block={b}
-																			rowId={row.id}
-																			columnId={col.id}
-																			disabled={disabledFlag}
-																			compact={compact}
-																			activeBlockId={activeBlockId}
-																			setActiveBlockId={setActiveBlockId}
-																			activeBlockRef={activeBlockRef}
-																			onRemove={() =>
-																				removeBlock(row.id, col.id, b.id)
-																			}
-																			onUpdate={(next) =>
-																				updateBlock(row.id, col.id, b.id, next)
-																			}
-																		/>
-																	))}
-																</div>
-															</SortableContext>
-														</SortableColumn>
-													</ResizablePanel>
+														onAddBlock={() => openAddBlock(row.id, col.id)}>
+														<SortableContext
+															items={col.blocks.map((b) => b.id)}
+															strategy={verticalListSortingStrategy}>
+															<div className='space-y-3'>
+																{col.blocks.map((b) => (
+																	<SortableBlock
+																		key={b.id}
+																		block={b}
+																		rowId={row.id}
+																		columnId={col.id}
+																		disabled={disabledFlag}
+																		compact={compact}
+																		activeBlockId={activeBlockId}
+																		setActiveBlockId={setActiveBlockId}
+																		activeBlockRef={activeBlockRef}
+																		onRemove={() =>
+																			removeBlock(row.id, col.id, b.id)
+																		}
+																		onUpdate={(next) =>
+																			updateBlock(row.id, col.id, b.id, next)
+																		}
+																	/>
+																))}
+															</div>
+														</SortableContext>
+													</SortableResizableColumnPanel>
 													{idx < row.columns.length - 1 ? (
 														<ResizableHandle
 															withHandle
-															className={cn(disabledFlag && 'pointer-events-none opacity-60')}
+															className={cn(
+																'[&>div]:transition-opacity hover:bg-muted/20',
+																compact &&
+																	'[&>div]:opacity-0 group-hover/row:[&>div]:opacity-100 group-focus-within/row:[&>div]:opacity-100',
+																disabledFlag && 'pointer-events-none opacity-60'
+															)}
 														/>
 													) : null}
 												</Fragment>
@@ -1794,33 +1984,4 @@ export function PageBuilder({
 	);
 }
 
-export function PageRenderer({ state }: { state: PageBuilderState }) {
-	return (
-		<div className='space-y-10'>
-			{state.rows.map((row) => {
-				const columnsCount = clampColumnsCount(row.settings?.columns ?? row.columns.length);
-				const sizes =
-					normalizeColumnSizes(row.settings?.sizes ?? null, columnsCount) ??
-					defaultColumnSizes(columnsCount);
-				const template = sizes.map((n) => `${n}fr`).join(' ');
-				return (
-					<section key={row.id}>
-						<div
-							className='grid grid-cols-1 gap-6 md:grid-cols-[var(--hp-cols)]'
-							style={{ '--hp-cols': template } as CSSProperties}>
-							{row.columns.map((col) => (
-								<div
-									key={col.id}
-									className='space-y-4'>
-									{col.blocks.map((b) => (
-										<div key={b.id}>{renderBlockPreview(b)}</div>
-									))}
-								</div>
-							))}
-						</div>
-					</section>
-				);
-			})}
-		</div>
-	);
-}
+export { PageRenderer } from './page-renderer';

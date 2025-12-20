@@ -85,6 +85,10 @@ export default async function PublicPage({
 	const menuValue = Array.isArray(sp.menu) ? sp.menu[0] : sp.menu;
 	const menuOverride = typeof menuValue === 'string' && menuValue.trim() ? menuValue.trim() : null;
 
+	const footerValue = Array.isArray(sp.footer) ? sp.footer[0] : sp.footer;
+	const footerOverride =
+		typeof footerValue === 'string' && footerValue.trim() ? footerValue.trim() : null;
+
 	// Canonicalize homepage: `/home` -> `/`
 	if (slug.trim().toLowerCase() === 'home') {
 		const params = new URLSearchParams();
@@ -121,6 +125,7 @@ export default async function PublicPage({
 			isAdmin={isAdmin}
 			defaultEdit={edit}
 			menuOverride={menuOverride}
+			footerOverride={footerOverride}
 		/>
 	);
 }

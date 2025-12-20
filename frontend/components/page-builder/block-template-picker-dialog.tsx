@@ -3,8 +3,10 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { apiFetch } from '@/lib/http';
+import { parsePageBuilderState } from '@/lib/page-builder';
 import type { BlockListOut, BlockTemplate } from '@/lib/types';
 
+import { PageRenderer } from '@/components/page-builder/page-renderer';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -96,20 +98,31 @@ export function BlockTemplatePickerDialog({
 							<div className='text-sm text-red-600'>{error}</div>
 						) : items.length > 0 ? (
 							items.map((b) => (
-								<Button
+								<div
 									key={b.id}
-									type='button'
-									variant='outline'
-									className='h-auto items-start justify-start text-left whitespace-normal'
-									onClick={() => onPick(b)}>
-									<div className='space-y-1'>
-										<div className='font-medium'>{b.title}</div>
-										<div className='text-xs text-muted-foreground'>
-											/{b.slug}
-											{b.description ? ` · ${b.description}` : ''}
+									className='rounded-md border bg-card p-3 space-y-3'>
+									<div className='flex items-start justify-between gap-3'>
+										<div className='min-w-0 space-y-1'>
+											<div className='font-medium truncate'>{b.title}</div>
+											<div className='text-xs text-muted-foreground truncate'>
+												/{b.slug}
+												{b.description ? ` · ${b.description}` : ''}
+											</div>
 										</div>
+
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => onPick(b)}>
+											Insert
+										</Button>
 									</div>
-								</Button>
+
+									<div className='rounded-md border bg-muted/10 p-3 max-h-[220px] overflow-auto'>
+										<PageRenderer state={parsePageBuilderState(b.definition)} />
+									</div>
+								</div>
 							))
 						) : (
 							<div className='text-sm text-muted-foreground'>
@@ -122,4 +135,3 @@ export function BlockTemplatePickerDialog({
 		</Dialog>
 	);
 }
-

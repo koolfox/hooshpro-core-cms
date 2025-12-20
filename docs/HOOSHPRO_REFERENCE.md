@@ -41,10 +41,10 @@ Quick check:
 
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/menus`, `/admin/media`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/menus`, `/admin/footers`, `/admin/media`
 - Homepage: `/` (renders the page with slug `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/home` redirects to `/`
-- Public preview override: `?menu=<slug>` (temporarily override the rendered menu; used by the menu builder Preview button)
+- Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override top-nav/footer menus for previews)
 
 ### Backend Routes (from code)
 
@@ -192,9 +192,9 @@ Blocks:
   - Row `settings.columns`: supports `1..12`; columns are adjustable via shadcn `Resizable` and stored in `row.settings.sizes` (percentage weights).
   - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
   - Drag/drop reorder uses dnd-kit (rows + columns + components).
-  - Builder UI modes: `Clean UI` (controls on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
+  - Builder UI modes: `Clean UI` (dashed row/column frames; controls/settings on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
   - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
-  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert` and `typography` have real previews + basic settings UI).
+  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert`, `typography`, `button`, and `badge` have basic settings UI + previews).
   - Templates drive the public top menu (`template.menu`) and footer menu (`template.footer`) so pages share a consistent nav/footer.
 
 ---
@@ -240,6 +240,7 @@ Blocks:
 ### Next (parking lot)
 
 - [ ] TipTap image upload integration
+- [ ] Theme/swatch system (parking lot): `https://github.com/jln13x/ui.jln.dev`
 - [ ] Block palette (shadcn blocks)
 - [ ] RBAC (later)
 
@@ -288,6 +289,8 @@ Existing examples:
 - Components list: `frontend/app/admin/components/page.tsx`
 - Blocks list: `frontend/app/admin/blocks/page.tsx`
 - Media library: `frontend/app/admin/media/page.tsx`
+- Menus builder: `frontend/app/admin/menus/page.tsx`
+- Footers builder: `frontend/app/admin/footers/page.tsx`
 
 ---
 

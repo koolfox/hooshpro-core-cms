@@ -179,10 +179,17 @@ function SortableMenuItemRow({
 	);
 }
 
-export default function AdminMenusScreen() {
+export function AdminMenuManager({ kind }: { kind: 'menus' | 'footers' }) {
 	const router = useRouter();
 	const pathname = usePathname();
 	const searchParams = useSearchParams();
+	const isFooters = kind === 'footers';
+
+	const nextPath = pathname;
+	const resourcePlural = isFooters ? 'Footers' : 'Menus';
+	const resourceSingular = isFooters ? 'footer' : 'menu';
+	const resourceSingularTitle = isFooters ? 'Footer' : 'Menu';
+	const previewParam = isFooters ? 'footer' : 'menu';
 
 	const urlQ = (searchParams.get('q') ?? '').trim();
 	const urlPage = parsePageParam(searchParams.get('page'));
@@ -236,7 +243,7 @@ export default function AdminMenusScreen() {
 	}, [offset, q]);
 
 	const { data, loading, error, reload } = useApiList<MenuListOut>(listUrl, {
-		nextPath: '/admin/menus',
+		nextPath,
 	});
 
 	const menus = data?.items ?? EMPTY_MENUS;
@@ -256,7 +263,7 @@ export default function AdminMenusScreen() {
 		error: selectedMenuError,
 		reload: reloadSelectedMenu,
 	} = useApiList<Menu>(selectedMenuUrl, {
-		nextPath: '/admin/menus',
+		nextPath,
 		enabled: !!selectedMenuId,
 	});
 
@@ -268,7 +275,7 @@ export default function AdminMenusScreen() {
 		reload: reloadItems,
 		setData: setItemsData,
 	} = useApiList<MenuItemListOut>(itemsUrl, {
-		nextPath: '/admin/menus',
+		nextPath,
 		enabled: !!selectedMenuId,
 	});
 
@@ -288,7 +295,7 @@ export default function AdminMenusScreen() {
 				method: 'PUT',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify({ item_ids: nextItems.map((x) => x.id) }),
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 		} catch (e) {
 			setActionError(toErrorMessage(e));
@@ -350,7 +357,7 @@ export default function AdminMenusScreen() {
 					slug: createSlug.trim(),
 					description: createDescription.trim() ? createDescription.trim() : null,
 				}),
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 
 			setCreateOpen(false);
@@ -375,7 +382,7 @@ export default function AdminMenusScreen() {
 		try {
 			await apiFetch<{ ok: boolean }>(`/api/admin/menus/${m.id}`, {
 				method: 'DELETE',
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 			setConfirmDeleteMenu(null);
 			if (selectedMenuId === m.id) {
@@ -417,7 +424,7 @@ export default function AdminMenusScreen() {
 					title: editMenuTitle.trim(),
 					description: editMenuDescription.trim() ? editMenuDescription.trim() : null,
 				}),
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 			setEditMenuOpen(false);
 			await reload();
@@ -440,7 +447,7 @@ export default function AdminMenusScreen() {
 
 	const pagesUrl = '/api/admin/pages?limit=200&offset=0';
 	const { data: pagesData, loading: pagesLoading, error: pagesError } = useApiList<PageListOut>(pagesUrl, {
-		nextPath: '/admin/menus',
+		nextPath,
 		enabled: addOpen && addType === 'page',
 	});
 	const pages = pagesData?.items ?? EMPTY_PAGES;
@@ -479,7 +486,7 @@ export default function AdminMenusScreen() {
 				method: 'POST',
 				headers: { 'content-type': 'application/json' },
 				body: JSON.stringify(payload),
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 
 			setAddOpen(false);
@@ -528,7 +535,7 @@ export default function AdminMenusScreen() {
 					method: 'PUT',
 					headers: { 'content-type': 'application/json' },
 					body: JSON.stringify(payload),
-					nextPath: '/admin/menus',
+					nextPath,
 				}
 			);
 			setEditItem(null);
@@ -550,7 +557,7 @@ export default function AdminMenusScreen() {
 		try {
 			await apiFetch<{ ok: boolean }>(`/api/admin/menus/${selectedMenuId}/items/${it.id}`, {
 				method: 'DELETE',
-				nextPath: '/admin/menus',
+				nextPath,
 			});
 			setConfirmDeleteItem(null);
 			await reloadItems();
@@ -563,8 +570,12 @@ export default function AdminMenusScreen() {
 
 	return (
 		<AdminListPage
-			title='Menus'
-			description='Build your site navigation menus with drag & drop.'
+			title={resourcePlural}
+			description={
+				isFooters
+					? 'Build footer navigation menus with drag & drop (footers are menus referenced by templates).'
+					: 'Build your site navigation menus with drag & drop.'
+			}
 			actions={
 				<div className='flex items-center gap-2'>
 					<Button
@@ -576,7 +587,7 @@ export default function AdminMenusScreen() {
 					</Button>
 					<Button onClick={() => setCreateOpen(true)}>
 						<Plus className='h-4 w-4 mr-2' />
-						New menu
+						New {resourceSingular}
 					</Button>
 				</div>
 			}
@@ -587,7 +598,7 @@ export default function AdminMenusScreen() {
 						<Input
 							value={qInput}
 							onChange={(e) => setQInput(e.target.value)}
-							placeholder='Search menus...'
+							placeholder={`Search ${resourcePlural.toLowerCase()}...`}
 							onKeyDown={(e) => {
 								if (e.key === 'Enter') applyFilters();
 								if (e.key === 'Escape') resetFilters();
@@ -621,13 +632,13 @@ export default function AdminMenusScreen() {
 			<AdminDataTable<Menu>
 				rows={menus}
 				getRowKey={(m) => m.id}
-				columns={[
-					{
-						header: 'Menu',
-						cell: (m) => (
-							<div className='space-y-1'>
-								<div className='font-medium'>{m.title}</div>
-								<div className='text-xs text-muted-foreground'>
+					columns={[
+						{
+							header: resourceSingularTitle,
+							cell: (m) => (
+								<div className='space-y-1'>
+									<div className='font-medium'>{m.title}</div>
+									<div className='text-xs text-muted-foreground'>
 									slug: <code className='text-xs'>{m.slug}</code>
 								</div>
 							</div>
@@ -712,7 +723,7 @@ export default function AdminMenusScreen() {
 									onClick={openEditMenu}
 									disabled={!canInteract}>
 									<Pencil className='h-4 w-4 mr-2' />
-									Menu settings
+									{resourceSingularTitle} settings
 								</Button>
 								<Button
 									onClick={() => setAddOpen(true)}
@@ -723,7 +734,9 @@ export default function AdminMenusScreen() {
 								<Button
 									variant='outline'
 									asChild>
-									<Link href={`/?menu=${encodeURIComponent(selectedMenu.slug)}`} target='_blank'>
+									<Link
+										href={`/?${previewParam}=${encodeURIComponent(selectedMenu.slug)}`}
+										target='_blank'>
 										Preview
 									</Link>
 								</Button>
@@ -769,7 +782,7 @@ export default function AdminMenusScreen() {
 					</div>
 				) : (
 					<div className='rounded-xl border p-6 text-sm text-muted-foreground'>
-						Create a menu (or select an existing one) to start building navigation.
+						Create a {resourceSingular} (or select an existing one) to start building navigation.
 					</div>
 				)}
 			</div>
@@ -789,8 +802,10 @@ export default function AdminMenusScreen() {
 				}}>
 				<DialogContent className='sm:max-w-lg'>
 					<DialogHeader>
-						<DialogTitle>New menu</DialogTitle>
-						<DialogDescription>Create a named navigation menu (e.g. main, footer).</DialogDescription>
+						<DialogTitle>New {resourceSingular}</DialogTitle>
+						<DialogDescription>
+							Create a named navigation {resourceSingular} (referenced by slug in templates/pages).
+						</DialogDescription>
 					</DialogHeader>
 
 					<div className='space-y-4'>
@@ -803,7 +818,7 @@ export default function AdminMenusScreen() {
 									setCreateTitle(next);
 									if (!createSlug.trim()) setCreateSlug(slugify(next));
 								}}
-								placeholder='Main'
+								placeholder={isFooters ? 'Footer' : 'Main'}
 								disabled={createSaving}
 							/>
 						</div>
@@ -813,11 +828,11 @@ export default function AdminMenusScreen() {
 							<Input
 								value={createSlug}
 								onChange={(e) => setCreateSlug(slugify(e.target.value))}
-								placeholder='main'
+								placeholder={isFooters ? 'footer' : 'main'}
 								disabled={createSaving}
 							/>
 							<p className='text-xs text-muted-foreground'>
-								Templates/pages reference menus by slug (example: <code>main</code>).
+								Templates/pages reference {resourcePlural.toLowerCase()} by slug (example: <code>{isFooters ? 'footer' : 'main'}</code>).
 							</p>
 						</div>
 
@@ -862,9 +877,9 @@ export default function AdminMenusScreen() {
 				}}>
 				<DialogContent className='sm:max-w-lg'>
 					<DialogHeader>
-						<DialogTitle>Menu settings</DialogTitle>
+						<DialogTitle>{resourceSingularTitle} settings</DialogTitle>
 						<DialogDescription>
-							Edit the menu title/description. Slug changes are disabled (keeps references stable).
+							Edit the {resourceSingular} title/description. Slug changes are disabled (keeps references stable).
 						</DialogDescription>
 					</DialogHeader>
 
@@ -921,10 +936,10 @@ export default function AdminMenusScreen() {
 				onOpenChange={(v) => !v && setConfirmDeleteMenu(null)}>
 				<AlertDialogContent>
 					<AlertDialogHeader>
-						<AlertDialogTitle>Delete menu?</AlertDialogTitle>
+						<AlertDialogTitle>Delete {resourceSingular}?</AlertDialogTitle>
 						<AlertDialogDescription>
 							This will permanently delete <b>{confirmDeleteMenu?.title}</b> and all of its items.
-							Templates/pages referencing this slug will fall back to the default menu.
+							Templates/pages referencing this slug will fall back to the built-in fallback menu.
 						</AlertDialogDescription>
 					</AlertDialogHeader>
 					{deleteMenuError ? <p className='text-sm text-red-600'>{deleteMenuError}</p> : null}
@@ -1147,4 +1162,8 @@ export default function AdminMenusScreen() {
 			</AlertDialog>
 		</AdminListPage>
 	);
+}
+
+export default function AdminMenusScreen() {
+	return <AdminMenuManager kind='menus' />;
 }
