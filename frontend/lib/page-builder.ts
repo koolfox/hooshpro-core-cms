@@ -18,6 +18,7 @@ export type PageRow = {
 	columns: PageColumn[];
 	settings?: {
 		columns?: number;
+		sizes?: number[];
 	};
 };
 
@@ -167,6 +168,30 @@ function parsePageTemplateSettings(value: unknown): PageTemplateSettings {
 			? value['footer']
 			: fallback.footer;
 	return { id, menu, footer };
+}
+
+function normalizeSizeList(values: number[]): number[] {
+	const clean = values
+		.map((v) => (Number.isFinite(v) ? Number(v) : 0))
+		.map((v) => (v > 0 ? v : 0));
+	const sum = clean.reduce((acc, v) => acc + v, 0);
+	if (!Number.isFinite(sum) || sum <= 0) return values;
+
+	const scaled = clean.map((v) => (v / sum) * 100);
+	const rounded = scaled.map((v) => Math.round(v * 100) / 100);
+	const roundedSum = rounded.reduce((acc, v) => acc + v, 0);
+	if (rounded.length > 0 && Number.isFinite(roundedSum)) {
+		rounded[rounded.length - 1] = Math.round((rounded[rounded.length - 1] + (100 - roundedSum)) * 100) / 100;
+	}
+	return rounded;
+}
+
+function parseRowSizes(value: unknown, count: number): number[] | undefined {
+	if (!Array.isArray(value)) return undefined;
+	if (value.length !== count) return undefined;
+	const nums = value.map((v) => (typeof v === 'number' ? v : Number.NaN));
+	if (!nums.every((n) => Number.isFinite(n) && n > 0)) return undefined;
+	return normalizeSizeList(nums);
 }
 
 function parseLegacyToEditorValue(blocks: unknown): EditorValue {
@@ -414,11 +439,17 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 				isRecord(settings) && typeof settings['columns'] === 'number'
 					? settings['columns']
 					: undefined;
+			const sizesSetting = isRecord(settings)
+				? parseRowSizes(settings['sizes'], columns.length)
+				: undefined;
 
 			rows.push({
 				id: rowId,
 				columns: columns.length > 0 ? columns : fallback.rows[0].columns,
-				settings: columnsSetting ? { columns: columnsSetting } : undefined,
+				settings:
+					columnsSetting || sizesSetting
+						? { columns: columnsSetting, sizes: sizesSetting }
+						: undefined,
 			});
 		}
 

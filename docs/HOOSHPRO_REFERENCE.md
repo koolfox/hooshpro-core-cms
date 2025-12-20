@@ -189,11 +189,12 @@ Blocks:
 - TipTap V2 (legacy): `{ version: 2, blocks: [ { id, type:'tiptap', data:{ doc, html } }, ... ] }`
 - Page Builder V3 (current): `{ version: 3, template:{ id, menu, footer }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
-  - Row `settings.columns`: supports `1..12`; frontend renders responsively (mobile stacks to 1 column).
+  - Row `settings.columns`: supports `1..12`; columns are adjustable via shadcn `Resizable` and stored in `row.settings.sizes` (percentage weights).
+  - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
   - Drag/drop reorder uses dnd-kit (rows + columns + components).
   - Builder UI modes: `Clean UI` (controls on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
   - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
-  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert` is the first real preview implementation).
+  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert` and `typography` have real previews + basic settings UI).
   - Templates drive the public top menu (`template.menu`) and footer menu (`template.footer`) so pages share a consistent nav/footer.
 
 ---
@@ -307,6 +308,7 @@ Existing examples:
 - Outline (tree view): `frontend/components/page-builder/page-outline.tsx` (rendered as right sidebar in edit mode)
 - Component picker modal (DB-backed): `frontend/components/page-builder/block-picker-dialog.tsx`
 - Block picker modal (DB-backed sections): `frontend/components/page-builder/block-template-picker-dialog.tsx`
+- Resizable panels (shadcn): `frontend/components/ui/resizable.tsx` (used for column sizing)
 - Public top nav (menu): `frontend/components/public/public-top-nav.tsx`
 - Editor block (TipTap + floating toolbar): `frontend/components/editor-block.tsx`
 - Media picker dialog (used by components): `frontend/components/media/media-picker-dialog.tsx`

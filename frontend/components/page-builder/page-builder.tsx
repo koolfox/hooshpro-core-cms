@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import {
@@ -40,6 +40,7 @@ import {
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import type { BlockTemplate, ComponentDef } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { shadcnDocsUrl } from '@/lib/shadcn-docs';
 
 import { EditorBlock } from '@/components/editor-block';
 import { ComponentPreview } from '@/components/components/component-preview';
@@ -59,6 +60,12 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { Textarea } from '@/components/ui/textarea';
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from '@/components/ui/resizable';
 
 type SortableRowData = { kind: 'row'; rowId: string };
 type SortableColumnData = { kind: 'column'; rowId: string; columnId: string };
@@ -78,38 +85,57 @@ function parseBuilderUiMode(value: string | null): BuilderUiMode {
 	return v === 'detailed' ? 'detailed' : 'clean';
 }
 
-const MD_GRID_COLS_CLASS: Record<number, string> = {
-	1: 'md:grid-cols-1',
-	2: 'md:grid-cols-2',
-	3: 'md:grid-cols-3',
-	4: 'md:grid-cols-4',
-	5: 'md:grid-cols-5',
-	6: 'md:grid-cols-6',
-	7: 'md:grid-cols-7',
-	8: 'md:grid-cols-8',
-	9: 'md:grid-cols-9',
-	10: 'md:grid-cols-10',
-	11: 'md:grid-cols-11',
-	12: 'md:grid-cols-12',
-};
-
 function clampColumnsCount(value: number): number {
 	if (!Number.isFinite(value)) return 1;
 	return Math.max(1, Math.min(MAX_COLUMNS, Math.round(value)));
 }
 
-function responsiveGridColsClass(count: number): string {
-	const c = clampColumnsCount(count);
-	return `grid-cols-1 ${MD_GRID_COLS_CLASS[c] ?? 'md:grid-cols-1'}`;
+function defaultColumnSizes(count: number): number[] {
+	const safe = clampColumnsCount(count);
+	const base = Math.floor((100 / safe) * 100) / 100;
+	const sizes = Array.from({ length: safe }).map(() => base);
+	const used = base * (safe - 1);
+	sizes[safe - 1] = Math.round((100 - used) * 100) / 100;
+	return sizes;
+}
+
+function normalizeColumnSizes(value: unknown, count: number): number[] | null {
+	if (!Array.isArray(value)) return null;
+	if (value.length !== count) return null;
+	const nums = value.map((v) => (typeof v === 'number' ? v : Number.NaN));
+	if (!nums.every((n) => Number.isFinite(n) && n > 0)) return null;
+	const sum = nums.reduce((acc, v) => acc + v, 0);
+	if (!Number.isFinite(sum) || sum <= 0) return null;
+	const scaled = nums.map((v) => Math.round(((v / sum) * 100) * 100) / 100);
+	const scaledSum = scaled.reduce((acc, v) => acc + v, 0);
+	if (scaled.length > 0) {
+		scaled[scaled.length - 1] =
+			Math.round((scaled[scaled.length - 1] + (100 - scaledSum)) * 100) / 100;
+	}
+	return scaled;
+}
+
+function sizesAlmostEqual(a: number[], b: number[], epsilon = 0.25): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (Math.abs(a[i] - b[i]) > epsilon) return false;
+	}
+	return true;
 }
 
 function ensureRowColumns(row: PageRow, count: number): PageRow {
 	count = clampColumnsCount(count);
 	const current = row.columns.length;
+	const sizes = defaultColumnSizes(count);
 	if (current === count) {
+		const existingSizes = normalizeColumnSizes(row.settings?.sizes ?? null, count);
 		return {
 			...row,
-			settings: { ...(row.settings ?? {}), columns: count },
+			settings: {
+				...(row.settings ?? {}),
+				columns: count,
+				sizes: existingSizes ?? sizes,
+			},
 		};
 	}
 
@@ -120,7 +146,7 @@ function ensureRowColumns(row: PageRow, count: number): PageRow {
 		}));
 		return {
 			...row,
-			settings: { ...(row.settings ?? {}), columns: count },
+			settings: { ...(row.settings ?? {}), columns: count, sizes },
 			columns: [...row.columns, ...extra],
 		};
 	}
@@ -135,7 +161,7 @@ function ensureRowColumns(row: PageRow, count: number): PageRow {
 
 	return {
 		...row,
-		settings: { ...(row.settings ?? {}), columns: count },
+		settings: { ...(row.settings ?? {}), columns: count, sizes },
 		columns: [{ ...kept[0], blocks: mergedBlocks }, ...kept.slice(1)],
 	};
 }
@@ -412,7 +438,7 @@ function SortableColumn({
 			style={style}
 			className={[
 				isDragging ? 'opacity-70' : '',
-				isOver ? 'ring-2 ring-ring rounded-xl' : '',
+				isOver ? 'ring-2 ring-ring rounded-md' : '',
 			].join(' ')}
 			{...attributes}>
 			<div
@@ -509,6 +535,24 @@ function SortableBlock({
 	onUpdate: (next: PageBlock) => void;
 }) {
 	const [mediaPickerOpen, setMediaPickerOpen] = useState(false);
+	const shadcnProps = useMemo(() => {
+		if (block.type !== 'shadcn') return {};
+		return isRecord(block.data.props) ? block.data.props : {};
+	}, [block]);
+	const shadcnPropsSerialized = useMemo(
+		() => JSON.stringify(shadcnProps, null, 2),
+		[shadcnProps]
+	);
+	const [shadcnPropsJson, setShadcnPropsJson] = useState(shadcnPropsSerialized);
+	const [shadcnPropsJsonError, setShadcnPropsJsonError] = useState<string | null>(null);
+
+	useEffect(() => {
+		const t = setTimeout(() => {
+			setShadcnPropsJson(shadcnPropsSerialized);
+			setShadcnPropsJsonError(null);
+		}, 0);
+		return () => clearTimeout(t);
+	}, [shadcnPropsSerialized]);
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging } =
 		useSortable({
 			id: block.id,
@@ -583,6 +627,10 @@ function SortableBlock({
 								setActiveBlockId,
 								setMediaPickerOpen,
 								mediaPickerOpen,
+								shadcnPropsJson,
+								setShadcnPropsJson,
+								shadcnPropsJsonError,
+								setShadcnPropsJsonError,
 								onUpdate,
 							})}
 						</div>
@@ -641,6 +689,10 @@ function SortableBlock({
 								setActiveBlockId,
 								setMediaPickerOpen,
 								mediaPickerOpen,
+								shadcnPropsJson,
+								setShadcnPropsJson,
+								shadcnPropsJsonError,
+								setShadcnPropsJsonError,
 								onUpdate,
 							})}
 						</div>
@@ -659,6 +711,10 @@ function renderBlockBody({
 	setActiveBlockId,
 	mediaPickerOpen,
 	setMediaPickerOpen,
+	shadcnPropsJson,
+	setShadcnPropsJson,
+	shadcnPropsJsonError,
+	setShadcnPropsJsonError,
 	onUpdate,
 }: {
 	block: PageBlock;
@@ -668,6 +724,10 @@ function renderBlockBody({
 	setActiveBlockId: (id: string | null) => void;
 	mediaPickerOpen: boolean;
 	setMediaPickerOpen: (open: boolean) => void;
+	shadcnPropsJson?: string;
+	setShadcnPropsJson?: (next: string) => void;
+	shadcnPropsJsonError?: string | null;
+	setShadcnPropsJsonError?: (next: string | null) => void;
 	onUpdate: (next: PageBlock) => void;
 }) {
 	return (
@@ -834,11 +894,272 @@ function renderBlockBody({
 				</div>
 			) : null}
 
+			{block.type === 'shadcn' ? (
+				(() => {
+					const shadcnBlock = block as Extract<PageBlock, { type: 'shadcn' }>;
+					const componentId = (shadcnBlock.data.component || '').trim().toLowerCase();
+					const props = isRecord(shadcnBlock.data.props) ? shadcnBlock.data.props : {};
+					const docsUrl = componentId ? shadcnDocsUrl(componentId) : null;
+
+					function updateProps(nextPartial: Record<string, unknown>) {
+						onUpdate({
+							...shadcnBlock,
+							data: {
+								...shadcnBlock.data,
+								props: {
+									...props,
+									...nextPartial,
+								},
+							},
+						});
+					}
+
+					return (
+						<div className='space-y-3'>
+							{renderBlockPreview(block)}
+							<details
+								open={!compact}
+								className='rounded-lg border bg-muted/10 p-3'>
+								<summary className='text-sm font-medium cursor-pointer select-none'>
+									Settings
+								</summary>
+								<div className='mt-3 space-y-4'>
+									{docsUrl ? (
+										<p className='text-xs text-muted-foreground'>
+											Docs:{' '}
+											<a
+												href={docsUrl}
+												target='_blank'
+												rel='noreferrer'
+												className='underline underline-offset-4'>
+												{docsUrl}
+											</a>
+										</p>
+									) : null}
+
+									{componentId === 'alert' ? (
+										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+											<div className='space-y-1'>
+												<Label className='text-xs'>Variant</Label>
+												<Select
+													value={
+														typeof props['variant'] === 'string' &&
+														['default', 'destructive'].includes(
+															props['variant']
+														)
+															? (props['variant'] as string)
+															: 'default'
+													}
+													onValueChange={(v) => updateProps({ variant: v })}
+													disabled={disabled}>
+													<SelectTrigger className='h-8'>
+														<SelectValue />
+													</SelectTrigger>
+													<SelectContent>
+														<SelectItem value='default'>default</SelectItem>
+														<SelectItem value='destructive'>destructive</SelectItem>
+													</SelectContent>
+												</Select>
+											</div>
+											<div className='space-y-1 sm:col-span-2'>
+												<Label className='text-xs'>Title</Label>
+												<Input
+													value={
+														typeof props['title'] === 'string'
+															? props['title']
+															: ''
+													}
+													onChange={(e) =>
+														updateProps({ title: e.target.value })
+													}
+													disabled={disabled}
+												/>
+											</div>
+											<div className='space-y-1 sm:col-span-2'>
+												<Label className='text-xs'>Description</Label>
+												<Input
+													value={
+														typeof props['description'] === 'string'
+															? props['description']
+															: ''
+													}
+													onChange={(e) =>
+														updateProps({ description: e.target.value })
+													}
+													disabled={disabled}
+												/>
+											</div>
+										</div>
+									) : null}
+
+									{componentId === 'typography' ? (
+										(() => {
+											const variant =
+												typeof props['variant'] === 'string' &&
+												[
+													'h1',
+													'h2',
+													'h3',
+													'h4',
+													'p',
+													'blockquote',
+													'table',
+													'list',
+													'code',
+													'lead',
+													'large',
+													'small',
+													'muted',
+												].includes(props['variant'])
+													? (props['variant'] as string)
+													: 'p';
+
+											const items =
+												Array.isArray(props['items']) &&
+												props['items'].every((x) => typeof x === 'string')
+													? (props['items'] as string[])
+													: [];
+
+											return (
+												<div className='space-y-3'>
+													<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+														<div className='space-y-1'>
+															<Label className='text-xs'>Variant</Label>
+															<Select
+																value={variant}
+																onValueChange={(v) =>
+																	updateProps({ variant: v })
+																}
+																disabled={disabled}>
+																<SelectTrigger className='h-8'>
+																	<SelectValue />
+																</SelectTrigger>
+																<SelectContent>
+																	{[
+																		'h1',
+																		'h2',
+																		'h3',
+																		'h4',
+																		'p',
+																		'lead',
+																		'large',
+																		'small',
+																		'muted',
+																		'blockquote',
+																		'code',
+																		'list',
+																		'table',
+																	].map((v) => (
+																		<SelectItem
+																			key={v}
+																			value={v}>
+																			{v}
+																		</SelectItem>
+																	))}
+																</SelectContent>
+															</Select>
+														</div>
+														<div className='space-y-1 sm:col-span-2'>
+															<Label className='text-xs'>Text</Label>
+															<Textarea
+																value={
+																	typeof props['text'] === 'string'
+																		? props['text']
+																		: ''
+																}
+																onChange={(e) =>
+																	updateProps({ text: e.target.value })
+																}
+																className='min-h-[84px]'
+																disabled={disabled}
+															/>
+														</div>
+													</div>
+
+													{variant === 'list' ? (
+														<div className='space-y-1'>
+															<Label className='text-xs'>List items (one per line)</Label>
+															<Textarea
+																value={items.join('\n')}
+																onChange={(e) =>
+																	updateProps({
+																		items: e.target.value
+																			.split('\n')
+																			.map((x) => x.trim())
+																			.filter(Boolean),
+																	})
+																}
+																className='min-h-[84px] font-mono text-xs'
+																disabled={disabled}
+															/>
+														</div>
+													) : null}
+												</div>
+											);
+										})()
+									) : null}
+
+									{componentId !== 'alert' && componentId !== 'typography' ? (
+										<div className='space-y-2'>
+											<p className='text-xs text-muted-foreground'>
+												No settings UI yet for <code>shadcn/{componentId || 'component'}</code>. You can still edit raw props below.
+											</p>
+										</div>
+									) : null}
+
+									<div className='space-y-1'>
+										<Label className='text-xs'>Props (JSON)</Label>
+										<Textarea
+											value={shadcnPropsJson ?? JSON.stringify(props, null, 2)}
+											onChange={(e) => {
+												setShadcnPropsJson?.(e.target.value);
+												setShadcnPropsJsonError?.(null);
+											}}
+											onBlur={() => {
+												try {
+													const raw = (shadcnPropsJson ?? '').trim();
+													const parsed = raw ? JSON.parse(raw) : {};
+													if (!isRecord(parsed)) {
+														setShadcnPropsJsonError?.('Props JSON must be an object.');
+														return;
+													}
+													setShadcnPropsJsonError?.(null);
+													onUpdate({
+														...shadcnBlock,
+														data: {
+															...shadcnBlock.data,
+															props: parsed,
+														},
+													});
+												} catch (e) {
+													setShadcnPropsJsonError?.(
+														e instanceof Error ? e.message : String(e)
+													);
+												}
+											}}
+											className='min-h-[120px] font-mono text-xs'
+											disabled={disabled}
+										/>
+										{shadcnPropsJsonError ? (
+											<p className='text-xs text-red-600'>{shadcnPropsJsonError}</p>
+										) : null}
+										<p className='text-xs text-muted-foreground'>
+											Stored as <code>data.props</code> for this component instance.
+										</p>
+									</div>
+								</div>
+							</details>
+						</div>
+					);
+				})()
+			) : null}
+
 			{block.type !== 'editor' &&
 			block.type !== 'button' &&
 			block.type !== 'card' &&
 			block.type !== 'separator' &&
-			block.type !== 'image'
+			block.type !== 'image' &&
+			block.type !== 'shadcn'
 				? renderBlockPreview(block)
 				: null}
 		</>
@@ -976,10 +1297,40 @@ export function PageBuilder({
 		});
 	}
 
+	function setRowSizes(rowId: string, sizes: number[]) {
+		if (disabledFlag) return;
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				const columnsCount = clampColumnsCount(r.settings?.columns ?? r.columns.length);
+				const normalized = normalizeColumnSizes(sizes, columnsCount);
+				if (!normalized) return r;
+
+				const existing = normalizeColumnSizes(r.settings?.sizes ?? null, columnsCount);
+				if (existing && sizesAlmostEqual(existing, normalized)) return r;
+
+				if (!existing) {
+					const defaults = defaultColumnSizes(columnsCount);
+					if (sizesAlmostEqual(defaults, normalized)) return r;
+				}
+
+				return {
+					...r,
+					settings: {
+						...(r.settings ?? {}),
+						columns: columnsCount,
+						sizes: normalized,
+					},
+				};
+			}),
+		});
+	}
+
 	function addRow() {
 		const nextRow: PageRow = {
 			id: createId('row'),
-			settings: { columns: 1 },
+			settings: { columns: 1, sizes: defaultColumnSizes(1) },
 			columns: [
 				{
 					id: createId('col'),
@@ -995,10 +1346,10 @@ export function PageBuilder({
 	}
 
 	function addEditorSection() {
-		const nextRow: PageRow = {
-			id: createId('row'),
-			settings: { columns: 1 },
-			columns: [
+			const nextRow: PageRow = {
+				id: createId('row'),
+				settings: { columns: 1, sizes: defaultColumnSizes(1) },
+				columns: [
 				{
 					id: createId('col'),
 					blocks: [
@@ -1029,7 +1380,7 @@ export function PageBuilder({
 					: [
 							{
 								id: createId('row'),
-								settings: { columns: 1 },
+								settings: { columns: 1, sizes: defaultColumnSizes(1) },
 								columns: [
 									{
 										id: createId('col'),
@@ -1164,10 +1515,20 @@ export function PageBuilder({
 			const newIndex = row.columns.findIndex((c) => c.id === over.id);
 			if (oldIndex === -1 || newIndex === -1) return;
 
+			const nextSizes =
+				row.settings?.sizes && row.settings.sizes.length === row.columns.length
+					? arrayMove(row.settings.sizes, oldIndex, newIndex)
+					: row.settings?.sizes;
+
 			const nextRows = [...value.rows];
 			nextRows[rowIndex] = {
 				...row,
 				columns: arrayMove(row.columns, oldIndex, newIndex),
+				settings: row.settings
+					? { ...row.settings, sizes: nextSizes }
+					: nextSizes
+						? { columns: row.columns.length, sizes: nextSizes }
+						: undefined,
 			};
 			onChange({ ...value, rows: nextRows });
 			return;
@@ -1335,6 +1696,9 @@ export function PageBuilder({
 							);
 
 							const columnIds = row.columns.map((c) => c.id);
+							const sizes =
+								normalizeColumnSizes(row.settings?.sizes ?? null, columnsCount) ??
+								defaultColumnSizes(columnsCount);
 
 							return (
 								<SortableRow
@@ -1344,47 +1708,67 @@ export function PageBuilder({
 									compact={compact}
 									onRemoveRow={removeRow}
 									onSetColumns={setColumns}>
-									<div className={`grid ${responsiveGridColsClass(columnsCount)} gap-4`}>
-										<SortableContext
-											items={columnIds}
-											strategy={rectSortingStrategy}>
-											{row.columns.map((col) => (
-												<SortableColumn
-													key={col.id}
-													column={col}
-													rowId={row.id}
-													disabled={disabledFlag}
-													compact={compact}
-													onAddBlock={() => openAddBlock(row.id, col.id)}>
-													<SortableContext
-														items={col.blocks.map((b) => b.id)}
-														strategy={verticalListSortingStrategy}>
-														<div className='space-y-3'>
-															{col.blocks.map((b) => (
-																<SortableBlock
-																	key={b.id}
-																	block={b}
-																	rowId={row.id}
-																	columnId={col.id}
-																	disabled={disabledFlag}
-																	compact={compact}
-																	activeBlockId={activeBlockId}
-																	setActiveBlockId={setActiveBlockId}
-																	activeBlockRef={activeBlockRef}
-																	onRemove={() =>
-																		removeBlock(row.id, col.id, b.id)
-																	}
-																	onUpdate={(next) =>
-																		updateBlock(row.id, col.id, b.id, next)
-																	}
-																/>
-															))}
-														</div>
-													</SortableContext>
-												</SortableColumn>
+									<SortableContext
+										items={columnIds}
+										strategy={rectSortingStrategy}>
+										<ResizablePanelGroup
+											direction='horizontal'
+											className='w-full'
+											onLayoutChange={(layout) => {
+												const ordered = row.columns.map((c) => layout[c.id]);
+												if (!ordered.every((n) => typeof n === 'number')) return;
+												setRowSizes(row.id, ordered as number[]);
+											}}>
+											{row.columns.map((col, idx) => (
+												<Fragment key={col.id}>
+													<ResizablePanel
+														id={col.id}
+														defaultSize={sizes[idx] ?? 100}
+														minSize={5}>
+														<SortableColumn
+															key={col.id}
+															column={col}
+															rowId={row.id}
+															disabled={disabledFlag}
+															compact={compact}
+															onAddBlock={() => openAddBlock(row.id, col.id)}>
+															<SortableContext
+																items={col.blocks.map((b) => b.id)}
+																strategy={verticalListSortingStrategy}>
+																<div className='space-y-3'>
+																	{col.blocks.map((b) => (
+																		<SortableBlock
+																			key={b.id}
+																			block={b}
+																			rowId={row.id}
+																			columnId={col.id}
+																			disabled={disabledFlag}
+																			compact={compact}
+																			activeBlockId={activeBlockId}
+																			setActiveBlockId={setActiveBlockId}
+																			activeBlockRef={activeBlockRef}
+																			onRemove={() =>
+																				removeBlock(row.id, col.id, b.id)
+																			}
+																			onUpdate={(next) =>
+																				updateBlock(row.id, col.id, b.id, next)
+																			}
+																		/>
+																	))}
+																</div>
+															</SortableContext>
+														</SortableColumn>
+													</ResizablePanel>
+													{idx < row.columns.length - 1 ? (
+														<ResizableHandle
+															withHandle
+															className={cn(disabledFlag && 'pointer-events-none opacity-60')}
+														/>
+													) : null}
+												</Fragment>
 											))}
-										</SortableContext>
-									</div>
+										</ResizablePanelGroup>
+									</SortableContext>
 								</SortableRow>
 							);
 						})}
@@ -1414,13 +1798,16 @@ export function PageRenderer({ state }: { state: PageBuilderState }) {
 	return (
 		<div className='space-y-10'>
 			{state.rows.map((row) => {
-				const columnsCount = clampColumnsCount(
-					row.settings?.columns ?? row.columns.length
-				);
+				const columnsCount = clampColumnsCount(row.settings?.columns ?? row.columns.length);
+				const sizes =
+					normalizeColumnSizes(row.settings?.sizes ?? null, columnsCount) ??
+					defaultColumnSizes(columnsCount);
+				const template = sizes.map((n) => `${n}fr`).join(' ');
 				return (
 					<section key={row.id}>
 						<div
-							className={`grid ${responsiveGridColsClass(columnsCount)} gap-6`}>
+							className='grid grid-cols-1 gap-6 md:grid-cols-[var(--hp-cols)]'
+							style={{ '--hp-cols': template } as CSSProperties}>
 							{row.columns.map((col) => (
 								<div
 									key={col.id}
