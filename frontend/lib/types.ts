@@ -92,6 +92,7 @@ export type PageTemplate = {
 	title: string;
 	description?: string | null;
 	menu: string;
+	footer: string;
 	created_at: string;
 	updated_at: string;
 };

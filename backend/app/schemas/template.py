@@ -32,10 +32,12 @@ class TemplateCreate(BaseModel):
     slug: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
     menu: str = Field(default="main", min_length=1, max_length=60)
+    footer: str = Field(default="none", min_length=1, max_length=60)
 
     def normalized(self) -> "TemplateCreate":
         self.slug = validate_template_slug(self.slug)
         self.menu = (self.menu or "main").strip()[:60] or "main"
+        self.footer = (self.footer or "none").strip()[:60] or "none"
         return self
 
 
@@ -44,12 +46,15 @@ class TemplateUpdate(BaseModel):
     slug: Optional[str] = Field(default=None, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
     menu: Optional[str] = Field(default=None, max_length=60)
+    footer: Optional[str] = Field(default=None, max_length=60)
 
     def normalized(self) -> "TemplateUpdate":
         if self.slug is not None:
             self.slug = validate_template_slug(self.slug)
         if self.menu is not None:
             self.menu = (self.menu or "main").strip()[:60] or "main"
+        if self.footer is not None:
+            self.footer = (self.footer or "none").strip()[:60] or "none"
         return self
 
 
@@ -59,6 +64,7 @@ class TemplateOut(BaseModel):
     title: str
     description: Optional[str] = None
     menu: str
+    footer: str
     created_at: datetime
     updated_at: datetime
 
@@ -68,4 +74,3 @@ class TemplateListOut(BaseModel):
     total: int
     limit: int
     offset: int
-

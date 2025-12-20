@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { LayoutGrid, List } from 'lucide-react';
 
 import { apiFetch } from '@/lib/http';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
@@ -46,10 +47,18 @@ import {
 const LIMIT = 50;
 const EMPTY_COMPONENTS: ComponentDef[] = [];
 
+type ViewMode = 'table' | 'gallery';
+
 function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : NaN;
 	if (!Number.isFinite(n) || n < 1) return 1;
 	return n;
+}
+
+function parseViewParam(value: string | null): ViewMode {
+	const v = (value ?? '').trim().toLowerCase();
+	if (v === 'gallery' || v === 'grid') return 'gallery';
+	return 'table';
 }
 
 function toErrorMessage(error: unknown): string {
@@ -96,10 +105,12 @@ export default function AdminComponentsScreen() {
 	const urlType = (searchParams.get('type') ?? 'all').trim() || 'all';
 	const urlPage = parsePageParam(searchParams.get('page'));
 	const urlOffset = (urlPage - 1) * LIMIT;
+	const urlView = parseViewParam(searchParams.get('view'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [typeInput, setTypeInput] = useState<'all' | string>(urlType);
+	const [view, setView] = useState<ViewMode>(urlView);
 
 	const [q, setQ] = useState(urlQ);
 	const [type, setType] = useState<'all' | string>(urlType);
@@ -112,9 +123,10 @@ export default function AdminComponentsScreen() {
 		setType(urlType);
 		setQInput(urlQ);
 		setTypeInput(urlType);
-	}, [urlOffset, urlQ, urlType]);
+		setView(urlView);
+	}, [urlOffset, urlQ, urlType, urlView]);
 
-	function updateUrl(next: { page?: number; q?: string; type?: string }) {
+	function updateUrl(next: { page?: number; q?: string; type?: string; view?: ViewMode }) {
 		const params = new URLSearchParams(searchParams.toString());
 
 		const page = next.page ?? parsePageParam(params.get('page'));
@@ -128,6 +140,10 @@ export default function AdminComponentsScreen() {
 		const nextType = (next.type ?? params.get('type') ?? 'all').trim() || 'all';
 		if (nextType !== 'all') params.set('type', nextType);
 		else params.delete('type');
+
+		const nextView = next.view ?? parseViewParam(params.get('view'));
+		if (nextView !== 'table') params.set('view', nextView);
+		else params.delete('view');
 
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
@@ -174,6 +190,11 @@ export default function AdminComponentsScreen() {
 		setType('all');
 		updateUrl({ page: 1, q: '', type: 'all' });
 		qRef.current?.focus();
+	}
+
+	function setViewMode(next: ViewMode) {
+		setView(next);
+		updateUrl({ view: next });
 	}
 
 	const [editorOpen, setEditorOpen] = useState(false);
@@ -314,11 +335,29 @@ export default function AdminComponentsScreen() {
 			title='Components'
 			description='Reusable component presets used by the page editor.'
 			actions={
-				<Button
-					onClick={openCreate}
-					disabled={loading}>
-					New component
-				</Button>
+				<div className='flex items-center gap-2'>
+					<Button
+						variant={view === 'table' ? 'secondary' : 'outline'}
+						size='sm'
+						onClick={() => setViewMode('table')}
+						disabled={loading}
+						title='Table view'>
+						<List className='h-4 w-4' />
+					</Button>
+					<Button
+						variant={view === 'gallery' ? 'secondary' : 'outline'}
+						size='sm'
+						onClick={() => setViewMode('gallery')}
+						disabled={loading}
+						title='Gallery view'>
+						<LayoutGrid className='h-4 w-4' />
+					</Button>
+					<Button
+						onClick={openCreate}
+						disabled={loading}>
+						New component
+					</Button>
+				</div>
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
@@ -381,9 +420,63 @@ export default function AdminComponentsScreen() {
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
 			{actionError ? <p className='text-sm text-red-600'>{actionError}</p> : null}
 
-			<AdminDataTable
-				rows={items}
-				getRowKey={(c) => c.id}
+			{view === 'gallery' ? (
+				<div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
+					{items.map((c) => (
+						<div
+							key={c.id}
+							className='rounded-xl border bg-card p-4 space-y-3'>
+							<div className='flex items-start justify-between gap-3'>
+								<div className='min-w-0'>
+									<div className='font-medium truncate'>{c.title}</div>
+									<div className='text-xs text-muted-foreground truncate'>/{c.slug}</div>
+								</div>
+								<Badge variant='secondary'>{c.type}</Badge>
+							</div>
+
+							<div className='rounded-lg border bg-muted/10 p-3'>
+								<ComponentPreview
+									component={{
+										title: c.title,
+										type: c.type,
+										data: c.data,
+									}}
+									className='max-w-none'
+								/>
+							</div>
+
+							<div className='flex items-center justify-between gap-3'>
+								<span className='text-xs text-muted-foreground'>
+									Updated {formatIso(c.updated_at)}
+								</span>
+								<div className='flex items-center gap-2'>
+									<Button
+										size='sm'
+										variant='outline'
+										onClick={() => openEdit(c)}>
+										Edit
+									</Button>
+									<Button
+										size='sm'
+										variant='secondary'
+										onClick={() => openClone(c)}>
+										Clone
+									</Button>
+									<Button
+										size='sm'
+										variant='destructive'
+										onClick={() => setConfirmDelete(c)}>
+										Delete
+									</Button>
+								</div>
+							</div>
+						</div>
+					))}
+				</div>
+			) : (
+				<AdminDataTable
+					rows={items}
+					getRowKey={(c) => c.id}
 					columns={[
 						{
 							header: 'Title',
@@ -412,19 +505,19 @@ export default function AdminComponentsScreen() {
 							header: 'Type',
 							cell: (c) => (
 								<Badge variant='secondary'>{c.type}</Badge>
-						),
-						headerClassName: 'w-[140px]',
-					},
-					{
-						header: 'Updated',
-						cell: (c) => (
-							<span className='text-xs text-muted-foreground'>
-								{formatIso(c.updated_at)}
-							</span>
-						),
-						headerClassName: 'w-[220px]',
-					},
-					{
+							),
+							headerClassName: 'w-[140px]',
+						},
+						{
+							header: 'Updated',
+							cell: (c) => (
+								<span className='text-xs text-muted-foreground'>
+									{formatIso(c.updated_at)}
+								</span>
+							),
+							headerClassName: 'w-[220px]',
+						},
+						{
 							header: '',
 							cell: (c) => (
 								<div className='flex items-center justify-end gap-2'>
@@ -453,6 +546,7 @@ export default function AdminComponentsScreen() {
 						},
 					]}
 				/>
+			)}
 
 			<Dialog
 				open={editorOpen}

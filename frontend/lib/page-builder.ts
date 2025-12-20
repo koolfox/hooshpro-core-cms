@@ -5,6 +5,7 @@ export type EditorValue = { doc: JSONContent; html: string };
 export type PageTemplateSettings = {
 	id: string;
 	menu: string;
+	footer: string;
 };
 
 export type PageBuilderState = {
@@ -153,14 +154,18 @@ function parseEditorValue(value: unknown): EditorValue | null {
 }
 
 function parsePageTemplateSettings(value: unknown): PageTemplateSettings {
-	const fallback: PageTemplateSettings = { id: 'default', menu: 'main' };
+	const fallback: PageTemplateSettings = { id: 'default', menu: 'main', footer: 'none' };
 	if (!isRecord(value)) return fallback;
 	const id = typeof value['id'] === 'string' && value['id'].trim() ? value['id'] : fallback.id;
 	const menu =
 		typeof value['menu'] === 'string' && value['menu'].trim()
 			? value['menu']
 			: fallback.menu;
-	return { id, menu };
+	const footer =
+		typeof value['footer'] === 'string' && value['footer'].trim()
+			? value['footer']
+			: fallback.footer;
+	return { id, menu, footer };
 }
 
 function parseLegacyToEditorValue(blocks: unknown): EditorValue {
@@ -228,7 +233,7 @@ function parseLegacyToEditorValue(blocks: unknown): EditorValue {
 
 export function defaultPageBuilderState(): PageBuilderState {
 	return {
-		template: { id: 'default', menu: 'main' },
+		template: { id: 'default', menu: 'main', footer: 'none' },
 		rows: [
 			{
 				id: stableId('row', 0),
@@ -436,7 +441,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 		const blocksInColumn: PageBlock[] = tiptap.length > 0 ? tiptap : [legacyBlock];
 
 		return {
-			template: { id: 'default', menu: 'main' },
+			template: { id: 'default', menu: 'main', footer: 'none' },
 			rows: [
 				{
 					id: stableId('row', 0),
@@ -449,7 +454,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 
 	// v1 legacy
 	return {
-		template: { id: 'default', menu: 'main' },
+		template: { id: 'default', menu: 'main', footer: 'none' },
 		rows: [
 			{
 				id: stableId('row', 0),

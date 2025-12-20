@@ -14,6 +14,7 @@ import {
 } from '@/lib/page-builder';
 
 import { PublicTopNav } from '@/components/public/public-top-nav';
+import { PublicFooterNav } from '@/components/public/public-footer-nav';
 import { PageBuilder, PageRenderer } from '@/components/page-builder/page-builder';
 
 import { AppSidebar } from '@/components/app-sidebar';
@@ -92,6 +93,7 @@ export function PublicPageClient({
 			: editMode
 				? builder.template.menu
 				: viewState.template.menu;
+	const activeFooterId = editMode ? builder.template.footer : viewState.template.footer;
 
 	const templatesBySlug = useMemo(() => {
 		const m = new Map<string, PageTemplate>();
@@ -102,7 +104,8 @@ export function PublicPageClient({
 	const menuSlugs = useMemo(() => new Set(menus.map((m) => m.slug)), [menus]);
 
 	useEffect(() => {
-		setHydrated(true);
+		const t = setTimeout(() => setHydrated(true), 0);
+		return () => clearTimeout(t);
 	}, []);
 
 	useEffect(() => {
@@ -332,6 +335,8 @@ export function PublicPageClient({
 
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
 
+			{activeFooterId !== 'none' ? <PublicFooterNav menuId={activeFooterId} /> : null}
+
 			{/* Settings dialog */}
 			<Dialog
 				open={settingsOpen}
@@ -359,6 +364,7 @@ export function PublicPageClient({
 														...prev.template,
 														id: v,
 														menu: tmpl ? tmpl.menu : prev.template.menu,
+														footer: tmpl ? tmpl.footer : prev.template.footer,
 													},
 												};
 											})
@@ -445,6 +451,45 @@ export function PublicPageClient({
 									<p className='text-xs text-red-600'>{menusError}</p>
 								) : null}
 							</div>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Footer</Label>
+							<Select
+								value={builder.template.footer}
+								onValueChange={(v) =>
+									setBuilder({
+										...builder,
+										template: {
+											...builder.template,
+											footer: v,
+										},
+									})
+								}
+								disabled={saving || menusLoading}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='none'>none</SelectItem>
+									{builder.template.footer !== 'none' && !menuSlugs.has(builder.template.footer) ? (
+										<SelectItem value={builder.template.footer}>
+											{builder.template.footer} (missing)
+										</SelectItem>
+									) : null}
+									{menus.map((m) => (
+										<SelectItem
+											key={m.id}
+											value={m.slug}>
+											{m.slug}
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+							{menusLoading ? (
+								<p className='text-xs text-muted-foreground'>Loading menus…</p>
+							) : null}
+							{menusError ? <p className='text-xs text-red-600'>{menusError}</p> : null}
 						</div>
 
 						<div className='space-y-2'>

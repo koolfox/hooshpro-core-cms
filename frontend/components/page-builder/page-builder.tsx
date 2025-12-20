@@ -39,6 +39,7 @@ import {
 } from '@/lib/page-builder';
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import type { BlockTemplate, ComponentDef } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 import { EditorBlock } from '@/components/editor-block';
 import { BlockPickerDialog, type ComponentPickerItem } from './block-picker-dialog';
@@ -57,6 +58,11 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import {
+	ResizableHandle,
+	ResizablePanel,
+	ResizablePanelGroup,
+} from '@/components/ui/resizable';
 
 type SortableRowData = { kind: 'row'; rowId: string };
 type SortableColumnData = { kind: 'column'; rowId: string; columnId: string };
@@ -67,6 +73,14 @@ type SortableBlockData = {
 };
 
 const MAX_COLUMNS = 12;
+const BUILDER_UI_MODE_KEY = 'hooshpro_builder_ui_mode';
+
+type BuilderUiMode = 'clean' | 'detailed';
+
+function parseBuilderUiMode(value: string | null): BuilderUiMode {
+	const v = (value ?? '').trim().toLowerCase();
+	return v === 'detailed' ? 'detailed' : 'clean';
+}
 
 const MD_GRID_COLS_CLASS: Record<number, string> = {
 	1: 'md:grid-cols-1',
@@ -224,15 +238,23 @@ function renderBlockPreview(block: PageBlock) {
 	);
 }
 
+function describeBlock(block: PageBlock): string {
+	if (block.type === 'unknown') return block.data.originalType;
+	if (block.type === 'shadcn') return `shadcn/${block.data.component || 'component'}`;
+	return block.type;
+}
+
 function SortableRow({
 	row,
 	disabled,
+	compact,
 	onRemoveRow,
 	onSetColumns,
 	children,
 }: {
 	row: PageRow;
 	disabled: boolean;
+	compact: boolean;
 	onRemoveRow: (rowId: string) => void;
 	onSetColumns: (rowId: string, columns: number) => void;
 	children: React.ReactNode;
@@ -257,55 +279,109 @@ function SortableRow({
 			style={style}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
-			<div className='rounded-xl border bg-card/50'>
-				<div className='flex items-center justify-between gap-2 p-3 border-b'>
-					<div className='flex items-center gap-2'>
-						<Button
-							type='button'
-							variant='ghost'
-							size='icon'
-							className='cursor-grab active:cursor-grabbing touch-none'
-							ref={setActivatorNodeRef}
-							disabled={disabled}
-							{...listeners}>
-							<GripVertical className='h-4 w-4' />
-							<span className='sr-only'>Drag row</span>
-						</Button>
-						<span className='text-xs text-muted-foreground'>Row</span>
+			<div className={cn('rounded-xl border bg-card/50', compact && 'group/row hover:ring-2 hover:ring-ring')}>
+				{compact ? (
+					<div className='p-4 pt-10 relative'>
+						<div className='absolute top-3 left-3 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto'>
+							<Button
+								type='button'
+								variant='ghost'
+								size='icon'
+								className='cursor-grab active:cursor-grabbing touch-none'
+								ref={setActivatorNodeRef}
+								disabled={disabled}
+								{...listeners}>
+								<GripVertical className='h-4 w-4' />
+								<span className='sr-only'>Drag row</span>
+							</Button>
+
+							<Select
+								value={String(columnsCount)}
+								onValueChange={(v) => onSetColumns(row.id, clampColumnsCount(Number(v)))}
+								disabled={disabled}>
+								<SelectTrigger className='w-[110px] h-8'>
+									<SelectValue placeholder='Columns' />
+								</SelectTrigger>
+								<SelectContent>
+									{Array.from({ length: MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
+										<SelectItem
+											key={n}
+											value={String(n)}>
+											{n} col
+										</SelectItem>
+									))}
+								</SelectContent>
+							</Select>
+
+							<Button
+								type='button'
+								variant='outline'
+								size='sm'
+								onClick={() => onRemoveRow(row.id)}
+								disabled={disabled}>
+								<Trash2 className='h-4 w-4 mr-2' />
+								Remove
+							</Button>
+						</div>
+
+						{children}
 					</div>
+				) : (
+					<>
+						<div className='flex items-center justify-between gap-2 p-3 border-b'>
+							<div className='flex items-center gap-2'>
+								<Button
+									type='button'
+									variant='ghost'
+									size='icon'
+									className='cursor-grab active:cursor-grabbing touch-none'
+									ref={setActivatorNodeRef}
+									disabled={disabled}
+									{...listeners}>
+									<GripVertical className='h-4 w-4' />
+									<span className='sr-only'>Drag row</span>
+								</Button>
+								<span className='text-xs text-muted-foreground'>Row</span>
+							</div>
 
-					<div className='flex items-center gap-2'>
-						<Select
-							value={String(columnsCount)}
-							onValueChange={(v) => onSetColumns(row.id, clampColumnsCount(Number(v)))}
-							disabled={disabled}>
-							<SelectTrigger className='w-[110px]'>
-								<SelectValue placeholder='Columns' />
-							</SelectTrigger>
-							<SelectContent>
-								{Array.from({ length: MAX_COLUMNS }, (_, i) => i + 1).map((n) => (
-									<SelectItem
-										key={n}
-										value={String(n)}>
-										{n} col
-									</SelectItem>
-								))}
-							</SelectContent>
-						</Select>
+							<div className='flex items-center gap-2'>
+								<Select
+									value={String(columnsCount)}
+									onValueChange={(v) =>
+										onSetColumns(row.id, clampColumnsCount(Number(v)))
+									}
+									disabled={disabled}>
+									<SelectTrigger className='w-[110px]'>
+										<SelectValue placeholder='Columns' />
+									</SelectTrigger>
+									<SelectContent>
+										{Array.from({ length: MAX_COLUMNS }, (_, i) => i + 1).map(
+											(n) => (
+												<SelectItem
+													key={n}
+													value={String(n)}>
+													{n} col
+												</SelectItem>
+											)
+										)}
+									</SelectContent>
+								</Select>
 
-						<Button
-							type='button'
-							variant='outline'
-							size='sm'
-							onClick={() => onRemoveRow(row.id)}
-							disabled={disabled}>
-							<Trash2 className='h-4 w-4 mr-2' />
-							Remove
-						</Button>
-					</div>
-				</div>
+								<Button
+									type='button'
+									variant='outline'
+									size='sm'
+									onClick={() => onRemoveRow(row.id)}
+									disabled={disabled}>
+									<Trash2 className='h-4 w-4 mr-2' />
+									Remove
+								</Button>
+							</div>
+						</div>
 
-				<div className='p-4'>{children}</div>
+						<div className='p-4'>{children}</div>
+					</>
+				)}
 			</div>
 		</section>
 	);
@@ -315,12 +391,14 @@ function SortableColumn({
 	column,
 	rowId,
 	disabled,
+	compact,
 	onAddBlock,
 	children,
 }: {
 	column: PageColumn;
 	rowId: string;
 	disabled: boolean;
+	compact: boolean;
 	onAddBlock: () => void;
 	children: React.ReactNode;
 }) {
@@ -345,35 +423,71 @@ function SortableColumn({
 				isOver ? 'ring-2 ring-ring rounded-xl' : '',
 			].join(' ')}
 			{...attributes}>
-			<div className='rounded-xl border bg-background p-3 space-y-3 min-h-[120px]'>
-				<div className='flex items-center justify-between gap-2'>
-					<div className='flex items-center gap-2'>
-						<Button
-							type='button'
-							variant='ghost'
-							size='icon'
-							className='cursor-grab active:cursor-grabbing touch-none'
-							ref={setActivatorNodeRef}
-							disabled={disabled}
-							{...listeners}>
-							<GripVertical className='h-4 w-4' />
-							<span className='sr-only'>Drag column</span>
-						</Button>
-						<span className='text-xs text-muted-foreground'>Column</span>
-					</div>
+			<div
+				className={cn(
+					'rounded-xl border bg-background min-h-[120px]',
+					compact ? 'relative p-3 pt-10 group/col' : 'p-3 space-y-3'
+				)}>
+				{compact ? (
+					<>
+						<div className='absolute top-3 left-3 right-3 flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-opacity group-hover/col:opacity-100 group-hover/col:pointer-events-auto group-focus-within/col:opacity-100 group-focus-within/col:pointer-events-auto'>
+							<Button
+								type='button'
+								variant='ghost'
+								size='icon'
+								className='cursor-grab active:cursor-grabbing touch-none'
+								ref={setActivatorNodeRef}
+								disabled={disabled}
+								{...listeners}>
+								<GripVertical className='h-4 w-4' />
+								<span className='sr-only'>Drag column</span>
+							</Button>
 
-					<Button
-						type='button'
-						variant='outline'
-						size='sm'
-						onClick={onAddBlock}
-						disabled={disabled}>
-						<Plus className='h-4 w-4 mr-2' />
-						Add component
-					</Button>
-				</div>
+							<Button
+								type='button'
+								variant='outline'
+								size='sm'
+								onClick={onAddBlock}
+								disabled={disabled}>
+								<Plus className='h-4 w-4 mr-2' />
+								Add component
+							</Button>
+						</div>
 
-				{children}
+						<div className='space-y-3'>{children}</div>
+					</>
+				) : (
+					<>
+						<div className='flex items-center justify-between gap-2'>
+							<div className='flex items-center gap-2'>
+								<Button
+									type='button'
+									variant='ghost'
+									size='icon'
+									className='cursor-grab active:cursor-grabbing touch-none'
+									ref={setActivatorNodeRef}
+									disabled={disabled}
+									{...listeners}>
+									<GripVertical className='h-4 w-4' />
+									<span className='sr-only'>Drag column</span>
+								</Button>
+								<span className='text-xs text-muted-foreground'>Column</span>
+							</div>
+
+							<Button
+								type='button'
+								variant='outline'
+								size='sm'
+								onClick={onAddBlock}
+								disabled={disabled}>
+								<Plus className='h-4 w-4 mr-2' />
+								Add component
+							</Button>
+						</div>
+
+						{children}
+					</>
+				)}
 			</div>
 		</div>
 	);
@@ -384,6 +498,7 @@ function SortableBlock({
 	rowId,
 	columnId,
 	disabled,
+	compact,
 	activeBlockId,
 	setActiveBlockId,
 	activeBlockRef,
@@ -394,6 +509,7 @@ function SortableBlock({
 	rowId: string;
 	columnId: string;
 	disabled: boolean;
+	compact: boolean;
 	activeBlockId: string | null;
 	setActiveBlockId: (id: string | null) => void;
 	activeBlockRef: React.RefObject<HTMLDivElement | null>;
@@ -414,6 +530,7 @@ function SortableBlock({
 	};
 
 	const isActive = activeBlockId === block.id;
+	const label = describeBlock(block);
 
 	return (
 		<div
@@ -421,160 +538,256 @@ function SortableBlock({
 			style={style}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
-			<div className='rounded-xl border bg-background'>
-				<div className='flex items-center justify-between gap-2 p-2 border-b'>
-					<div className='flex items-center gap-2'>
-						<Button
-							type='button'
-							variant='ghost'
-							size='icon'
-							className='cursor-grab active:cursor-grabbing touch-none'
-							ref={setActivatorNodeRef}
-							disabled={disabled}
-							{...listeners}>
-							<GripVertical className='h-4 w-4' />
-							<span className='sr-only'>Drag component</span>
-						</Button>
-						<span className='text-xs text-muted-foreground'>
-							{block.type === 'unknown'
-								? block.data.originalType
-								: block.type === 'shadcn'
-									? `shadcn/${block.data.component || 'component'}`
-									: block.type}
-						</span>
-					</div>
+			<div className={cn('rounded-xl border bg-background', compact && 'group/block')}>
+				{compact ? (
+					<div className='p-3 pt-10 relative'>
+						<div className='absolute top-3 left-3 right-3 flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-opacity group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'>
+							<div className='flex items-center gap-2 min-w-0'>
+								<Button
+									type='button'
+									variant='ghost'
+									size='icon'
+									className='cursor-grab active:cursor-grabbing touch-none shrink-0'
+									ref={setActivatorNodeRef}
+									disabled={disabled}
+									{...listeners}>
+									<GripVertical className='h-4 w-4' />
+									<span className='sr-only'>Drag component</span>
+								</Button>
+								<span className='text-xs text-muted-foreground truncate'>{label}</span>
+							</div>
 
-					<div className='flex items-center gap-2'>
-						{block.type === 'editor' && isActive ? (
-							<Button
-								type='button'
-								variant='outline'
-								size='sm'
-								onClick={() => setActiveBlockId(null)}
-								disabled={disabled}>
-								Done
-							</Button>
-						) : null}
+							<div className='flex items-center gap-2 shrink-0'>
+								{block.type === 'editor' && isActive ? (
+									<Button
+										type='button'
+										variant='outline'
+										size='sm'
+										onClick={() => setActiveBlockId(null)}
+										disabled={disabled}>
+										Done
+									</Button>
+								) : null}
 
-						<Button
-							type='button'
-							variant='outline'
-							size='sm'
-							onClick={onRemove}
-							disabled={disabled}>
-							Remove
-						</Button>
+								<Button
+									type='button'
+									variant='outline'
+									size='sm'
+									onClick={onRemove}
+									disabled={disabled}>
+									Remove
+								</Button>
+							</div>
+						</div>
+
+						<div ref={isActive ? activeBlockRef : undefined}>
+							{renderBlockBody({
+								block,
+								isActive,
+								disabled,
+								compact,
+								setActiveBlockId,
+								setMediaPickerOpen,
+								mediaPickerOpen,
+								onUpdate,
+							})}
+						</div>
 					</div>
+				) : (
+					<>
+						<div className='flex items-center justify-between gap-2 p-2 border-b'>
+							<div className='flex items-center gap-2 min-w-0'>
+								<Button
+									type='button'
+									variant='ghost'
+									size='icon'
+									className='cursor-grab active:cursor-grabbing touch-none shrink-0'
+									ref={setActivatorNodeRef}
+									disabled={disabled}
+									{...listeners}>
+									<GripVertical className='h-4 w-4' />
+									<span className='sr-only'>Drag component</span>
+								</Button>
+								<span className='text-xs text-muted-foreground truncate'>{label}</span>
+							</div>
+
+							<div className='flex items-center gap-2 shrink-0'>
+								{block.type === 'editor' && isActive ? (
+									<Button
+										type='button'
+										variant='outline'
+										size='sm'
+										onClick={() => setActiveBlockId(null)}
+										disabled={disabled}>
+										Done
+									</Button>
+								) : null}
+
+								<Button
+									type='button'
+									variant='outline'
+									size='sm'
+									onClick={onRemove}
+									disabled={disabled}>
+									Remove
+								</Button>
+							</div>
+						</div>
+
+						<div
+							ref={isActive ? activeBlockRef : undefined}
+							className='p-3'>
+							{renderBlockBody({
+								block,
+								isActive,
+								disabled,
+								compact,
+								setActiveBlockId,
+								setMediaPickerOpen,
+								mediaPickerOpen,
+								onUpdate,
+							})}
+						</div>
+					</>
+				)}
+			</div>
+		</div>
+	);
+}
+
+function renderBlockBody({
+	block,
+	isActive,
+	disabled,
+	compact,
+	setActiveBlockId,
+	mediaPickerOpen,
+	setMediaPickerOpen,
+	onUpdate,
+}: {
+	block: PageBlock;
+	isActive: boolean;
+	disabled: boolean;
+	compact: boolean;
+	setActiveBlockId: (id: string | null) => void;
+	mediaPickerOpen: boolean;
+	setMediaPickerOpen: (open: boolean) => void;
+	onUpdate: (next: PageBlock) => void;
+}) {
+	return (
+		<>
+			{block.type === 'editor' ? (
+				isActive ? (
+					<EditorBlock
+						value={block.data}
+						onChange={(next: EditorValue) => onUpdate({ ...block, data: next })}
+						disabled={disabled}
+					/>
+				) : (
+					<button
+						type='button'
+						className='w-full text-left'
+						onClick={() => setActiveBlockId(block.id)}
+						disabled={disabled}>
+						{renderBlockPreview(block)}
+					</button>
+				)
+			) : null}
+
+			{block.type === 'button' ? (
+				<div className='space-y-3'>
+					{renderBlockPreview(block)}
+					<details
+						open={!compact}
+						className='rounded-lg border bg-muted/10 p-3'>
+						<summary className='text-sm font-medium cursor-pointer select-none'>
+							Settings
+						</summary>
+						<div className='mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3'>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Label</Label>
+								<Input
+									value={block.data.label}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, label: e.target.value },
+										})
+									}
+									disabled={disabled}
+								/>
+							</div>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Href</Label>
+								<Input
+									value={block.data.href ?? ''}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, href: e.target.value },
+										})
+									}
+									disabled={disabled}
+								/>
+							</div>
+						</div>
+					</details>
 				</div>
+			) : null}
 
-				<div
-					ref={isActive ? activeBlockRef : undefined}
-					className='p-3'>
-					{block.type === 'editor' ? (
-						isActive ? (
-							<EditorBlock
-								value={block.data}
-								onChange={(next: EditorValue) =>
-									onUpdate({ ...block, data: next })
-								}
-								disabled={disabled}
-							/>
-						) : (
-							<button
-								type='button'
-								className='w-full text-left'
-								onClick={() => setActiveBlockId(block.id)}
-								disabled={disabled}>
-								{renderBlockPreview(block)}
-							</button>
-						)
-					) : null}
-
-					{block.type === 'button' ? (
-						<div className='space-y-3'>
-							{renderBlockPreview(block)}
-							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-								<div className='space-y-1'>
-									<Label className='text-xs'>Label</Label>
-									<Input
-										value={block.data.label}
-										onChange={(e) =>
-											onUpdate({
-												...block,
-												data: {
-													...block.data,
-													label: e.target.value,
-												},
-											})
-										}
-										disabled={disabled}
-									/>
-								</div>
-								<div className='space-y-1'>
-									<Label className='text-xs'>Href</Label>
-									<Input
-										value={block.data.href ?? ''}
-										onChange={(e) =>
-											onUpdate({
-												...block,
-												data: {
-													...block.data,
-													href: e.target.value,
-												},
-											})
-										}
-										disabled={disabled}
-									/>
-								</div>
+			{block.type === 'card' ? (
+				<div className='space-y-3'>
+					{renderBlockPreview(block)}
+					<details
+						open={!compact}
+						className='rounded-lg border bg-muted/10 p-3'>
+						<summary className='text-sm font-medium cursor-pointer select-none'>
+							Settings
+						</summary>
+						<div className='mt-3 space-y-2'>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Title</Label>
+								<Input
+									value={block.data.title ?? ''}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, title: e.target.value },
+										})
+									}
+									disabled={disabled}
+								/>
+							</div>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Body</Label>
+								<Input
+									value={block.data.body ?? ''}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, body: e.target.value },
+										})
+									}
+									disabled={disabled}
+								/>
 							</div>
 						</div>
-					) : null}
+					</details>
+				</div>
+			) : null}
 
-					{block.type === 'card' ? (
-						<div className='space-y-3'>
-							{renderBlockPreview(block)}
-							<div className='space-y-2'>
-								<div className='space-y-1'>
-									<Label className='text-xs'>Title</Label>
-									<Input
-										value={block.data.title ?? ''}
-										onChange={(e) =>
-											onUpdate({
-												...block,
-												data: {
-													...block.data,
-													title: e.target.value,
-												},
-											})
-										}
-										disabled={disabled}
-									/>
-								</div>
-								<div className='space-y-1'>
-									<Label className='text-xs'>Body</Label>
-									<Input
-										value={block.data.body ?? ''}
-										onChange={(e) =>
-											onUpdate({
-												...block,
-												data: {
-													...block.data,
-													body: e.target.value,
-												},
-											})
-										}
-										disabled={disabled}
-									/>
-								</div>
-							</div>
-						</div>
-					) : null}
+			{block.type === 'separator' ? renderBlockPreview(block) : null}
 
-					{block.type === 'separator' ? renderBlockPreview(block) : null}
-
-					{block.type === 'image' ? (
-						<div className='space-y-3'>
-							{renderBlockPreview(block)}
+			{block.type === 'image' ? (
+				<div className='space-y-3'>
+					{renderBlockPreview(block)}
+					<details
+						open={!compact}
+						className='rounded-lg border bg-muted/10 p-3'>
+						<summary className='text-sm font-medium cursor-pointer select-none'>
+							Settings
+						</summary>
+						<div className='mt-3 space-y-3'>
 							<div className='flex items-center gap-2'>
 								<Button
 									type='button'
@@ -598,10 +811,7 @@ function SortableBlock({
 									onChange={(e) =>
 										onUpdate({
 											...block,
-											data: {
-												...block.data,
-												alt: e.target.value,
-											},
+											data: { ...block.data, alt: e.target.value },
 										})
 									}
 									disabled={disabled}
@@ -624,18 +834,18 @@ function SortableBlock({
 								}}
 							/>
 						</div>
-					) : null}
-
-					{block.type !== 'editor' &&
-					block.type !== 'button' &&
-					block.type !== 'card' &&
-					block.type !== 'separator' &&
-					block.type !== 'image'
-						? renderBlockPreview(block)
-						: null}
+					</details>
 				</div>
-			</div>
-		</div>
+			) : null}
+
+			{block.type !== 'editor' &&
+			block.type !== 'button' &&
+			block.type !== 'card' &&
+			block.type !== 'separator' &&
+			block.type !== 'image'
+				? renderBlockPreview(block)
+				: null}
+		</>
 	);
 }
 
@@ -705,6 +915,15 @@ export function PageBuilder({
 	onChange: (next: PageBuilderState) => void;
 	disabled?: boolean;
 }) {
+	const [uiMode, setUiMode] = useState<BuilderUiMode>(() => {
+		if (typeof window === 'undefined') return 'clean';
+		try {
+			return parseBuilderUiMode(localStorage.getItem(BUILDER_UI_MODE_KEY));
+		} catch {
+			return 'clean';
+		}
+	});
+
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
 		useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -1002,6 +1221,16 @@ export function PageBuilder({
 	const disabledFlag = !!disabled;
 
 	const rowIds = useMemo(() => value.rows.map((r) => r.id), [value.rows]);
+	const compact = uiMode === 'clean';
+
+	function updateUiMode(next: BuilderUiMode) {
+		setUiMode(next);
+		try {
+			localStorage.setItem(BUILDER_UI_MODE_KEY, next);
+		} catch {
+			// ignore
+		}
+	}
 
 	return (
 		<div className='space-y-4'>
@@ -1010,6 +1239,22 @@ export function PageBuilder({
 					Rows / columns grid. Drag rows, columns, and components to reorder.
 				</p>
 				<div className='flex items-center gap-2'>
+					<Button
+						type='button'
+						variant={uiMode === 'clean' ? 'secondary' : 'outline'}
+						size='sm'
+						onClick={() => updateUiMode('clean')}
+						disabled={disabledFlag}>
+						Clean UI
+					</Button>
+					<Button
+						type='button'
+						variant={uiMode === 'detailed' ? 'secondary' : 'outline'}
+						size='sm'
+						onClick={() => updateUiMode('detailed')}
+						disabled={disabledFlag}>
+						Detailed UI
+					</Button>
 					<Button
 						type='button'
 						variant='outline'
@@ -1040,83 +1285,159 @@ export function PageBuilder({
 				</div>
 			</div>
 
-			<DndContext
-				sensors={sensors}
-				collisionDetection={closestCenter}
-				onDragEnd={onDragEnd}>
-				<SortableContext
-					items={rowIds}
-					strategy={verticalListSortingStrategy}>
-					<div className='space-y-6'>
-						{value.rows.map((row) => {
-							const columnsCount = clampColumnsCount(
-								row.settings?.columns ?? row.columns.length
-							);
+			<ResizablePanelGroup
+				direction='horizontal'
+				className='rounded-xl border bg-card/20 min-h-[520px]'>
+				<ResizablePanel
+					defaultSize={25}
+					minSize={15}
+					collapsible
+					collapsedSize={0}>
+					<div className='h-full overflow-auto p-3 space-y-3'>
+						<div className='space-y-1'>
+							<p className='text-sm font-medium'>Outline</p>
+							<p className='text-xs text-muted-foreground'>
+								{value.rows.length} rows
+							</p>
+						</div>
 
-							const columnIds = row.columns.map((c) => c.id);
-
-							return (
-								<SortableRow
+						<div className='space-y-2'>
+							{value.rows.map((row, rowIndex) => (
+								<div
 									key={row.id}
-									row={row}
-									disabled={disabledFlag}
-									onRemoveRow={removeRow}
-									onSetColumns={setColumns}>
-									<div
-										className={`grid ${responsiveGridColsClass(columnsCount)} gap-4`}>
-										<SortableContext
-											items={columnIds}
-											strategy={rectSortingStrategy}>
-											{row.columns.map((col) => (
-												<SortableColumn
-													key={col.id}
-													column={col}
-													rowId={row.id}
-													disabled={disabledFlag}
-													onAddBlock={() => openAddBlock(row.id, col.id)}>
-													<SortableContext
-														items={col.blocks.map((b) => b.id)}
-														strategy={verticalListSortingStrategy}>
-														<div className='space-y-3'>
-															{col.blocks.map((b) => (
-																<SortableBlock
-																	key={b.id}
-																	block={b}
-																	rowId={row.id}
-																	columnId={col.id}
-																	disabled={disabledFlag}
-																	activeBlockId={activeBlockId}
-																	setActiveBlockId={setActiveBlockId}
-																	activeBlockRef={activeBlockRef}
-																	onRemove={() =>
-																		removeBlock(
-																			row.id,
-																			col.id,
-																			b.id
-																		)
-																	}
-																	onUpdate={(next) =>
-																		updateBlock(
-																			row.id,
-																			col.id,
-																			b.id,
-																			next
-																		)
-																	}
-																/>
-															))}
-														</div>
-													</SortableContext>
-												</SortableColumn>
-											))}
-										</SortableContext>
+									className='rounded-lg border bg-background p-2'>
+									<div className='flex items-center justify-between gap-2'>
+										<p className='text-xs font-medium'>Row {rowIndex + 1}</p>
+										<p className='text-xs text-muted-foreground'>
+											{row.columns.length} col
+										</p>
 									</div>
-								</SortableRow>
-							);
-						})}
+									<div className='mt-2 space-y-2'>
+										{row.columns.map((col, colIndex) => (
+											<div
+												key={col.id}
+												className='space-y-1'>
+												<div className='flex items-center justify-between gap-2'>
+													<p className='text-xs text-muted-foreground'>
+														Col {colIndex + 1}
+													</p>
+													<p className='text-xs text-muted-foreground'>
+														{col.blocks.length} items
+													</p>
+												</div>
+												{col.blocks.length ? (
+													<ul className='pl-3 space-y-1'>
+														{col.blocks.map((b) => (
+															<li
+																key={b.id}
+																className='text-xs text-muted-foreground truncate'>
+																{describeBlock(b)}
+															</li>
+														))}
+													</ul>
+												) : (
+													<p className='text-xs text-muted-foreground italic pl-3'>
+														Empty
+													</p>
+												)}
+											</div>
+										))}
+									</div>
+								</div>
+							))}
+						</div>
 					</div>
-				</SortableContext>
-			</DndContext>
+				</ResizablePanel>
+				<ResizableHandle withHandle />
+				<ResizablePanel
+					defaultSize={75}
+					minSize={50}>
+					<div className='h-full overflow-auto p-4'>
+						<DndContext
+							sensors={sensors}
+							collisionDetection={closestCenter}
+							onDragEnd={onDragEnd}>
+							<SortableContext
+								items={rowIds}
+								strategy={verticalListSortingStrategy}>
+								<div className='space-y-6'>
+									{value.rows.map((row) => {
+										const columnsCount = clampColumnsCount(
+											row.settings?.columns ?? row.columns.length
+										);
+
+										const columnIds = row.columns.map((c) => c.id);
+
+										return (
+											<SortableRow
+												key={row.id}
+												row={row}
+												disabled={disabledFlag}
+												compact={compact}
+												onRemoveRow={removeRow}
+												onSetColumns={setColumns}>
+												<div
+													className={`grid ${responsiveGridColsClass(columnsCount)} gap-4`}>
+													<SortableContext
+														items={columnIds}
+														strategy={rectSortingStrategy}>
+														{row.columns.map((col) => (
+															<SortableColumn
+																key={col.id}
+																column={col}
+																rowId={row.id}
+																disabled={disabledFlag}
+																compact={compact}
+																onAddBlock={() =>
+																	openAddBlock(row.id, col.id)
+																}>
+																<SortableContext
+																	items={col.blocks.map((b) => b.id)}
+																	strategy={verticalListSortingStrategy}>
+																	<div className='space-y-3'>
+																		{col.blocks.map((b) => (
+																			<SortableBlock
+																				key={b.id}
+																				block={b}
+																				rowId={row.id}
+																				columnId={col.id}
+																				disabled={disabledFlag}
+																				compact={compact}
+																				activeBlockId={activeBlockId}
+																				setActiveBlockId={setActiveBlockId}
+																				activeBlockRef={activeBlockRef}
+																				onRemove={() =>
+																					removeBlock(
+																						row.id,
+																						col.id,
+																						b.id
+																					)
+																				}
+																				onUpdate={(next) =>
+																					updateBlock(
+																						row.id,
+																						col.id,
+																						b.id,
+																						next
+																					)
+																				}
+																			/>
+																		))}
+																	</div>
+																</SortableContext>
+															</SortableColumn>
+														))}
+													</SortableContext>
+												</div>
+											</SortableRow>
+										);
+									})}
+								</div>
+							</SortableContext>
+						</DndContext>
+					</div>
+				</ResizablePanel>
+			</ResizablePanelGroup>
 
 			<BlockPickerDialog
 				open={blockPickerOpen}

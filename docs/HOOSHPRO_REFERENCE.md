@@ -167,7 +167,7 @@ Important:
 - users: id, email (unique), password_hash, created_at
 - sessions: id, user_id -> users, token_hash, expires_at, created_at
 - pages: id, title, slug (unique), status (draft|published), seo_title, seo_description, blocks_json (TEXT, default version 1), published_at, created_at, updated_at
-- page_templates: id, slug (unique), title, description, menu, created_at, updated_at
+- page_templates: id, slug (unique), title, description, menu, footer, created_at, updated_at
 - menus: id, slug (unique), title, description, created_at, updated_at
 - menu_items: id, menu_id -> menus, type (page|link), label, page_id -> pages (nullable), href (nullable), order_index, created_at, updated_at
 - media_folders: id, name, parent_id -> media_folders, created_at, updated_at
@@ -177,7 +177,7 @@ Important:
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items` + `b1c2d3e4f5a6` adds `page_templates.footer`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
 
 Reserved slugs:
 
@@ -187,12 +187,13 @@ Blocks:
 
 - Legacy: `{ version: 1, blocks: [ { type:'hero' }, { type:'paragraph' } ] }`
 - TipTap V2 (legacy): `{ version: 2, blocks: [ { id, type:'tiptap', data:{ doc, html } }, ... ] }`
-- Page Builder V3 (current): `{ version: 3, template:{ id, menu }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
+- Page Builder V3 (current): `{ version: 3, template:{ id, menu, footer }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
   - Row `settings.columns`: supports `1..12`; frontend renders responsively (mobile stacks to 1 column).
   - Drag/drop reorder uses dnd-kit (rows + columns + components).
+  - Builder UI modes: `Clean UI` (controls on hover) vs `Detailed UI` (controls always visible) + resizable Outline/Canvas panels.
   - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (placeholder component).
-  - Templates drive the public top menu (`template.menu`), so pages can share a consistent navigation bar.
+  - Templates drive the public top menu (`template.menu`) and footer menu (`template.footer`) so pages share a consistent nav/footer.
 
 ---
 

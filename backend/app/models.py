@@ -77,6 +77,7 @@ class PageTemplate(Base):
     description: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
     menu: Mapped[str] = mapped_column(String(60), nullable=False, default="main")
+    footer: Mapped[str] = mapped_column(String(60), nullable=False, default="none")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(

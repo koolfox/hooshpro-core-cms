@@ -26,6 +26,7 @@ def _to_out(t: PageTemplate) -> TemplateOut:
         title=t.title,
         description=t.description,
         menu=t.menu,
+        footer=t.footer,
         created_at=t.created_at,
         updated_at=t.updated_at,
     )
@@ -80,6 +81,7 @@ def admin_create_template(
         title=payload.title.strip(),
         description=payload.description.strip() if payload.description else None,
         menu=payload.menu.strip(),
+        footer=payload.footer.strip(),
     )
 
     db.add(t)
@@ -126,6 +128,8 @@ def admin_update_template(
         t.description = payload.description.strip() if payload.description else None
     if payload.menu is not None:
         t.menu = payload.menu.strip()
+    if payload.footer is not None:
+        t.footer = payload.footer.strip()
 
     try:
         db.commit()
@@ -150,4 +154,3 @@ def admin_delete_template(
     db.delete(t)
     db.commit()
     return {"ok": True}
-

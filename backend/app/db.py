@@ -156,12 +156,14 @@ def seed_defaults() -> None:
                     "title": "Default",
                     "description": "Default site layout.",
                     "menu": "main",
+                    "footer": "none",
                 },
                 {
                     "slug": "blank",
                     "title": "Blank",
                     "description": "No header (menu: none).",
                     "menu": "none",
+                    "footer": "none",
                 },
             ]
             for d in template_defaults:
@@ -174,6 +176,7 @@ def seed_defaults() -> None:
                         title=d["title"],
                         description=d["description"],
                         menu=d["menu"],
+                        footer=d["footer"],
                     )
                 )
 

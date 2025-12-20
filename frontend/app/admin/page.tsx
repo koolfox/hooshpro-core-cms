@@ -143,6 +143,55 @@ function SortableWidgetCard({
 	);
 }
 
+function WidgetCard({
+	widget,
+	count,
+	loading,
+}: {
+	widget: DashboardWidget;
+	count: number | null;
+	loading: boolean;
+}) {
+	return (
+		<Card className='h-full'>
+			<CardHeader className='pb-2'>
+				<div className='flex items-start justify-between gap-3'>
+					<div className='space-y-1'>
+						<CardTitle className='text-base'>{widget.title}</CardTitle>
+						<CardDescription>{widget.description}</CardDescription>
+					</div>
+
+					<button
+						type='button'
+						aria-label='Drag to reorder'
+						disabled
+						className='rounded-md border bg-background p-1 text-muted-foreground'>
+						<GripVertical className='h-4 w-4' />
+					</button>
+				</div>
+			</CardHeader>
+			<CardContent className='pt-2 flex items-center justify-between gap-3'>
+				<div className='text-sm text-muted-foreground'>
+					{loading ? (
+						'Loading…'
+					) : (
+						<>
+							<span className='font-medium text-foreground'>{count ?? 0}</span>{' '}
+							total
+						</>
+					)}
+				</div>
+				<Button
+					asChild
+					variant='outline'
+					size='sm'>
+					<Link href={widget.href}>Open</Link>
+				</Button>
+			</CardContent>
+		</Card>
+	);
+}
+
 export default function AdminHome() {
 	const [me, setMe] = useState<{ id: number; email: string } | null>(null);
 	const [counts, setCounts] = useState<Record<string, number | null>>({
@@ -154,6 +203,7 @@ export default function AdminHome() {
 	});
 	const [loadingCounts, setLoadingCounts] = useState(true);
 	const [countsError, setCountsError] = useState<string | null>(null);
+	const [hydrated, setHydrated] = useState(false);
 
 	const [widgetOrder, setWidgetOrder] = useState<string[]>(() => WIDGETS.map((w) => w.id));
 
@@ -163,6 +213,26 @@ export default function AdminHome() {
 
 	useEffect(() => {
 		let canceled = false;
+
+		const t = setTimeout(() => {
+			if (canceled) return;
+			setHydrated(true);
+
+			const saved = window.localStorage.getItem('hooshpro_dashboard_widget_order');
+			if (saved) {
+				try {
+					const parsed = JSON.parse(saved);
+					if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
+						const ids = WIDGETS.map((w) => w.id);
+						const next = parsed.filter((id) => ids.includes(id));
+						for (const id of ids) if (!next.includes(id)) next.push(id);
+						setWidgetOrder(next);
+					}
+				} catch {
+					// ignore
+				}
+			}
+		}, 0);
 
 		async function load() {
 			setLoadingCounts(true);
@@ -215,23 +285,9 @@ export default function AdminHome() {
 			}
 		}
 
-		const saved = window.localStorage.getItem('hooshpro_dashboard_widget_order');
-		if (saved) {
-			try {
-				const parsed = JSON.parse(saved);
-				if (Array.isArray(parsed) && parsed.every((x) => typeof x === 'string')) {
-					const ids = WIDGETS.map((w) => w.id);
-					const next = parsed.filter((id) => ids.includes(id));
-					for (const id of ids) if (!next.includes(id)) next.push(id);
-					setWidgetOrder(next);
-				}
-			} catch {
-				// ignore
-			}
-		}
-
 		void load();
 		return () => {
+			clearTimeout(t);
 			canceled = true;
 		};
 	}, []);
@@ -282,25 +338,38 @@ export default function AdminHome() {
 
 			{countsError ? <p className='text-sm text-red-600'>{countsError}</p> : null}
 
-			<DndContext
-				sensors={sensors}
-				collisionDetection={closestCenter}
-				onDragEnd={onDragEnd}>
-				<SortableContext
-					items={widgets.map((w) => w.id)}
-					strategy={rectSortingStrategy}>
-					<div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'>
-						{widgets.map((w) => (
-							<SortableWidgetCard
-								key={w.id}
-								widget={w}
-								count={counts[w.key] ?? 0}
-								loading={loadingCounts}
-							/>
-						))}
-					</div>
-				</SortableContext>
-			</DndContext>
+			{hydrated ? (
+				<DndContext
+					sensors={sensors}
+					collisionDetection={closestCenter}
+					onDragEnd={onDragEnd}>
+					<SortableContext
+						items={widgets.map((w) => w.id)}
+						strategy={rectSortingStrategy}>
+						<div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'>
+							{widgets.map((w) => (
+								<SortableWidgetCard
+									key={w.id}
+									widget={w}
+									count={counts[w.key] ?? 0}
+									loading={loadingCounts}
+								/>
+							))}
+						</div>
+					</SortableContext>
+				</DndContext>
+			) : (
+				<div className='grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4'>
+					{widgets.map((w) => (
+						<WidgetCard
+							key={w.id}
+							widget={w}
+							count={counts[w.key] ?? 0}
+							loading={loadingCounts}
+						/>
+					))}
+				</div>
+			)}
 		</div>
 	);
 }

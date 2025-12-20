@@ -162,6 +162,7 @@ export default function AdminTemplatesScreen() {
 	const [slug, setSlug] = useState('');
 	const [slugTouched, setSlugTouched] = useState(false);
 	const [menu, setMenu] = useState('main');
+	const [footer, setFooter] = useState('none');
 	const [description, setDescription] = useState('');
 
 	const [saving, setSaving] = useState(false);
@@ -173,6 +174,7 @@ export default function AdminTemplatesScreen() {
 		setSlug('');
 		setSlugTouched(false);
 		setMenu('main');
+		setFooter('none');
 		setDescription('');
 		setFormError(null);
 	}
@@ -189,6 +191,7 @@ export default function AdminTemplatesScreen() {
 		setSlug(t.slug);
 		setSlugTouched(true);
 		setMenu(t.menu);
+		setFooter(t.footer ?? 'none');
 		setDescription(t.description ?? '');
 		setFormError(null);
 		setEditorOpen(true);
@@ -202,6 +205,7 @@ export default function AdminTemplatesScreen() {
 			title: title.trim(),
 			slug: slug.trim(),
 			menu: menu.trim() || 'main',
+			footer: footer.trim() || 'none',
 			description: description.trim() ? description.trim() : null,
 		};
 
@@ -326,6 +330,11 @@ export default function AdminTemplatesScreen() {
 						headerClassName: 'w-[140px]',
 					},
 					{
+						header: 'Footer',
+						cell: (t) => <Badge variant='secondary'>{t.footer}</Badge>,
+						headerClassName: 'w-[140px]',
+					},
+					{
 						header: 'Updated',
 						cell: (t) => (
 							<span className='text-xs text-muted-foreground'>
@@ -432,14 +441,40 @@ export default function AdminTemplatesScreen() {
 									</SelectContent>
 								</Select>
 							</div>
+
 							<div className='space-y-2'>
-								<Label>Description</Label>
-								<Input
-									value={description}
-									onChange={(e) => setDescription(e.target.value)}
-									disabled={saving}
-								/>
+								<Label>Footer</Label>
+								<Select
+									value={footer}
+									onValueChange={(v) => setFooter(v)}
+									disabled={saving}>
+									<SelectTrigger>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='none'>none</SelectItem>
+										{footer !== 'none' && !menuSlugs.has(footer) ? (
+											<SelectItem value={footer}>{footer} (missing)</SelectItem>
+										) : null}
+										{(menusData?.items ?? []).map((m) => (
+											<SelectItem
+												key={m.id}
+												value={m.slug}>
+												{m.slug}
+											</SelectItem>
+										))}
+									</SelectContent>
+								</Select>
 							</div>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Description</Label>
+							<Input
+								value={description}
+								onChange={(e) => setDescription(e.target.value)}
+								disabled={saving}
+							/>
 						</div>
 
 						{formError ? (
