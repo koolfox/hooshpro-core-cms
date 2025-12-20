@@ -6,6 +6,8 @@ import { LayoutGrid, List } from 'lucide-react';
 
 import { apiFetch } from '@/lib/http';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
+import { SHADCN_DOCS_BASE, shadcnDocsUrl } from '@/lib/shadcn-docs';
+import { isRecord } from '@/lib/page-builder';
 import { useApiList } from '@/hooks/use-api-list';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
@@ -330,6 +332,15 @@ export default function AdminComponentsScreen() {
 		previewError = toErrorMessage(e);
 	}
 
+	const shadcnDocsLink =
+		compType === 'shadcn' &&
+		previewError === null &&
+		isRecord(previewData) &&
+		typeof previewData['component'] === 'string' &&
+		previewData['component'].trim()
+			? shadcnDocsUrl(previewData['component'].trim())
+			: null;
+
 	return (
 		<AdminListPage
 			title='Components'
@@ -632,6 +643,18 @@ export default function AdminComponentsScreen() {
 								<p className='text-xs text-muted-foreground'>
 									Stored as JSON and used as the default <code>data</code> when inserted.
 								</p>
+								{compType === 'shadcn' ? (
+									<p className='text-xs text-muted-foreground'>
+										Docs:{' '}
+										<a
+											href={shadcnDocsLink ?? SHADCN_DOCS_BASE}
+											target='_blank'
+											rel='noreferrer'
+											className='underline underline-offset-4'>
+											{shadcnDocsLink ? shadcnDocsLink : SHADCN_DOCS_BASE}
+										</a>
+									</p>
+								) : null}
 							</div>
 
 							{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}

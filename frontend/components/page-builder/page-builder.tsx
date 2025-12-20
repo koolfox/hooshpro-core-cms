@@ -21,7 +21,7 @@ import {
 	verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Plus, Trash2 } from 'lucide-react';
+import { Check, GripVertical, LayoutTemplate, List, Plus, Sparkles, Trash2, Type } from 'lucide-react';
 
 import type {
 	PageBlock,
@@ -42,6 +42,7 @@ import type { BlockTemplate, ComponentDef } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
 import { EditorBlock } from '@/components/editor-block';
+import { ComponentPreview } from '@/components/components/component-preview';
 import { BlockPickerDialog, type ComponentPickerItem } from './block-picker-dialog';
 import { BlockTemplatePickerDialog } from './block-template-picker-dialog';
 import { MediaPickerDialog } from '@/components/media/media-picker-dialog';
@@ -58,11 +59,6 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
-import {
-	ResizableHandle,
-	ResizablePanel,
-	ResizablePanelGroup,
-} from '@/components/ui/resizable';
 
 type SortableRowData = { kind: 'row'; rowId: string };
 type SortableColumnData = { kind: 'column'; rowId: string; columnId: string };
@@ -215,19 +211,11 @@ function renderBlockPreview(block: PageBlock) {
 	}
 
 	if (block.type === 'shadcn') {
+		const data = { component: block.data.component, ...(block.data.props ?? {}) };
 		return (
-			<Card>
-				<CardHeader>
-					<CardTitle className='text-sm'>
-						{block.data.component || 'Shadcn component'}
-					</CardTitle>
-				</CardHeader>
-				<CardContent>
-					<p className='text-sm text-muted-foreground'>
-						Placeholder block. Configure this component later.
-					</p>
-				</CardContent>
-			</Card>
+			<div className='rounded-lg border bg-muted/10 p-3'>
+				<ComponentPreview component={{ type: 'shadcn', data }} />
+			</div>
 		);
 	}
 
@@ -279,9 +267,13 @@ function SortableRow({
 			style={style}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
-			<div className={cn('rounded-xl border bg-card/50', compact && 'group/row hover:ring-2 hover:ring-ring')}>
+			<div
+				className={cn(
+					'rounded-md border bg-background',
+					compact && 'group/row hover:ring-2 hover:ring-ring'
+				)}>
 				{compact ? (
-					<div className='p-4 pt-10 relative'>
+					<div className='p-4 pt-9 relative'>
 						<div className='absolute top-3 left-3 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto'>
 							<Button
 								type='button'
@@ -316,11 +308,11 @@ function SortableRow({
 							<Button
 								type='button'
 								variant='outline'
-								size='sm'
+								size='icon'
 								onClick={() => onRemoveRow(row.id)}
 								disabled={disabled}>
-								<Trash2 className='h-4 w-4 mr-2' />
-								Remove
+								<Trash2 className='h-4 w-4' />
+								<span className='sr-only'>Remove row</span>
 							</Button>
 						</div>
 
@@ -370,11 +362,11 @@ function SortableRow({
 								<Button
 									type='button'
 									variant='outline'
-									size='sm'
+									size='icon'
 									onClick={() => onRemoveRow(row.id)}
 									disabled={disabled}>
-									<Trash2 className='h-4 w-4 mr-2' />
-									Remove
+									<Trash2 className='h-4 w-4' />
+									<span className='sr-only'>Remove row</span>
 								</Button>
 							</div>
 						</div>
@@ -425,8 +417,8 @@ function SortableColumn({
 			{...attributes}>
 			<div
 				className={cn(
-					'rounded-xl border bg-background min-h-[120px]',
-					compact ? 'relative p-3 pt-10 group/col' : 'p-3 space-y-3'
+					'rounded-md border bg-background min-h-[120px]',
+					compact ? 'relative p-3 pt-9 group/col' : 'p-3 space-y-3'
 				)}>
 				{compact ? (
 					<>
@@ -446,11 +438,11 @@ function SortableColumn({
 							<Button
 								type='button'
 								variant='outline'
-								size='sm'
+								size='icon'
 								onClick={onAddBlock}
 								disabled={disabled}>
-								<Plus className='h-4 w-4 mr-2' />
-								Add component
+								<Plus className='h-4 w-4' />
+								<span className='sr-only'>Add component</span>
 							</Button>
 						</div>
 
@@ -477,11 +469,11 @@ function SortableColumn({
 							<Button
 								type='button'
 								variant='outline'
-								size='sm'
+								size='icon'
 								onClick={onAddBlock}
 								disabled={disabled}>
-								<Plus className='h-4 w-4 mr-2' />
-								Add component
+								<Plus className='h-4 w-4' />
+								<span className='sr-only'>Add component</span>
 							</Button>
 						</div>
 
@@ -538,9 +530,9 @@ function SortableBlock({
 			style={style}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
-			<div className={cn('rounded-xl border bg-background', compact && 'group/block')}>
+			<div className={cn('rounded-md border bg-background', compact && 'group/block')}>
 				{compact ? (
-					<div className='p-3 pt-10 relative'>
+					<div className='p-3 pt-9 relative'>
 						<div className='absolute top-3 left-3 right-3 flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-opacity group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'>
 							<div className='flex items-center gap-2 min-w-0'>
 								<Button
@@ -562,20 +554,22 @@ function SortableBlock({
 									<Button
 										type='button'
 										variant='outline'
-										size='sm'
+										size='icon'
 										onClick={() => setActiveBlockId(null)}
 										disabled={disabled}>
-										Done
+										<Check className='h-4 w-4' />
+										<span className='sr-only'>Done</span>
 									</Button>
 								) : null}
 
 								<Button
 									type='button'
 									variant='outline'
-									size='sm'
+									size='icon'
 									onClick={onRemove}
 									disabled={disabled}>
-									Remove
+									<Trash2 className='h-4 w-4' />
+									<span className='sr-only'>Remove component</span>
 								</Button>
 							</div>
 						</div>
@@ -616,20 +610,22 @@ function SortableBlock({
 									<Button
 										type='button'
 										variant='outline'
-										size='sm'
+										size='icon'
 										onClick={() => setActiveBlockId(null)}
 										disabled={disabled}>
-										Done
+										<Check className='h-4 w-4' />
+										<span className='sr-only'>Done</span>
 									</Button>
 								) : null}
 
 								<Button
 									type='button'
 									variant='outline'
-									size='sm'
+									size='icon'
 									onClick={onRemove}
 									disabled={disabled}>
-									Remove
+									<Trash2 className='h-4 w-4' />
+									<span className='sr-only'>Remove component</span>
 								</Button>
 							</div>
 						</div>
@@ -896,7 +892,22 @@ function renderBlockBody({
 		const d = isRecord(data) ? data : {};
 		const componentId =
 			typeof d['component'] === 'string' ? d['component'] : component.slug;
-		return { id: createId('blk'), type: 'shadcn', data: { component: componentId } };
+		let props: Record<string, unknown> | undefined;
+		if (isRecord(d['props'])) {
+			props = d['props'] as Record<string, unknown>;
+		} else {
+			const rest: Record<string, unknown> = {};
+			for (const [k, v] of Object.entries(d)) {
+				if (k === 'component') continue;
+				rest[k] = v;
+			}
+			if (Object.keys(rest).length > 0) props = rest;
+		}
+		return {
+			id: createId('blk'),
+			type: 'shadcn',
+			data: props ? { component: componentId, props } : { component: componentId },
+		};
 	}
 
 	return {
@@ -915,6 +926,7 @@ export function PageBuilder({
 	onChange: (next: PageBuilderState) => void;
 	disabled?: boolean;
 }) {
+	const [mounted, setMounted] = useState(false);
 	const [uiMode, setUiMode] = useState<BuilderUiMode>(() => {
 		if (typeof window === 'undefined') return 'clean';
 		try {
@@ -923,6 +935,11 @@ export function PageBuilder({
 			return 'clean';
 		}
 	});
+
+	useEffect(() => {
+		const t = setTimeout(() => setMounted(true), 0);
+		return () => clearTimeout(t);
+	}, []);
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -1232,6 +1249,14 @@ export function PageBuilder({
 		}
 	}
 
+	if (!mounted) {
+		return (
+			<div className='rounded-md border bg-muted/10 p-6 text-sm text-muted-foreground'>
+				Loading editor…
+			</div>
+		);
+	}
+
 	return (
 		<div className='space-y-4'>
 			<div className='flex items-center justify-between'>
@@ -1242,202 +1267,130 @@ export function PageBuilder({
 					<Button
 						type='button'
 						variant={uiMode === 'clean' ? 'secondary' : 'outline'}
-						size='sm'
+						size='icon'
 						onClick={() => updateUiMode('clean')}
-						disabled={disabledFlag}>
-						Clean UI
+						disabled={disabledFlag}
+						title='Clean UI'>
+						<Sparkles className='h-4 w-4' />
+						<span className='sr-only'>Clean UI</span>
 					</Button>
 					<Button
 						type='button'
 						variant={uiMode === 'detailed' ? 'secondary' : 'outline'}
-						size='sm'
+						size='icon'
 						onClick={() => updateUiMode('detailed')}
-						disabled={disabledFlag}>
-						Detailed UI
+						disabled={disabledFlag}
+						title='Detailed UI'>
+						<List className='h-4 w-4' />
+						<span className='sr-only'>Detailed UI</span>
 					</Button>
+					<Separator
+						orientation='vertical'
+						className='h-8'
+					/>
 					<Button
 						type='button'
 						variant='outline'
-						size='sm'
+						size='icon'
 						onClick={addRow}
-						disabled={disabledFlag}>
-						<Plus className='h-4 w-4 mr-2' />
-						Row
+						disabled={disabledFlag}
+						title='Add row'>
+						<Plus className='h-4 w-4' />
+						<span className='sr-only'>Add row</span>
 					</Button>
 					<Button
 						type='button'
 						variant='outline'
-						size='sm'
+						size='icon'
 						onClick={addEditorSection}
-						disabled={disabledFlag}>
-						<Plus className='h-4 w-4 mr-2' />
-						Editor section
+						disabled={disabledFlag}
+						title='Add editor section'>
+						<Type className='h-4 w-4' />
+						<span className='sr-only'>Add editor section</span>
 					</Button>
 					<Button
 						type='button'
 						variant='outline'
-						size='sm'
+						size='icon'
 						onClick={() => setBlockTemplatePickerOpen(true)}
-						disabled={disabledFlag}>
-						<Plus className='h-4 w-4 mr-2' />
-						Insert block
+						disabled={disabledFlag}
+						title='Insert block template'>
+						<LayoutTemplate className='h-4 w-4' />
+						<span className='sr-only'>Insert block template</span>
 					</Button>
 				</div>
 			</div>
 
-			<ResizablePanelGroup
-				direction='horizontal'
-				className='rounded-xl border bg-card/20 min-h-[520px]'>
-				<ResizablePanel
-					defaultSize={25}
-					minSize={15}
-					collapsible
-					collapsedSize={0}>
-					<div className='h-full overflow-auto p-3 space-y-3'>
-						<div className='space-y-1'>
-							<p className='text-sm font-medium'>Outline</p>
-							<p className='text-xs text-muted-foreground'>
-								{value.rows.length} rows
-							</p>
-						</div>
+			<DndContext
+				sensors={sensors}
+				collisionDetection={closestCenter}
+				onDragEnd={onDragEnd}>
+				<SortableContext
+					items={rowIds}
+					strategy={verticalListSortingStrategy}>
+					<div className='space-y-6'>
+						{value.rows.map((row) => {
+							const columnsCount = clampColumnsCount(
+								row.settings?.columns ?? row.columns.length
+							);
 
-						<div className='space-y-2'>
-							{value.rows.map((row, rowIndex) => (
-								<div
+							const columnIds = row.columns.map((c) => c.id);
+
+							return (
+								<SortableRow
 									key={row.id}
-									className='rounded-lg border bg-background p-2'>
-									<div className='flex items-center justify-between gap-2'>
-										<p className='text-xs font-medium'>Row {rowIndex + 1}</p>
-										<p className='text-xs text-muted-foreground'>
-											{row.columns.length} col
-										</p>
-									</div>
-									<div className='mt-2 space-y-2'>
-										{row.columns.map((col, colIndex) => (
-											<div
-												key={col.id}
-												className='space-y-1'>
-												<div className='flex items-center justify-between gap-2'>
-													<p className='text-xs text-muted-foreground'>
-														Col {colIndex + 1}
-													</p>
-													<p className='text-xs text-muted-foreground'>
-														{col.blocks.length} items
-													</p>
-												</div>
-												{col.blocks.length ? (
-													<ul className='pl-3 space-y-1'>
-														{col.blocks.map((b) => (
-															<li
-																key={b.id}
-																className='text-xs text-muted-foreground truncate'>
-																{describeBlock(b)}
-															</li>
-														))}
-													</ul>
-												) : (
-													<p className='text-xs text-muted-foreground italic pl-3'>
-														Empty
-													</p>
-												)}
-											</div>
-										))}
-									</div>
-								</div>
-							))}
-						</div>
-					</div>
-				</ResizablePanel>
-				<ResizableHandle withHandle />
-				<ResizablePanel
-					defaultSize={75}
-					minSize={50}>
-					<div className='h-full overflow-auto p-4'>
-						<DndContext
-							sensors={sensors}
-							collisionDetection={closestCenter}
-							onDragEnd={onDragEnd}>
-							<SortableContext
-								items={rowIds}
-								strategy={verticalListSortingStrategy}>
-								<div className='space-y-6'>
-									{value.rows.map((row) => {
-										const columnsCount = clampColumnsCount(
-											row.settings?.columns ?? row.columns.length
-										);
-
-										const columnIds = row.columns.map((c) => c.id);
-
-										return (
-											<SortableRow
-												key={row.id}
-												row={row}
-												disabled={disabledFlag}
-												compact={compact}
-												onRemoveRow={removeRow}
-												onSetColumns={setColumns}>
-												<div
-													className={`grid ${responsiveGridColsClass(columnsCount)} gap-4`}>
+									row={row}
+									disabled={disabledFlag}
+									compact={compact}
+									onRemoveRow={removeRow}
+									onSetColumns={setColumns}>
+									<div className={`grid ${responsiveGridColsClass(columnsCount)} gap-4`}>
+										<SortableContext
+											items={columnIds}
+											strategy={rectSortingStrategy}>
+											{row.columns.map((col) => (
+												<SortableColumn
+													key={col.id}
+													column={col}
+													rowId={row.id}
+													disabled={disabledFlag}
+													compact={compact}
+													onAddBlock={() => openAddBlock(row.id, col.id)}>
 													<SortableContext
-														items={columnIds}
-														strategy={rectSortingStrategy}>
-														{row.columns.map((col) => (
-															<SortableColumn
-																key={col.id}
-																column={col}
-																rowId={row.id}
-																disabled={disabledFlag}
-																compact={compact}
-																onAddBlock={() =>
-																	openAddBlock(row.id, col.id)
-																}>
-																<SortableContext
-																	items={col.blocks.map((b) => b.id)}
-																	strategy={verticalListSortingStrategy}>
-																	<div className='space-y-3'>
-																		{col.blocks.map((b) => (
-																			<SortableBlock
-																				key={b.id}
-																				block={b}
-																				rowId={row.id}
-																				columnId={col.id}
-																				disabled={disabledFlag}
-																				compact={compact}
-																				activeBlockId={activeBlockId}
-																				setActiveBlockId={setActiveBlockId}
-																				activeBlockRef={activeBlockRef}
-																				onRemove={() =>
-																					removeBlock(
-																						row.id,
-																						col.id,
-																						b.id
-																					)
-																				}
-																				onUpdate={(next) =>
-																					updateBlock(
-																						row.id,
-																						col.id,
-																						b.id,
-																						next
-																					)
-																				}
-																			/>
-																		))}
-																	</div>
-																</SortableContext>
-															</SortableColumn>
-														))}
+														items={col.blocks.map((b) => b.id)}
+														strategy={verticalListSortingStrategy}>
+														<div className='space-y-3'>
+															{col.blocks.map((b) => (
+																<SortableBlock
+																	key={b.id}
+																	block={b}
+																	rowId={row.id}
+																	columnId={col.id}
+																	disabled={disabledFlag}
+																	compact={compact}
+																	activeBlockId={activeBlockId}
+																	setActiveBlockId={setActiveBlockId}
+																	activeBlockRef={activeBlockRef}
+																	onRemove={() =>
+																		removeBlock(row.id, col.id, b.id)
+																	}
+																	onUpdate={(next) =>
+																		updateBlock(row.id, col.id, b.id, next)
+																	}
+																/>
+															))}
+														</div>
 													</SortableContext>
-												</div>
-											</SortableRow>
-										);
-									})}
-								</div>
-							</SortableContext>
-						</DndContext>
+												</SortableColumn>
+											))}
+										</SortableContext>
+									</div>
+								</SortableRow>
+							);
+						})}
 					</div>
-				</ResizablePanel>
-			</ResizablePanelGroup>
+				</SortableContext>
+			</DndContext>
 
 			<BlockPickerDialog
 				open={blockPickerOpen}

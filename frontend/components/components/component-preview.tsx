@@ -19,6 +19,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Separator } from '@/components/ui/separator';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import {
 	Table,
 	TableBody,
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { AlertCircle, CheckCircle2 } from 'lucide-react';
 
 export type ComponentPreviewModel = {
 	title?: string;
@@ -150,9 +152,15 @@ export function ComponentPreview({
 			typeof d['component'] === 'string' ? d['component'] : 'component';
 
 		if (componentId === 'badge') {
+			const variantRaw = typeof d['variant'] === 'string' ? d['variant'] : 'default';
+			const variant =
+				variantRaw &&
+				['default', 'secondary', 'outline', 'destructive'].includes(variantRaw)
+					? (variantRaw as 'default' | 'secondary' | 'outline' | 'destructive')
+					: 'default';
 			return (
 				<div className={className}>
-					<Badge>Badge</Badge>
+					<Badge variant={variant}>Badge</Badge>
 				</div>
 			);
 		}
@@ -165,6 +173,35 @@ export function ComponentPreview({
 						<Button variant='secondary'>Secondary</Button>
 						<Button variant='outline'>Outline</Button>
 					</div>
+				</div>
+			);
+		}
+
+		if (componentId === 'alert') {
+			const variantRaw = typeof d['variant'] === 'string' ? d['variant'] : 'default';
+			const variant =
+				variantRaw === 'destructive'
+					? 'destructive'
+					: ('default' as 'default' | 'destructive');
+			const title =
+				typeof d['title'] === 'string' && d['title'].trim()
+					? d['title']
+					: 'Heads up';
+			const description =
+				typeof d['description'] === 'string' && d['description'].trim()
+					? d['description']
+					: 'This is an alert component.';
+			return (
+				<div className={className}>
+					<Alert variant={variant}>
+						{variant === 'destructive' ? (
+							<AlertCircle className='h-4 w-4' />
+						) : (
+							<CheckCircle2 className='h-4 w-4' />
+						)}
+						<AlertTitle>{title}</AlertTitle>
+						<AlertDescription>{description}</AlertDescription>
+					</Alert>
 				</div>
 			);
 		}

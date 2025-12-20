@@ -16,6 +16,7 @@ import {
 import { PublicTopNav } from '@/components/public/public-top-nav';
 import { PublicFooterNav } from '@/components/public/public-footer-nav';
 import { PageBuilder, PageRenderer } from '@/components/page-builder/page-builder';
+import { PageBuilderOutline } from '@/components/page-builder/page-outline';
 
 import { AppSidebar } from '@/components/app-sidebar';
 import { SiteHeader } from '@/components/site-header';
@@ -242,7 +243,10 @@ export function PublicPageClient({
 	}
 
 	const content = (
-		<div className='max-w-5xl mx-auto p-6 space-y-6'>
+		<div
+			className={
+				editMode && isAdmin ? 'w-full p-6 space-y-6' : 'max-w-5xl mx-auto p-6 space-y-6'
+			}>
 			{activeMenuId !== 'none' ? (
 				<div className='rounded-xl border overflow-hidden'>
 					<PublicTopNav menuId={activeMenuId} />
@@ -321,11 +325,20 @@ export function PublicPageClient({
 			{/* Body */}
 			{editMode ? (
 				hydrated ? (
-					<PageBuilder
-						value={builder}
-						onChange={setBuilder}
-						disabled={saving}
-					/>
+					<div className='flex flex-col lg:flex-row gap-6'>
+						<div className='flex-1 min-w-0'>
+							<PageBuilder
+								value={builder}
+								onChange={setBuilder}
+								disabled={saving}
+							/>
+						</div>
+						<aside className='lg:w-[320px] shrink-0'>
+							<div className='sticky top-(--header-height) max-h-[calc(100svh-var(--header-height))] overflow-auto rounded-md border bg-background p-4'>
+								<PageBuilderOutline state={builder} />
+							</div>
+						</aside>
+					</div>
 				) : (
 					<PageRenderer state={viewState} />
 				)

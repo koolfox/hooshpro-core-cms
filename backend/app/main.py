@@ -1,6 +1,7 @@
 from pathlib import Path
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.config import settings
@@ -21,6 +22,11 @@ app.add_middleware(
 
 Path(settings.MEDIA_DIR).mkdir(parents=True, exist_ok=True)
 app.mount(settings.MEDIA_URL_PREFIX, StaticFiles(directory=settings.MEDIA_DIR), name="media")
+
+
+@app.exception_handler(ValueError)
+async def handle_value_error(_: Request, exc: ValueError) -> JSONResponse:
+    return JSONResponse(status_code=422, content={"detail": str(exc) or "Invalid input"})
 
 
 @app.on_event("startup")

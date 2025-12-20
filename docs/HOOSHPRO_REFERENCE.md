@@ -191,8 +191,9 @@ Blocks:
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
   - Row `settings.columns`: supports `1..12`; frontend renders responsively (mobile stacks to 1 column).
   - Drag/drop reorder uses dnd-kit (rows + columns + components).
-  - Builder UI modes: `Clean UI` (controls on hover) vs `Detailed UI` (controls always visible) + resizable Outline/Canvas panels.
-  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (placeholder component).
+  - Builder UI modes: `Clean UI` (controls on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
+  - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
+  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert` is the first real preview implementation).
   - Templates drive the public top menu (`template.menu`) and footer menu (`template.footer`) so pages share a consistent nav/footer.
 
 ---
@@ -303,11 +304,14 @@ Existing examples:
 
 - Schema + parsing/serialization: `frontend/lib/page-builder.ts`
 - Builder UI (grid + dnd-kit): `frontend/components/page-builder/page-builder.tsx`
+- Outline (tree view): `frontend/components/page-builder/page-outline.tsx` (rendered as right sidebar in edit mode)
 - Component picker modal (DB-backed): `frontend/components/page-builder/block-picker-dialog.tsx`
 - Block picker modal (DB-backed sections): `frontend/components/page-builder/block-template-picker-dialog.tsx`
 - Public top nav (menu): `frontend/components/public/public-top-nav.tsx`
 - Editor block (TipTap + floating toolbar): `frontend/components/editor-block.tsx`
 - Media picker dialog (used by components): `frontend/components/media/media-picker-dialog.tsx`
+- shadcn docs URL helper: `frontend/lib/shadcn-docs.ts`
+- shadcn Alert primitive: `frontend/components/ui/alert.tsx` (used by component previews / shadcn rendering)
 - Public edit client mounts the builder in `?edit=1`: `frontend/app/[slug]/page-client.tsx`
 
 ---

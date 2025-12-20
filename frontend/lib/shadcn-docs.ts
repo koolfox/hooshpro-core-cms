@@ -1,0 +1,65 @@
+export const SHADCN_DOCS_BASE = "https://ui.shadcn.com/docs/components"
+
+export const SHADCN_COMPONENT_DOC_SLUGS = [
+  "accordion",
+  "alert-dialog",
+  "alert",
+  "aspect-ratio",
+  "avatar",
+  "badge",
+  "breadcrumb",
+  "button",
+  "calendar",
+  "card",
+  "carousel",
+  "chart",
+  "checkbox",
+  "collapsible",
+  "combobox",
+  "command",
+  "context-menu",
+  "data-table",
+  "date-picker",
+  "dialog",
+  "drawer",
+  "dropdown-menu",
+  "form",
+  "hover-card",
+  "input",
+  "input-otp",
+  "kbd",
+  "label",
+  "menubar",
+  "navigation-menu",
+  "pagination",
+  "popover",
+  "progress",
+  "radio-group",
+  "resizable",
+  "scroll-area",
+  "select",
+  "separator",
+  "sheet",
+  "sidebar",
+  "skeleton",
+  "slider",
+  "sonner",
+  "spinner",
+  "switch",
+  "table",
+  "tabs",
+  "textarea",
+  "toast",
+  "toggle-group",
+  "toggle",
+  "tooltip",
+  "typography",
+] as const
+
+export type ShadcnComponentDocSlug = (typeof SHADCN_COMPONENT_DOC_SLUGS)[number]
+
+export function shadcnDocsUrl(slug: string): string {
+  const normalized = slug.trim().toLowerCase()
+  return `${SHADCN_DOCS_BASE}/${encodeURIComponent(normalized)}.md`
+}
+

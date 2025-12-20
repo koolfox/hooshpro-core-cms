@@ -81,6 +81,7 @@ export type ShadcnBlock = {
 	type: 'shadcn';
 	data: {
 		component: string;
+		props?: Record<string, unknown>;
 	};
 };
 
@@ -379,10 +380,21 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 							isRecord(data) && typeof data['component'] === 'string'
 								? data['component']
 								: '';
+						let props: Record<string, unknown> | undefined;
+						if (isRecord(data) && isRecord(data['props'])) {
+							props = data['props'] as Record<string, unknown>;
+						} else if (isRecord(data)) {
+							const rest: Record<string, unknown> = {};
+							for (const [k, v] of Object.entries(data)) {
+								if (k === 'component') continue;
+								rest[k] = v;
+							}
+							if (Object.keys(rest).length > 0) props = rest;
+						}
 						colBlocks.push({
 							id,
 							type: 'shadcn',
-							data: { component },
+							data: props ? { component, props } : { component },
 						});
 						continue;
 					}
