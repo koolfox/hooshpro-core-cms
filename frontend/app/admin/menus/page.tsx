@@ -87,7 +87,10 @@ function slugify(input: string) {
 
 function formatDestination(it: MenuItem) {
 	if (it.type === 'link') return it.href || '';
-	if (it.type === 'page') return it.page_slug ? `/${it.page_slug}` : `page:${it.page_id ?? ''}`;
+	if (it.type === 'page') {
+		if (!it.page_slug) return `page:${it.page_id ?? ''}`;
+		return it.page_slug === 'home' ? '/' : `/${it.page_slug}`;
+	}
 	return '';
 }
 
@@ -384,6 +387,48 @@ export default function AdminMenusScreen() {
 		}
 	}
 
+	// Edit menu (title/description). Slug edits are disabled to keep references stable.
+	const [editMenuOpen, setEditMenuOpen] = useState(false);
+	const [editMenuTitle, setEditMenuTitle] = useState('');
+	const [editMenuSlug, setEditMenuSlug] = useState('');
+	const [editMenuDescription, setEditMenuDescription] = useState('');
+	const [editMenuSaving, setEditMenuSaving] = useState(false);
+	const [editMenuError, setEditMenuError] = useState<string | null>(null);
+
+	function openEditMenu() {
+		if (!selectedMenu) return;
+		setEditMenuTitle(selectedMenu.title);
+		setEditMenuSlug(selectedMenu.slug);
+		setEditMenuDescription(selectedMenu.description ?? '');
+		setEditMenuError(null);
+		setEditMenuSaving(false);
+		setEditMenuOpen(true);
+	}
+
+	async function doUpdateMenu() {
+		if (!selectedMenuId) return;
+		setEditMenuSaving(true);
+		setEditMenuError(null);
+		try {
+			await apiFetch<Menu>(`/api/admin/menus/${selectedMenuId}`, {
+				method: 'PUT',
+				headers: { 'content-type': 'application/json' },
+				body: JSON.stringify({
+					title: editMenuTitle.trim(),
+					description: editMenuDescription.trim() ? editMenuDescription.trim() : null,
+				}),
+				nextPath: '/admin/menus',
+			});
+			setEditMenuOpen(false);
+			await reload();
+			await reloadSelectedMenu();
+		} catch (e) {
+			setEditMenuError(toErrorMessage(e));
+		} finally {
+			setEditMenuSaving(false);
+		}
+	}
+
 	// Add item
 	const [addOpen, setAddOpen] = useState(false);
 	const [addType, setAddType] = useState<'page' | 'link'>('page');
@@ -663,6 +708,13 @@ export default function AdminMenusScreen() {
 
 							<div className='flex items-center gap-2'>
 								<Button
+									variant='outline'
+									onClick={openEditMenu}
+									disabled={!canInteract}>
+									<Pencil className='h-4 w-4 mr-2' />
+									Menu settings
+								</Button>
+								<Button
 									onClick={() => setAddOpen(true)}
 									disabled={!canInteract}>
 									<Plus className='h-4 w-4 mr-2' />
@@ -793,6 +845,71 @@ export default function AdminMenusScreen() {
 							onClick={doCreate}
 							disabled={createSaving || !createTitle.trim() || !createSlug.trim()}>
 							{createSaving ? 'Creating…' : 'Create'}
+						</Button>
+					</DialogFooter>
+				</DialogContent>
+			</Dialog>
+
+			{/* Edit menu dialog */}
+			<Dialog
+				open={editMenuOpen}
+				onOpenChange={(v) => {
+					setEditMenuOpen(v);
+					if (!v) {
+						setEditMenuError(null);
+						setEditMenuSaving(false);
+					}
+				}}>
+				<DialogContent className='sm:max-w-lg'>
+					<DialogHeader>
+						<DialogTitle>Menu settings</DialogTitle>
+						<DialogDescription>
+							Edit the menu title/description. Slug changes are disabled (keeps references stable).
+						</DialogDescription>
+					</DialogHeader>
+
+					<div className='space-y-4'>
+						<div className='space-y-2'>
+							<Label>Title</Label>
+							<Input
+								value={editMenuTitle}
+								onChange={(e) => setEditMenuTitle(e.target.value)}
+								disabled={editMenuSaving}
+							/>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Slug</Label>
+							<Input
+								value={editMenuSlug}
+								disabled
+							/>
+						</div>
+
+						<div className='space-y-2'>
+							<Label>Description</Label>
+							<Input
+								value={editMenuDescription}
+								onChange={(e) => setEditMenuDescription(e.target.value)}
+								placeholder='Optional'
+								disabled={editMenuSaving}
+							/>
+						</div>
+
+						{editMenuError ? <p className='text-sm text-red-600'>{editMenuError}</p> : null}
+					</div>
+
+					<DialogFooter>
+						<Button
+							variant='outline'
+							onClick={() => setEditMenuOpen(false)}
+							disabled={editMenuSaving}>
+							Cancel
+						</Button>
+						<Button
+							onClick={doUpdateMenu}
+							disabled={editMenuSaving || !editMenuTitle.trim()}>
+							{editMenuSaving ? 'Saving…' : 'Save'}
 						</Button>
 					</DialogFooter>
 				</DialogContent>

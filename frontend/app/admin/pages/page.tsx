@@ -251,7 +251,7 @@ export default function AdminPagesScreen() {
 	return (
 		<AdminListPage
 			title='Pages'
-			description='Create/select here. Edit happens on the page itself.'
+			description='Create/select here. Edit happens on the page itself. Homepage is the page with slug "home" (route "/").'
 			actions={
 				<Button
 					onClick={openCreate}
@@ -344,8 +344,18 @@ export default function AdminPagesScreen() {
 						},
 						{
 							header: 'Slug',
-							cell: (p) => `/${p.slug}`,
-							cellClassName: 'text-muted-foreground',
+							cell: (p) => (
+								<div className='space-y-1'>
+									<div className='text-sm text-muted-foreground'>
+										{p.slug === 'home' ? '/' : `/${p.slug}`}
+									</div>
+									{p.slug === 'home' ? (
+										<div className='text-xs text-muted-foreground'>
+											slug: home
+										</div>
+									) : null}
+								</div>
+							),
 						},
 						{
 							header: 'Status',
@@ -375,7 +385,7 @@ export default function AdminPagesScreen() {
 										asChild
 										variant='outline'
 										size='sm'>
-										<Link href={`/${p.slug}?edit=1`}>
+										<Link href={p.slug === 'home' ? '/?edit=1' : `/${p.slug}?edit=1`}>
 											Edit
 										</Link>
 									</Button>

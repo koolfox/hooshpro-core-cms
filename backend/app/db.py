@@ -3,12 +3,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Generator
 import json
+from datetime import datetime, timezone
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker, Session as OrmSession
 
-from app.models import Component, Menu, MenuItem, PageTemplate
+from app.models import Component, Menu, MenuItem, Page, PageTemplate
 from app.core.config import DB_FILE
 
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_FILE}"
@@ -35,21 +36,33 @@ def run_migrations() -> None:
     with engine.connect() as connection:
         tables = set(inspect(connection).get_table_names())
 
-    if "alembic_version" not in tables and tables.intersection(
-        {
-            "users",
-            "sessions",
-            "pages",
-            "media_assets",
-            "media_folders",
-            "components",
-            "blocks",
-            "page_templates",
-            "menus",
-            "menu_items",
-        }
-    ):
-        command.stamp(cfg, ALEMBIC_BASELINE_REVISION)
+    known_tables = {
+        "users",
+        "sessions",
+        "pages",
+        "page_templates",
+        "components",
+        "blocks",
+        "media_assets",
+        "media_folders",
+        "menus",
+        "menu_items",
+    }
+    baseline_tables = {"users", "sessions", "pages"}
+
+    if "alembic_version" not in tables and tables.intersection(known_tables):
+        # If the DB was created before migrations were wired (e.g. via `create_all`),
+        # stamp to an appropriate revision so we don't try to recreate existing tables.
+        has_non_baseline = bool(tables.intersection(known_tables - baseline_tables))
+        if has_non_baseline:
+            from alembic.script import ScriptDirectory
+
+            head = ScriptDirectory.from_config(cfg).get_current_head()
+            if not head:
+                raise RuntimeError("Alembic head revision not found")
+            command.stamp(cfg, head)
+        else:
+            command.stamp(cfg, ALEMBIC_BASELINE_REVISION)
 
     command.upgrade(cfg, "head")
 
@@ -60,6 +73,34 @@ def seed_defaults() -> None:
 
     db = SessionLocal()
     try:
+        home_page: Page | None = None
+        if "pages" in tables:
+            home_page = db.query(Page).filter(Page.slug == "home").first()
+
+            has_pages = db.query(Page.id).limit(1).first() is not None
+            if not has_pages:
+                blocks = {
+                    "version": 1,
+                    "blocks": [
+                        {"type": "hero", "data": {"headline": "Home", "subheadline": ""}},
+                        {
+                            "type": "paragraph",
+                            "data": {
+                                "text": "Welcome to HooshPro. Edit this page at /?edit=1.",
+                            },
+                        },
+                    ],
+                }
+                home_page = Page(
+                    title="Home",
+                    slug="home",
+                    status="published",
+                    blocks_json=json.dumps(blocks, ensure_ascii=False),
+                    published_at=datetime.now(timezone.utc),
+                )
+                db.add(home_page)
+                db.flush()
+
         if "menus" in tables:
             main = db.query(Menu).filter(Menu.slug == "main").first()
             if not main:
@@ -72,22 +113,41 @@ def seed_defaults() -> None:
                 db.flush()
 
             if "menu_items" in tables:
-                has_home = (
-                    db.query(MenuItem)
+                has_home_link = (
+                    db.query(MenuItem.id)
                     .filter(MenuItem.menu_id == main.id, MenuItem.type == "link", MenuItem.href == "/")
                     .first()
                     is not None
                 )
+                has_home_page = (
+                    db.query(MenuItem.id)
+                    .join(Page, MenuItem.page_id == Page.id)
+                    .filter(MenuItem.menu_id == main.id, MenuItem.type == "page", Page.slug == "home")
+                    .first()
+                    is not None
+                )
+                has_home = has_home_link or has_home_page
                 if not has_home:
-                    db.add(
-                        MenuItem(
-                            menu_id=main.id,
-                            type="link",
-                            label="Home",
-                            href="/",
-                            order_index=0,
+                    if home_page is not None:
+                        db.add(
+                            MenuItem(
+                                menu_id=main.id,
+                                type="page",
+                                label="Home",
+                                page_id=home_page.id,
+                                order_index=0,
+                            )
                         )
-                    )
+                    else:
+                        db.add(
+                            MenuItem(
+                                menu_id=main.id,
+                                type="link",
+                                label="Home",
+                                href="/",
+                                order_index=0,
+                            )
+                        )
 
         if "page_templates" in tables:
             template_defaults = [

@@ -45,10 +45,12 @@ export function PublicPageClient({
 	initialPage,
 	isAdmin,
 	defaultEdit,
+	menuOverride,
 }: {
 	initialPage: Page;
 	isAdmin: boolean;
 	defaultEdit: boolean;
+	menuOverride?: string | null;
 }) {
 	const router = useRouter();
 
@@ -84,7 +86,12 @@ export function PublicPageClient({
 	const [error, setError] = useState<string | null>(null);
 
 	const viewState = useMemo(() => parsePageBuilderState(page.blocks), [page.blocks]);
-	const activeMenuId = editMode ? builder.template.menu : viewState.template.menu;
+	const activeMenuId =
+		!editMode && menuOverride && menuOverride.trim()
+			? menuOverride.trim()
+			: editMode
+				? builder.template.menu
+				: viewState.template.menu;
 
 	const templatesBySlug = useMemo(() => {
 		const m = new Map<string, PageTemplate>();

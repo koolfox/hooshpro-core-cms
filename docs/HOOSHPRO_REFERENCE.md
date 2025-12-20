@@ -42,7 +42,9 @@ Quick check:
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
 - Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/menus`, `/admin/media`
-- Root health splash: `/`
+- Homepage: `/` (renders the page with slug `home`; edit at `/?edit=1` when logged in)
+- Canonical homepage: `/home` redirects to `/`
+- Public preview override: `?menu=<slug>` (temporarily override the rendered menu; used by the menu builder Preview button)
 
 ### Backend Routes (from code)
 
@@ -175,7 +177,7 @@ Important:
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items`; backend startup runs `upgrade head` (stamps baseline if the DB predates migrations) and seeds default components/templates/menus on startup.
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
 
 Reserved slugs:
 
@@ -215,6 +217,7 @@ Blocks:
 - [x] Feature 00 – Repo setup + baseline
 - [x] Feature 01 – Auth/session + admin gate (login/logout/me + middleware + admin ping)
 - [x] Admin shell UI (shadcn `sidebar-16`) shared by admin + public edit mode
+- [x] Theme toggle in admin header (system/light/dark)
 - [x] TipTap visual editing on public route (wiring complete; edit gated by session)
 - [x] Media manager MVP (images: upload/list/search/delete + folders/subfolders + drag/drop move + icons/details view)
 - [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)

@@ -372,8 +372,8 @@ def public_get_menu(slug: str, db: OrmSession = Depends(get_db)):
         if it.type == "page":
             if not p or p.status != "published":
                 continue
-            out.append(PublicMenuItemOut(label=it.label, href=f"/{p.slug}"))
+            href = "/" if p.slug == "home" else f"/{p.slug}"
+            out.append(PublicMenuItemOut(label=it.label, href=href))
             continue
 
     return PublicMenuOut(slug=m.slug, title=m.title, items=out)
-

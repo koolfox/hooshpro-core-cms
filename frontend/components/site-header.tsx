@@ -6,6 +6,7 @@ import type { ReactNode } from 'react';
 
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
+import { ThemeToggle } from '@/components/theme-toggle';
 
 function titleFromPathname(pathname: string): string {
 	if (pathname === '/admin') return 'Dashboard';
@@ -45,11 +46,10 @@ export function SiteHeader({
 					</span>
 				) : null}
 
-				{right ? (
-					<div className='ml-auto flex items-center gap-2'>
-						{right}
-					</div>
-				) : null}
+				<div className='ml-auto flex items-center gap-2'>
+					{right}
+					<ThemeToggle />
+				</div>
 			</div>
 		</header>
 	);

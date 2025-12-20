@@ -1,5 +1,6 @@
 import type { Metadata } from 'next';
 import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 
 import type { Page } from '@/lib/types';
 import { PublicPageClient } from './page-client';
@@ -81,6 +82,24 @@ export default async function PublicPage({
 	const editValue = Array.isArray(sp.edit) ? sp.edit[0] : sp.edit;
 	const edit = editValue === '1' || editValue === 'true';
 
+	const menuValue = Array.isArray(sp.menu) ? sp.menu[0] : sp.menu;
+	const menuOverride = typeof menuValue === 'string' && menuValue.trim() ? menuValue.trim() : null;
+
+	// Canonicalize homepage: `/home` -> `/`
+	if (slug.trim().toLowerCase() === 'home') {
+		const params = new URLSearchParams();
+		for (const [k, v] of Object.entries(sp)) {
+			if (typeof v === 'string' && v) params.set(k, v);
+			if (Array.isArray(v)) {
+				for (const vv of v) {
+					if (vv) params.append(k, vv);
+				}
+			}
+		}
+		const qs = params.toString();
+		redirect(qs ? `/?${qs}` : '/');
+	}
+
 	const token = (await cookies()).get(COOKIE_NAME)?.value ?? '';
 	const isAdmin = token ? await isAdminSession(token) : false;
 
@@ -101,6 +120,7 @@ export default async function PublicPage({
 			initialPage={p}
 			isAdmin={isAdmin}
 			defaultEdit={edit}
+			menuOverride={menuOverride}
 		/>
 	);
 }
