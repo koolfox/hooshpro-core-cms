@@ -9,7 +9,6 @@ import {
 	LayoutTemplate,
 	LayoutDashboard,
 	LogOut,
-	Menu as MenuIcon,
 	Puzzle,
 } from 'lucide-react';
 
@@ -28,8 +27,6 @@ const nav = [
 	{ title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
 	{ title: 'Pages', href: '/admin/pages', icon: FileText },
 	{ title: 'Templates', href: '/admin/templates', icon: LayoutTemplate },
-	{ title: 'Menus', href: '/admin/menus', icon: MenuIcon },
-	{ title: 'Footers', href: '/admin/footers', icon: MenuIcon },
 	{ title: 'Components', href: '/admin/components', icon: Puzzle },
 	{ title: 'Blocks', href: '/admin/blocks', icon: Blocks },
 	{ title: 'Media', href: '/admin/media', icon: ImageIcon },

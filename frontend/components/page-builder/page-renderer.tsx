@@ -7,6 +7,8 @@ import Image from 'next/image';
 import type { PageBlock, PageBuilderState } from '@/lib/page-builder';
 import { sanitizeRichHtml } from '@/lib/sanitize';
 
+import { PublicFooterNav } from '@/components/public/public-footer-nav';
+import { PublicTopNav } from '@/components/public/public-top-nav';
 import { ComponentPreview } from '@/components/components/component-preview';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -44,7 +46,7 @@ function normalizeColumnSizes(value: unknown, count: number): number[] | null {
 	return scaled;
 }
 
-export function renderBlockPreview(block: PageBlock) {
+export function renderBlockPreview(block: PageBlock, slot?: React.ReactNode) {
 	if (block.type === 'editor') {
 		const html = block.data.html;
 		const safe = sanitizeRichHtml(html);
@@ -53,6 +55,25 @@ export function renderBlockPreview(block: PageBlock) {
 				className='prose prose-neutral dark:prose-invert max-w-none'
 				dangerouslySetInnerHTML={{ __html: safe || '<p></p>' }}
 			/>
+		);
+	}
+
+	if (block.type === 'slot') {
+		if (slot) return <>{slot}</>;
+		return (
+			<div className='rounded-md border border-dashed bg-muted/10 px-3 py-6 text-center text-sm text-muted-foreground'>
+				Page content slot
+			</div>
+		);
+	}
+
+	if (block.type === 'menu') {
+		const id = block.data.menu?.trim() || 'main';
+		if (id === 'none') return null;
+		return block.data.kind === 'footer' ? (
+			<PublicFooterNav menuId={id} />
+		) : (
+			<PublicTopNav menuId={id} />
 		);
 	}
 
@@ -116,11 +137,7 @@ export function renderBlockPreview(block: PageBlock) {
 
 	if (block.type === 'shadcn') {
 		const data = { component: block.data.component, ...(block.data.props ?? {}) };
-		return (
-			<div className='rounded-lg border bg-muted/10 p-3'>
-				<ComponentPreview component={{ type: 'shadcn', data }} />
-			</div>
-		);
+		return <ComponentPreview component={{ type: 'shadcn', data }} />;
 	}
 
 	return (
@@ -131,6 +148,16 @@ export function renderBlockPreview(block: PageBlock) {
 }
 
 export function PageRenderer({ state }: { state: PageBuilderState }) {
+	return <PageRendererWithSlot state={state} />;
+}
+
+export function PageRendererWithSlot({
+	state,
+	slot,
+}: {
+	state: PageBuilderState;
+	slot?: React.ReactNode;
+}) {
 	return (
 		<div className='space-y-10'>
 			{state.rows.map((row) => {
@@ -139,25 +166,49 @@ export function PageRenderer({ state }: { state: PageBuilderState }) {
 					normalizeColumnSizes(row.settings?.sizes ?? null, columnsCount) ??
 					defaultColumnSizes(columnsCount);
 				const template = sizes.map((n) => `${n}fr`).join(' ');
-				return (
-					<section key={row.id}>
-						<div
-							className='grid grid-cols-1 gap-6 md:grid-cols-[var(--hp-cols)]'
-							style={{ '--hp-cols': template } as CSSProperties}>
-							{row.columns.map((col) => (
+				const wrapper = row.settings?.wrapper ?? 'none';
+
+				const grid = (
+					<div
+						className='grid grid-cols-1 gap-6 md:grid-cols-[var(--hp-cols)]'
+						style={{ '--hp-cols': template } as CSSProperties}>
+						{row.columns.map((col) => {
+							const blocks = col.blocks.map((b) => (
+								<div key={b.id}>{renderBlockPreview(b, slot)}</div>
+							));
+
+							if (col.settings?.wrapper === 'card') {
+								return (
+									<Card key={col.id}>
+										<CardContent>
+											<div className='space-y-4'>{blocks}</div>
+										</CardContent>
+									</Card>
+								);
+							}
+
+							return (
 								<div
 									key={col.id}
 									className='space-y-4'>
-									{col.blocks.map((b) => (
-										<div key={b.id}>{renderBlockPreview(b)}</div>
-									))}
+									{blocks}
 								</div>
-							))}
-						</div>
+							);
+						})}
+					</div>
+				);
+				return (
+					<section key={row.id}>
+						{wrapper === 'card' ? (
+							<Card>
+								<CardContent>{grid}</CardContent>
+							</Card>
+						) : (
+							grid
+						)}
 					</section>
 				);
 			})}
 		</div>
 	);
 }
-

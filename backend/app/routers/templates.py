@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
@@ -19,7 +20,83 @@ from app.schemas.template import (
 router = APIRouter(tags=["templates"])
 
 
+def _safe_load_json(text: str | None, fallback: dict) -> dict:
+    if not text:
+        return fallback
+    try:
+        v = json.loads(text)
+        return v if isinstance(v, dict) else fallback
+    except Exception:
+        return fallback
+
+
+def _default_template_definition(menu: str, footer: str) -> dict:
+    rows: list[dict] = []
+
+    if menu.strip() and menu.strip().lower() != "none":
+        rows.append(
+            {
+                "id": "row_header",
+                "settings": {"columns": 1, "sizes": [100]},
+                "columns": [
+                    {
+                        "id": "col_header",
+                        "blocks": [
+                            {
+                                "id": "blk_menu_top",
+                                "type": "menu",
+                                "data": {"menu": menu.strip(), "kind": "top"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    rows.append(
+        {
+            "id": "row_content",
+            "settings": {"columns": 1, "sizes": [100]},
+            "columns": [
+                {
+                    "id": "col_content",
+                    "blocks": [
+                        {
+                            "id": "blk_slot",
+                            "type": "slot",
+                            "data": {"name": "Page content"},
+                        }
+                    ],
+                }
+            ],
+        }
+    )
+
+    if footer.strip() and footer.strip().lower() != "none":
+        rows.append(
+            {
+                "id": "row_footer",
+                "settings": {"columns": 1, "sizes": [100]},
+                "columns": [
+                    {
+                        "id": "col_footer",
+                        "blocks": [
+                            {
+                                "id": "blk_menu_footer",
+                                "type": "menu",
+                                "data": {"menu": footer.strip(), "kind": "footer"},
+                            }
+                        ],
+                    }
+                ],
+            }
+        )
+
+    return {"version": 3, "layout": {"rows": rows}}
+
+
 def _to_out(t: PageTemplate) -> TemplateOut:
+    definition = _safe_load_json(t.definition_json, {"version": 3, "layout": {"rows": []}})
     return TemplateOut(
         id=t.id,
         slug=t.slug,
@@ -27,6 +104,7 @@ def _to_out(t: PageTemplate) -> TemplateOut:
         description=t.description,
         menu=t.menu,
         footer=t.footer,
+        definition=definition,
         created_at=t.created_at,
         updated_at=t.updated_at,
     )
@@ -76,12 +154,18 @@ def admin_create_template(
     payload.normalized()
     slug = validate_template_slug(payload.slug)
 
+    definition = payload.definition or {"version": 3, "layout": {"rows": []}}
+    rows = definition.get("layout", {}).get("rows") if isinstance(definition, dict) else None
+    if not isinstance(rows, list) or len(rows) == 0:
+        definition = _default_template_definition(payload.menu, payload.footer)
+
     t = PageTemplate(
         slug=slug,
         title=payload.title.strip(),
         description=payload.description.strip() if payload.description else None,
         menu=payload.menu.strip(),
         footer=payload.footer.strip(),
+        definition_json=json.dumps(definition, ensure_ascii=False),
     )
 
     db.add(t)
@@ -130,6 +214,8 @@ def admin_update_template(
         t.menu = payload.menu.strip()
     if payload.footer is not None:
         t.footer = payload.footer.strip()
+    if payload.definition is not None:
+        t.definition_json = json.dumps(payload.definition)
 
     try:
         db.commit()
@@ -154,3 +240,15 @@ def admin_delete_template(
     db.delete(t)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/api/public/templates/{slug}", response_model=TemplateOut)
+def public_get_template(
+    slug: str,
+    db: OrmSession = Depends(get_db),
+):
+    slug = validate_template_slug(slug)
+    t = db.query(PageTemplate).filter(PageTemplate.slug == slug).first()
+    if not t:
+        raise HTTPException(status_code=404, detail="Template not found")
+    return _to_out(t)

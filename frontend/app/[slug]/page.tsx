@@ -3,6 +3,7 @@ import { cookies } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import type { Page } from '@/lib/types';
+import { parsePageBuilderState } from '@/lib/page-builder';
 import { PublicPageClient } from './page-client';
 
 const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:8000';
@@ -27,6 +28,14 @@ async function fetchAdminPage(
 		headers: {
 			cookie: `${COOKIE_NAME}=${token}`,
 		},
+	});
+	if (!res.ok) return null;
+	return res.json();
+}
+
+async function fetchPublicTemplate(slug: string) {
+	const res = await fetch(`${API_ORIGIN}/api/public/templates/${encodeURIComponent(slug)}`, {
+		cache: 'no-store',
 	});
 	if (!res.ok) return null;
 	return res.json();
@@ -119,9 +128,13 @@ export default async function PublicPage({
 		);
 	}
 
+	const templateSlug = parsePageBuilderState(p.blocks).template.id;
+	const t = templateSlug ? await fetchPublicTemplate(templateSlug) : null;
+
 	return (
 		<PublicPageClient
 			initialPage={p}
+			initialTemplate={t}
 			isAdmin={isAdmin}
 			defaultEdit={edit}
 			menuOverride={menuOverride}

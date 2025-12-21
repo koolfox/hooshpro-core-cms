@@ -41,10 +41,12 @@ Quick check:
 
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/components`, `/admin/blocks`, `/admin/templates`, `/admin/menus`, `/admin/footers`, `/admin/media`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/media`
+- Legacy (hidden from sidebar): `/admin/menus`, `/admin/footers`
 - Homepage: `/` (renders the page with slug `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/home` redirects to `/`
-- Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override top-nav/footer menus for previews)
+- Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override template menu blocks for previews)
+- Internal docs helper: `GET /shadcn/variants?slug=<component>` (fetches shadcn `.md` docs and extracts CVA variant groups for the editor)
 
 ### Backend Routes (from code)
 
@@ -119,6 +121,9 @@ Quick check:
   - PUT    `/api/admin/templates/{template_id}`
   - DELETE `/api/admin/templates/{template_id}`
 
+- Templates (public; used by public renderer):
+  - GET `/api/public/templates/{slug}`
+
 - Static media files: `/media/{filename}` (served by FastAPI StaticFiles; media dir auto-created on startup)
 
 ---
@@ -167,7 +172,7 @@ Important:
 - users: id, email (unique), password_hash, created_at
 - sessions: id, user_id -> users, token_hash, expires_at, created_at
 - pages: id, title, slug (unique), status (draft|published), seo_title, seo_description, blocks_json (TEXT, default version 1), published_at, created_at, updated_at
-- page_templates: id, slug (unique), title, description, menu, footer, created_at, updated_at
+- page_templates: id, slug (unique), title, description, menu, footer, definition_json (TEXT), created_at, updated_at
 - menus: id, slug (unique), title, description, created_at, updated_at
 - menu_items: id, menu_id -> menus, type (page|link), label, page_id -> pages (nullable), href (nullable), order_index, created_at, updated_at
 - media_folders: id, name, parent_id -> media_folders, created_at, updated_at
@@ -177,7 +182,7 @@ Important:
 
 ### Migrations
 
-- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items` + `b1c2d3e4f5a6` adds `page_templates.footer`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
+- Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items` + `b1c2d3e4f5a6` adds `page_templates.footer` + `c4e5f6a7b8c9` adds `page_templates.definition_json`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
 
 Reserved slugs:
 
@@ -190,12 +195,14 @@ Blocks:
 - Page Builder V3 (current): `{ version: 3, template:{ id, menu, footer }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
   - Row `settings.columns`: supports `1..12`; columns are adjustable via shadcn `Resizable` and stored in `row.settings.sizes` (percentage weights).
+  - Row `settings.wrapper`: optional section wrapper (`none` | `card`) that wraps the row content (useful for “structural” containers without nesting blocks yet).
+  - Column `settings.wrapper`: optional wrapper (`none` | `card`) that wraps a single column’s content (lets structural containers “host” components without nested block trees).
   - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
   - Drag/drop reorder uses dnd-kit (rows + columns + components).
   - Builder UI modes: `Clean UI` (dashed row/column frames; controls/settings on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
   - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
-  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; `alert`, `typography`, `button`, and `badge` have basic settings UI + previews).
-  - Templates drive the public top menu (`template.menu`) and footer menu (`template.footer`) so pages share a consistent nav/footer.
+  - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; shadcn variants are loaded from docs via `GET /shadcn/variants` and surfaced in editor settings), plus template blocks `slot` (page content placeholder) and `menu` (`data.menu` + `data.kind: top|footer`).
+  - Pages render through templates: the selected template’s `definition_json` is rendered and its `slot` is replaced by the page’s own rows/columns; `?menu`/`?footer` can override template `menu` blocks for previews.
 
 ---
 
@@ -316,6 +323,7 @@ Existing examples:
 - Editor block (TipTap + floating toolbar): `frontend/components/editor-block.tsx`
 - Media picker dialog (used by components): `frontend/components/media/media-picker-dialog.tsx`
 - shadcn docs URL helper: `frontend/lib/shadcn-docs.ts`
+- shadcn variant extractor: `frontend/lib/shadcn-variants.ts` + `frontend/hooks/use-shadcn-variants.ts` + `frontend/app/shadcn/variants/route.ts`
 - shadcn Alert primitive: `frontend/components/ui/alert.tsx` (used by component previews / shadcn rendering)
 - Public edit client mounts the builder in `?edit=1`: `frontend/app/[slug]/page-client.tsx`
 

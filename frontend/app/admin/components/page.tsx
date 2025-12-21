@@ -7,8 +7,10 @@ import { LayoutGrid, List } from 'lucide-react';
 import { apiFetch } from '@/lib/http';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
 import { SHADCN_DOCS_BASE, shadcnDocsUrl } from '@/lib/shadcn-docs';
+import { shadcnComponentMeta } from '@/lib/shadcn-meta';
 import { isRecord } from '@/lib/page-builder';
 import { useApiList } from '@/hooks/use-api-list';
+import { useShadcnVariants } from '@/hooks/use-shadcn-variants';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
@@ -341,6 +343,16 @@ export default function AdminComponentsScreen() {
 			? shadcnDocsUrl(previewData['component'].trim())
 			: null;
 
+	const shadcnComponentSlug =
+		compType === 'shadcn' &&
+		previewError === null &&
+		isRecord(previewData) &&
+		typeof previewData['component'] === 'string' &&
+		previewData['component'].trim()
+			? previewData['component'].trim()
+			: null;
+	const shadcnVariants = useShadcnVariants(shadcnComponentSlug);
+
 	return (
 		<AdminListPage
 			title='Components'
@@ -433,56 +445,71 @@ export default function AdminComponentsScreen() {
 
 			{view === 'gallery' ? (
 				<div className='grid grid-cols-1 lg:grid-cols-2 gap-4'>
-					{items.map((c) => (
-						<div
-							key={c.id}
-							className='rounded-xl border bg-card p-4 space-y-3'>
-							<div className='flex items-start justify-between gap-3'>
-								<div className='min-w-0'>
-									<div className='font-medium truncate'>{c.title}</div>
-									<div className='text-xs text-muted-foreground truncate'>/{c.slug}</div>
-								</div>
-								<Badge variant='secondary'>{c.type}</Badge>
-							</div>
+					{items.map((c) => {
+						const shadcnSlug =
+							c.type === 'shadcn' &&
+							isRecord(c.data) &&
+							typeof c.data['component'] === 'string'
+								? c.data['component'].trim().toLowerCase()
+								: null;
+						const shadcnMeta = shadcnComponentMeta(shadcnSlug);
 
-							<div className='rounded-lg border bg-muted/10 p-3'>
-								<ComponentPreview
-									component={{
-										title: c.title,
-										type: c.type,
-										data: c.data,
-									}}
-									className='max-w-none'
-								/>
-							</div>
+						return (
+							<div
+								key={c.id}
+								className='rounded-xl border bg-card p-4 space-y-3'>
+								<div className='flex items-start justify-between gap-3'>
+									<div className='min-w-0'>
+										<div className='font-medium truncate'>{c.title}</div>
+										<div className='text-xs text-muted-foreground truncate'>/{c.slug}</div>
+									</div>
+									<div className='flex items-center gap-2'>
+										<Badge variant='secondary'>
+											{c.type === 'shadcn' && shadcnSlug ? `shadcn/${shadcnSlug}` : c.type}
+										</Badge>
+										{shadcnMeta ? <Badge variant='outline'>{shadcnMeta.kind}</Badge> : null}
+									</div>
+								</div>
 
-							<div className='flex items-center justify-between gap-3'>
-								<span className='text-xs text-muted-foreground'>
-									Updated {formatIso(c.updated_at)}
-								</span>
-								<div className='flex items-center gap-2'>
-									<Button
-										size='sm'
-										variant='outline'
-										onClick={() => openEdit(c)}>
-										Edit
-									</Button>
-									<Button
-										size='sm'
-										variant='secondary'
-										onClick={() => openClone(c)}>
-										Clone
-									</Button>
-									<Button
-										size='sm'
-										variant='destructive'
-										onClick={() => setConfirmDelete(c)}>
-										Delete
-									</Button>
+								<div className='p-3'>
+									<ComponentPreview
+										component={{
+											title: c.title,
+											type: c.type,
+											data: c.data,
+										}}
+										className='max-w-none'
+									/>
+								</div>
+
+								<div className='flex items-center justify-between gap-3'>
+									<span className='text-xs text-muted-foreground'>
+										Updated {formatIso(c.updated_at)}
+									</span>
+									<div className='flex items-center gap-2'>
+										<Button
+											size='sm'
+											variant='outline'
+											onClick={() => openEdit(c)}>
+											Edit
+										</Button>
+										<Button
+											size='sm'
+											variant='secondary'
+											onClick={() => openClone(c)}>
+											Clone
+										</Button>
+										<Button
+											size='sm'
+											variant='destructive'
+											onClick={() => setConfirmDelete(c)}>
+											Delete
+										</Button>
+									</div>
 								</div>
 							</div>
-						</div>
-					))}
+						);
+					})}
 				</div>
 			) : (
 				<AdminDataTable
@@ -514,9 +541,24 @@ export default function AdminComponentsScreen() {
 						},
 						{
 							header: 'Type',
-							cell: (c) => (
-								<Badge variant='secondary'>{c.type}</Badge>
-							),
+							cell: (c) => {
+								const shadcnSlug =
+									c.type === 'shadcn' &&
+									isRecord(c.data) &&
+									typeof c.data['component'] === 'string'
+										? c.data['component'].trim().toLowerCase()
+										: null;
+								const shadcnMeta = shadcnComponentMeta(shadcnSlug);
+
+								return (
+									<div className='flex flex-wrap items-center gap-2'>
+										<Badge variant='secondary'>
+											{c.type === 'shadcn' && shadcnSlug ? `shadcn/${shadcnSlug}` : c.type}
+										</Badge>
+										{shadcnMeta ? <Badge variant='outline'>{shadcnMeta.kind}</Badge> : null}
+									</div>
+								);
+							},
 							headerClassName: 'w-[140px]',
 						},
 						{
@@ -654,6 +696,44 @@ export default function AdminComponentsScreen() {
 											{shadcnDocsLink ? shadcnDocsLink : SHADCN_DOCS_BASE}
 										</a>
 									</p>
+								) : null}
+
+								{compType === 'shadcn' ? (
+									<details className='rounded-lg border bg-muted/10 p-3'>
+										<summary className='text-sm font-medium cursor-pointer select-none'>
+											Variants (from docs)
+										</summary>
+										<div className='mt-3 space-y-2'>
+											{!shadcnComponentSlug ? (
+												<p className='text-xs text-muted-foreground'>
+													Set <code>data.component</code> to a shadcn docs slug (e.g. <code>button</code>) to load variants.
+												</p>
+											) : shadcnVariants.loading ? (
+												<p className='text-xs text-muted-foreground'>Loading…</p>
+											) : shadcnVariants.error ? (
+												<p className='text-xs text-red-600'>{shadcnVariants.error}</p>
+											) : shadcnVariants.groups.length ? (
+												<div className='space-y-3'>
+													{shadcnVariants.groups.map((g) => (
+														<div key={g.name} className='space-y-1'>
+															<div className='text-xs font-medium'>{g.name}</div>
+															<div className='flex flex-wrap gap-1'>
+																{g.options.map((opt) => (
+																	<Badge key={opt} variant='secondary'>
+																		{opt}
+																	</Badge>
+																))}
+															</div>
+														</div>
+													))}
+												</div>
+											) : (
+												<p className='text-xs text-muted-foreground'>
+													No variants detected in docs for <code>{shadcnComponentSlug}</code>.
+												</p>
+											)}
+										</div>
+									</details>
 								) : null}
 							</div>
 

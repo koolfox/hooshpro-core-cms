@@ -1,16 +1,16 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
 import { apiFetch } from '@/lib/http';
-import type { MenuListOut, PageTemplate, PageTemplateListOut } from '@/lib/types';
+import type { PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { useApiList } from '@/hooks/use-api-list';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
 
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -22,13 +22,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-	Select,
-	SelectContent,
-	SelectItem,
-	SelectTrigger,
-	SelectValue,
-} from '@/components/ui/select';
 
 import {
 	AlertDialog,
@@ -127,16 +120,6 @@ export default function AdminTemplatesScreen() {
 		nextPath: '/admin/templates',
 	});
 
-	const { data: menusData } = useApiList<MenuListOut>('/api/admin/menus?limit=200&offset=0', {
-		nextPath: '/admin/templates',
-	});
-
-	const menuSlugs = useMemo(() => {
-		const set = new Set<string>();
-		for (const m of menusData?.items ?? []) set.add(m.slug);
-		return set;
-	}, [menusData]);
-
 	const items = data?.items ?? EMPTY_TEMPLATES;
 	const total = data?.total ?? 0;
 
@@ -161,8 +144,6 @@ export default function AdminTemplatesScreen() {
 	const [title, setTitle] = useState('');
 	const [slug, setSlug] = useState('');
 	const [slugTouched, setSlugTouched] = useState(false);
-	const [menu, setMenu] = useState('main');
-	const [footer, setFooter] = useState('none');
 	const [description, setDescription] = useState('');
 
 	const [saving, setSaving] = useState(false);
@@ -173,8 +154,6 @@ export default function AdminTemplatesScreen() {
 		setTitle('');
 		setSlug('');
 		setSlugTouched(false);
-		setMenu('main');
-		setFooter('none');
 		setDescription('');
 		setFormError(null);
 	}
@@ -190,8 +169,6 @@ export default function AdminTemplatesScreen() {
 		setTitle(t.title);
 		setSlug(t.slug);
 		setSlugTouched(true);
-		setMenu(t.menu);
-		setFooter(t.footer ?? 'none');
 		setDescription(t.description ?? '');
 		setFormError(null);
 		setEditorOpen(true);
@@ -204,8 +181,6 @@ export default function AdminTemplatesScreen() {
 		const payload = {
 			title: title.trim(),
 			slug: slug.trim(),
-			menu: menu.trim() || 'main',
-			footer: footer.trim() || 'none',
 			description: description.trim() ? description.trim() : null,
 		};
 
@@ -262,7 +237,7 @@ export default function AdminTemplatesScreen() {
 	return (
 		<AdminListPage
 			title='Templates'
-			description='Reusable layout presets (template + menu) that pages can reference.'
+			description='Reusable layout presets that pages can reference.'
 			actions={
 				<Button
 					onClick={openCreate}
@@ -325,16 +300,6 @@ export default function AdminTemplatesScreen() {
 						),
 					},
 					{
-						header: 'Menu',
-						cell: (t) => <Badge variant='secondary'>{t.menu}</Badge>,
-						headerClassName: 'w-[140px]',
-					},
-					{
-						header: 'Footer',
-						cell: (t) => <Badge variant='secondary'>{t.footer}</Badge>,
-						headerClassName: 'w-[140px]',
-					},
-					{
 						header: 'Updated',
 						cell: (t) => (
 							<span className='text-xs text-muted-foreground'>
@@ -347,6 +312,12 @@ export default function AdminTemplatesScreen() {
 						header: '',
 						cell: (t) => (
 							<div className='flex items-center justify-end gap-2'>
+								<Button
+									size='sm'
+									variant='outline'
+									asChild>
+									<Link href={`/admin/templates/${t.id}`}>Layout</Link>
+								</Button>
 								<Button
 									size='sm'
 									variant='outline'
@@ -379,7 +350,7 @@ export default function AdminTemplatesScreen() {
 							{editing ? 'Edit template' : 'New template'}
 						</DialogTitle>
 						<DialogDescription>
-							Templates define the default menu/layout choice for pages.
+							Templates define reusable layouts for pages. Use the “Layout” button to edit menus/footers as blocks.
 						</DialogDescription>
 					</DialogHeader>
 
@@ -413,58 +384,6 @@ export default function AdminTemplatesScreen() {
 										Slug changes are disabled for now (keeps references stable).
 									</p>
 								) : null}
-							</div>
-						</div>
-
-						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-							<div className='space-y-2'>
-								<Label>Menu</Label>
-								<Select
-									value={menu}
-									onValueChange={(v) => setMenu(v)}
-									disabled={saving}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='none'>none</SelectItem>
-										{menu !== 'none' && !menuSlugs.has(menu) ? (
-											<SelectItem value={menu}>{menu} (missing)</SelectItem>
-										) : null}
-										{(menusData?.items ?? []).map((m) => (
-											<SelectItem
-												key={m.id}
-												value={m.slug}>
-												{m.slug}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-							</div>
-
-							<div className='space-y-2'>
-								<Label>Footer</Label>
-								<Select
-									value={footer}
-									onValueChange={(v) => setFooter(v)}
-									disabled={saving}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='none'>none</SelectItem>
-										{footer !== 'none' && !menuSlugs.has(footer) ? (
-											<SelectItem value={footer}>{footer} (missing)</SelectItem>
-										) : null}
-										{(menusData?.items ?? []).map((m) => (
-											<SelectItem
-												key={m.id}
-												value={m.slug}>
-												{m.slug}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
 							</div>
 						</div>
 

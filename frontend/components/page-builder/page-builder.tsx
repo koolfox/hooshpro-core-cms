@@ -38,6 +38,7 @@ import {
 import type { BlockTemplate, ComponentDef } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { shadcnDocsUrl } from '@/lib/shadcn-docs';
+import { useShadcnVariants } from '@/hooks/use-shadcn-variants';
 
 import { EditorBlock } from '@/components/editor-block';
 import { renderBlockPreview } from './page-renderer';
@@ -75,6 +76,7 @@ const MAX_COLUMNS = 12;
 const BUILDER_UI_MODE_KEY = 'hooshpro_builder_ui_mode';
 
 type BuilderUiMode = 'clean' | 'detailed';
+type ShadcnVariantsState = ReturnType<typeof useShadcnVariants>;
 
 function parseBuilderUiMode(value: string | null): BuilderUiMode {
 	const v = (value ?? '').trim().toLowerCase();
@@ -174,6 +176,7 @@ function SortableRow({
 	compact,
 	onRemoveRow,
 	onSetColumns,
+	onSetWrapper,
 	children,
 }: {
 	row: PageRow;
@@ -181,6 +184,7 @@ function SortableRow({
 	compact: boolean;
 	onRemoveRow: (rowId: string) => void;
 	onSetColumns: (rowId: string, columns: number) => void;
+	onSetWrapper: (rowId: string, wrapper: 'none' | 'card') => void;
 	children: React.ReactNode;
 }) {
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging } =
@@ -196,6 +200,10 @@ function SortableRow({
 	};
 
 	const columnsCount = clampColumnsCount(row.settings?.columns ?? row.columns.length);
+	const wrapper = row.settings?.wrapper === 'card' ? 'card' : 'none';
+
+	const inner =
+		wrapper === 'card' ? <div className='rounded-xl border bg-card p-4'>{children}</div> : children;
 
 	return (
 		<section
@@ -241,6 +249,19 @@ function SortableRow({
 								</SelectContent>
 							</Select>
 
+							<Select
+								value={wrapper}
+								onValueChange={(v) => onSetWrapper(row.id, v === 'card' ? 'card' : 'none')}
+								disabled={disabled}>
+								<SelectTrigger className='w-[110px] h-8'>
+									<SelectValue placeholder='Wrapper' />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='none'>no wrapper</SelectItem>
+									<SelectItem value='card'>card</SelectItem>
+								</SelectContent>
+							</Select>
+
 							<Button
 								type='button'
 								variant='outline'
@@ -252,7 +273,7 @@ function SortableRow({
 							</Button>
 						</div>
 
-						{children}
+						{inner}
 					</div>
 				) : (
 					<>
@@ -295,6 +316,21 @@ function SortableRow({
 									</SelectContent>
 								</Select>
 
+								<Select
+									value={wrapper}
+									onValueChange={(v) =>
+										onSetWrapper(row.id, v === 'card' ? 'card' : 'none')
+									}
+									disabled={disabled}>
+									<SelectTrigger className='w-[130px]'>
+										<SelectValue placeholder='Wrapper' />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='none'>no wrapper</SelectItem>
+										<SelectItem value='card'>card</SelectItem>
+									</SelectContent>
+								</Select>
+
 								<Button
 									type='button'
 									variant='outline'
@@ -307,7 +343,7 @@ function SortableRow({
 							</div>
 						</div>
 
-						<div className='p-4'>{children}</div>
+						<div className='p-4'>{inner}</div>
 					</>
 				)}
 			</div>
@@ -320,22 +356,29 @@ function ColumnFrame({
 	compact,
 	isDragging,
 	isOver,
+	wrapper,
 	setActivatorNodeRef,
 	listeners,
 	attributes,
 	onAddBlock,
+	onSetWrapper,
 	children,
 }: {
 	disabled: boolean;
 	compact: boolean;
 	isDragging: boolean;
 	isOver: boolean;
+	wrapper: 'none' | 'card';
 	setActivatorNodeRef: (node: HTMLElement | null) => void;
 	listeners: ReturnType<typeof useSortable>['listeners'];
 	attributes: ReturnType<typeof useSortable>['attributes'];
 	onAddBlock: () => void;
+	onSetWrapper: (wrapper: 'none' | 'card') => void;
 	children: React.ReactNode;
 }) {
+	const content =
+		wrapper === 'card' ? <div className='rounded-xl border bg-card p-4'>{children}</div> : children;
+
 	return (
 		<div
 			className={cn(
@@ -360,11 +403,24 @@ function ColumnFrame({
 								className='cursor-grab active:cursor-grabbing touch-none'
 								ref={setActivatorNodeRef}
 								disabled={disabled}
-											{...attributes}
-											{...listeners}>
+								{...attributes}
+								{...listeners}>
 								<GripVertical className='h-4 w-4' />
 								<span className='sr-only'>Drag column</span>
 							</Button>
+
+							<Select
+								value={wrapper}
+								onValueChange={(v) => onSetWrapper(v === 'card' ? 'card' : 'none')}
+								disabled={disabled}>
+								<SelectTrigger className='w-[110px] h-8'>
+									<SelectValue placeholder='Wrapper' />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='none'>no wrapper</SelectItem>
+									<SelectItem value='card'>card</SelectItem>
+								</SelectContent>
+							</Select>
 
 							<Button
 								type='button'
@@ -377,7 +433,7 @@ function ColumnFrame({
 							</Button>
 						</div>
 
-						<div className='space-y-3'>{children}</div>
+						<div className='space-y-3'>{content}</div>
 					</>
 				) : (
 					<>
@@ -398,18 +454,33 @@ function ColumnFrame({
 								<span className='text-xs text-muted-foreground'>Column</span>
 							</div>
 
-							<Button
-								type='button'
-								variant='outline'
-								size='icon'
-								onClick={onAddBlock}
-								disabled={disabled}>
-								<Plus className='h-4 w-4' />
-								<span className='sr-only'>Add component</span>
-							</Button>
+							<div className='flex items-center gap-2'>
+								<Select
+									value={wrapper}
+									onValueChange={(v) => onSetWrapper(v === 'card' ? 'card' : 'none')}
+									disabled={disabled}>
+									<SelectTrigger className='w-[130px] h-8'>
+										<SelectValue placeholder='Wrapper' />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='none'>no wrapper</SelectItem>
+										<SelectItem value='card'>card</SelectItem>
+									</SelectContent>
+								</Select>
+
+								<Button
+									type='button'
+									variant='outline'
+									size='icon'
+									onClick={onAddBlock}
+									disabled={disabled}>
+									<Plus className='h-4 w-4' />
+									<span className='sr-only'>Add component</span>
+								</Button>
+							</div>
 						</div>
 
-						{children}
+						{content}
 					</>
 				)}
 			</div>
@@ -424,6 +495,7 @@ function SortableResizableColumnPanel({
 	compact,
 	defaultSize,
 	onAddBlock,
+	onSetWrapper,
 	children,
 }: {
 	column: PageColumn;
@@ -432,6 +504,7 @@ function SortableResizableColumnPanel({
 	compact: boolean;
 	defaultSize: number;
 	onAddBlock: () => void;
+	onSetWrapper: (wrapper: 'none' | 'card') => void;
 	children: React.ReactNode;
 }) {
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging, isOver } =
@@ -458,10 +531,12 @@ function SortableResizableColumnPanel({
 				compact={compact}
 				isDragging={isDragging}
 				isOver={isOver}
+				wrapper={column.settings?.wrapper === 'card' ? 'card' : 'none'}
 				setActivatorNodeRef={setActivatorNodeRef}
 				listeners={listeners}
 				attributes={attributes}
-				onAddBlock={onAddBlock}>
+				onAddBlock={onAddBlock}
+				onSetWrapper={onSetWrapper}>
 				{children}
 			</ColumnFrame>
 		</ResizablePanel>
@@ -496,6 +571,12 @@ function SortableBlock({
 		if (block.type !== 'shadcn') return {};
 		return isRecord(block.data.props) ? block.data.props : {};
 	}, [block]);
+	const shadcnComponentId = useMemo(() => {
+		if (block.type !== 'shadcn') return null;
+		const raw = (block.data.component || '').trim().toLowerCase();
+		return raw ? raw : null;
+	}, [block]);
+	const shadcnVariants = useShadcnVariants(shadcnComponentId);
 	const shadcnPropsSerialized = useMemo(
 		() => JSON.stringify(shadcnProps, null, 2),
 		[shadcnProps]
@@ -531,7 +612,13 @@ function SortableBlock({
 			style={style}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
-			<div className={cn('rounded-md border bg-background', compact && 'group/block')}>
+			<div
+				className={cn(
+					'rounded-md',
+					compact
+						? 'group/block border border-transparent bg-transparent hover:border-border hover:bg-muted/5 focus-within:border-border focus-within:bg-muted/5'
+						: 'border bg-background'
+				)}>
 				{compact ? (
 					<div className='p-3 pt-9 relative'>
 						<div className='absolute top-3 left-3 right-3 flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-opacity group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'>
@@ -584,6 +671,7 @@ function SortableBlock({
 								setActiveBlockId,
 								setMediaPickerOpen,
 								mediaPickerOpen,
+								shadcnVariants,
 								shadcnPropsJson,
 								setShadcnPropsJson,
 								shadcnPropsJsonError,
@@ -646,6 +734,7 @@ function SortableBlock({
 								setActiveBlockId,
 								setMediaPickerOpen,
 								mediaPickerOpen,
+								shadcnVariants,
 								shadcnPropsJson,
 								setShadcnPropsJson,
 								shadcnPropsJsonError,
@@ -668,6 +757,7 @@ function renderBlockBody({
 	setActiveBlockId,
 	mediaPickerOpen,
 	setMediaPickerOpen,
+	shadcnVariants,
 	shadcnPropsJson,
 	setShadcnPropsJson,
 	shadcnPropsJsonError,
@@ -681,6 +771,7 @@ function renderBlockBody({
 	setActiveBlockId: (id: string | null) => void;
 	mediaPickerOpen: boolean;
 	setMediaPickerOpen: (open: boolean) => void;
+	shadcnVariants?: ShadcnVariantsState;
 	shadcnPropsJson?: string;
 	setShadcnPropsJson?: (next: string) => void;
 	shadcnPropsJsonError?: string | null;
@@ -705,6 +796,95 @@ function renderBlockBody({
 						{renderBlockPreview(block)}
 					</button>
 				)
+			) : null}
+
+			{block.type === 'slot' ? (
+				<div className='space-y-3'>
+					{renderBlockPreview(block)}
+					<details
+						open={!compact ? true : undefined}
+						className={cn(
+							'rounded-lg border bg-muted/10 p-3',
+							compact &&
+								'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+						)}>
+						<summary className='text-sm font-medium cursor-pointer select-none'>
+							Settings
+						</summary>
+						<div className='mt-3 space-y-2'>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Name</Label>
+								<Input
+									value={block.data.name ?? ''}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, name: e.target.value },
+										})
+									}
+									placeholder='e.g. Main content'
+									disabled={disabled}
+								/>
+							</div>
+						</div>
+					</details>
+				</div>
+			) : null}
+
+			{block.type === 'menu' ? (
+				<div className='space-y-3'>
+					{renderBlockPreview(block)}
+					<details
+						open={!compact ? true : undefined}
+						className={cn(
+							'rounded-lg border bg-muted/10 p-3',
+							compact &&
+								'opacity-0 pointer-events-none transition-opacity [&[open]]:opacity-100 [&[open]]:pointer-events-auto group-hover/block:opacity-100 group-hover/block:pointer-events-auto group-focus-within/block:opacity-100 group-focus-within/block:pointer-events-auto'
+						)}>
+						<summary className='text-sm font-medium cursor-pointer select-none'>
+							Settings
+						</summary>
+						<div className='mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3'>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Menu slug</Label>
+								<Input
+									value={block.data.menu ?? ''}
+									onChange={(e) =>
+										onUpdate({
+											...block,
+											data: { ...block.data, menu: e.target.value },
+										})
+									}
+									placeholder='e.g. main'
+									disabled={disabled}
+								/>
+							</div>
+							<div className='space-y-1'>
+								<Label className='text-xs'>Kind</Label>
+								<Select
+									value={block.data.kind === 'footer' ? 'footer' : 'top'}
+									onValueChange={(v) =>
+										onUpdate({
+											...block,
+											data: {
+												...block.data,
+												kind: v === 'footer' ? 'footer' : 'top',
+											},
+										})
+									}
+									disabled={disabled}>
+									<SelectTrigger className='h-8'>
+										<SelectValue />
+									</SelectTrigger>
+									<SelectContent>
+										<SelectItem value='top'>top</SelectItem>
+										<SelectItem value='footer'>footer</SelectItem>
+									</SelectContent>
+								</Select>
+							</div>
+						</div>
+					</details>
+				</div>
 			) : null}
 
 			{block.type === 'button' ? (
@@ -922,16 +1102,19 @@ function renderBlockBody({
 					const componentId = (shadcnBlock.data.component || '').trim().toLowerCase();
 					const props = isRecord(shadcnBlock.data.props) ? shadcnBlock.data.props : {};
 					const docsUrl = componentId ? shadcnDocsUrl(componentId) : null;
+					const variantGroups = shadcnVariants?.groups ?? [];
+					const variantDefaults = shadcnVariants?.defaults ?? {};
 
 					function updateProps(nextPartial: Record<string, unknown>) {
+						const next = { ...props, ...nextPartial } as Record<string, unknown>;
+						for (const [k, v] of Object.entries(next)) {
+							if (v === undefined) delete next[k];
+						}
 						onUpdate({
 							...shadcnBlock,
 							data: {
 								...shadcnBlock.data,
-								props: {
-									...props,
-									...nextPartial,
-								},
+								props: next,
 							},
 						});
 					}
@@ -963,29 +1146,114 @@ function renderBlockBody({
 										</p>
 									) : null}
 
+									{shadcnVariants?.loading ? (
+										<p className='text-xs text-muted-foreground'>Loading variants from docs…</p>
+									) : shadcnVariants?.error ? (
+										<p className='text-xs text-red-600'>Variants: {shadcnVariants.error}</p>
+									) : null}
+
+									{(() => {
+										const hidden = new Set<string>();
+										if (componentId === 'button') {
+											hidden.add('variant');
+											hidden.add('size');
+										}
+										if (componentId === 'badge' || componentId === 'alert') {
+											hidden.add('variant');
+										}
+
+										const visible = variantGroups.filter((g) => !hidden.has(g.name));
+										if (!visible.length) return null;
+
+										return (
+											<div className='space-y-2'>
+												<p className='text-xs text-muted-foreground'>Variants (from docs)</p>
+												<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+													{visible.map((group) => {
+														const raw = props[group.name];
+														const current =
+															typeof raw === 'string' && group.options.includes(raw)
+																? raw
+																: null;
+														const defaultValue =
+															typeof variantDefaults[group.name] === 'string' &&
+															group.options.includes(variantDefaults[group.name]!)
+																? variantDefaults[group.name]!
+																: null;
+														const value = current ?? '__default__';
+														const defaultLabel = defaultValue
+															? `default (${defaultValue})`
+															: 'default';
+
+														return (
+															<div
+																key={group.name}
+																className='space-y-1'>
+																<Label className='text-xs'>{group.name}</Label>
+																<Select
+																	value={value}
+																	onValueChange={(v) => {
+																		if (v === '__default__') {
+																			updateProps({ [group.name]: undefined });
+																		} else {
+																			updateProps({ [group.name]: v });
+																		}
+																	}}
+																	disabled={disabled}>
+																	<SelectTrigger className='h-8'>
+																		<SelectValue placeholder={defaultLabel} />
+																	</SelectTrigger>
+																	<SelectContent>
+																		<SelectItem value='__default__'>{defaultLabel}</SelectItem>
+																		{group.options.map((opt) => (
+																			<SelectItem
+																				key={opt}
+																				value={opt}>
+																				{opt}
+																			</SelectItem>
+																		))}
+																	</SelectContent>
+																</Select>
+															</div>
+														);
+													})}
+												</div>
+											</div>
+										);
+									})()}
+
 									{componentId === 'alert' ? (
 										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
 											<div className='space-y-1'>
 												<Label className='text-xs'>Variant</Label>
-												<Select
-													value={
+												{(() => {
+													const variantOptions =
+														variantGroups.find((g) => g.name === 'variant')?.options ??
+														['default', 'destructive'];
+													const currentVariant =
 														typeof props['variant'] === 'string' &&
-														['default', 'destructive'].includes(
-															props['variant']
-														)
+														variantOptions.includes(props['variant'])
 															? (props['variant'] as string)
-															: 'default'
-													}
+															: 'default';
+
+													return (
+												<Select
+													value={currentVariant}
 													onValueChange={(v) => updateProps({ variant: v })}
 													disabled={disabled}>
 													<SelectTrigger className='h-8'>
 														<SelectValue />
 													</SelectTrigger>
 													<SelectContent>
-														<SelectItem value='default'>default</SelectItem>
-														<SelectItem value='destructive'>destructive</SelectItem>
+														{variantOptions.map((v) => (
+															<SelectItem key={v} value={v}>
+																{v}
+															</SelectItem>
+														))}
 													</SelectContent>
 												</Select>
+													);
+												})()}
 											</div>
 											<div className='space-y-1 sm:col-span-2'>
 												<Label className='text-xs'>Title</Label>
@@ -1126,163 +1394,150 @@ function renderBlockBody({
 									) : null}
 
 									{componentId === 'button' ? (
-										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-											<div className='space-y-1 sm:col-span-2'>
-												<Label className='text-xs'>Label</Label>
-												<Input
-													value={
-														typeof props['label'] === 'string'
-															? props['label']
-															: ''
-													}
-													onChange={(e) =>
-														updateProps({ label: e.target.value })
-													}
-													disabled={disabled}
-												/>
-											</div>
-											<div className='space-y-1 sm:col-span-2'>
-												<Label className='text-xs'>Href</Label>
-												<Input
-													value={
-														typeof props['href'] === 'string'
-															? props['href']
-															: ''
-													}
-													onChange={(e) =>
-														updateProps({ href: e.target.value })
-													}
-													disabled={disabled}
-												/>
-											</div>
-											<div className='space-y-1'>
-												<Label className='text-xs'>Variant</Label>
-												<Select
-													value={
-														typeof props['variant'] === 'string' &&
-														[
-															'default',
-															'secondary',
-															'outline',
-															'destructive',
-															'ghost',
-															'link',
-														].includes(props['variant'])
-															? (props['variant'] as string)
-															: 'default'
-													}
-													onValueChange={(v) => updateProps({ variant: v })}
-													disabled={disabled}>
-													<SelectTrigger className='h-8'>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent>
-														{[
-															'default',
-															'secondary',
-															'outline',
-															'destructive',
-															'ghost',
-															'link',
-														].map((v) => (
-															<SelectItem
-																key={v}
-																value={v}>
-																{v}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											</div>
-											<div className='space-y-1'>
-												<Label className='text-xs'>Size</Label>
-												<Select
-													value={
-														typeof props['size'] === 'string' &&
-														[
-															'default',
-															'sm',
-															'lg',
-															'icon',
-															'icon-sm',
-															'icon-lg',
-														].includes(props['size'])
-															? (props['size'] as string)
-															: 'default'
-													}
-													onValueChange={(v) => updateProps({ size: v })}
-													disabled={disabled}>
-													<SelectTrigger className='h-8'>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent>
-														{[
-															'default',
-															'sm',
-															'lg',
-															'icon',
-															'icon-sm',
-															'icon-lg',
-														].map((v) => (
-															<SelectItem
-																key={v}
-																value={v}>
-																{v}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											</div>
-										</div>
+										(() => {
+											const variantOptions =
+												variantGroups.find((g) => g.name === 'variant')?.options ??
+												['default', 'secondary', 'outline', 'destructive', 'ghost', 'link'];
+											const sizeOptions =
+												variantGroups.find((g) => g.name === 'size')?.options ??
+												['default', 'sm', 'lg', 'icon', 'icon-sm', 'icon-lg'];
+
+											const currentVariant =
+												typeof props['variant'] === 'string' &&
+												variantOptions.includes(props['variant'])
+													? (props['variant'] as string)
+													: 'default';
+											const currentSize =
+												typeof props['size'] === 'string' &&
+												sizeOptions.includes(props['size'])
+													? (props['size'] as string)
+													: 'default';
+
+											return (
+												<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+													<div className='space-y-1 sm:col-span-2'>
+														<Label className='text-xs'>Label</Label>
+														<Input
+															value={
+																typeof props['label'] === 'string'
+																	? props['label']
+																	: ''
+															}
+															onChange={(e) =>
+																updateProps({ label: e.target.value })
+															}
+															disabled={disabled}
+														/>
+													</div>
+													<div className='space-y-1 sm:col-span-2'>
+														<Label className='text-xs'>Href</Label>
+														<Input
+															value={
+																typeof props['href'] === 'string'
+																	? props['href']
+																	: ''
+															}
+															onChange={(e) =>
+																updateProps({ href: e.target.value })
+															}
+															disabled={disabled}
+														/>
+													</div>
+													<div className='space-y-1'>
+														<Label className='text-xs'>Variant</Label>
+														<Select
+															value={currentVariant}
+															onValueChange={(v) => updateProps({ variant: v })}
+															disabled={disabled}>
+															<SelectTrigger className='h-8'>
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent>
+																{variantOptions.map((v) => (
+																	<SelectItem
+																		key={v}
+																		value={v}>
+																		{v}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</div>
+													<div className='space-y-1'>
+														<Label className='text-xs'>Size</Label>
+														<Select
+															value={currentSize}
+															onValueChange={(v) => updateProps({ size: v })}
+															disabled={disabled}>
+															<SelectTrigger className='h-8'>
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent>
+																{sizeOptions.map((v) => (
+																	<SelectItem
+																		key={v}
+																		value={v}>
+																		{v}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</div>
+												</div>
+											);
+										})()
 									) : null}
 
 									{componentId === 'badge' ? (
-										<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
-											<div className='space-y-1 sm:col-span-2'>
-												<Label className='text-xs'>Text</Label>
-												<Input
-													value={
-														typeof props['text'] === 'string'
-															? props['text']
-															: ''
-													}
-													onChange={(e) =>
-														updateProps({ text: e.target.value })
-													}
-													disabled={disabled}
-												/>
-											</div>
-											<div className='space-y-1'>
-												<Label className='text-xs'>Variant</Label>
-												<Select
-													value={
-														typeof props['variant'] === 'string' &&
-														[
-															'default',
-															'secondary',
-															'outline',
-															'destructive',
-														].includes(props['variant'])
-															? (props['variant'] as string)
-															: 'default'
-													}
-													onValueChange={(v) => updateProps({ variant: v })}
-													disabled={disabled}>
-													<SelectTrigger className='h-8'>
-														<SelectValue />
-													</SelectTrigger>
-													<SelectContent>
-														{['default', 'secondary', 'outline', 'destructive'].map((v) => (
-															<SelectItem
-																key={v}
-																value={v}>
-																{v}
-															</SelectItem>
-														))}
-													</SelectContent>
-												</Select>
-											</div>
-										</div>
+										(() => {
+											const variantOptions =
+												variantGroups.find((g) => g.name === 'variant')?.options ??
+												['default', 'secondary', 'outline', 'destructive'];
+											const currentVariant =
+												typeof props['variant'] === 'string' &&
+												variantOptions.includes(props['variant'])
+													? (props['variant'] as string)
+													: 'default';
+
+											return (
+												<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+													<div className='space-y-1 sm:col-span-2'>
+														<Label className='text-xs'>Text</Label>
+														<Input
+															value={
+																typeof props['text'] === 'string'
+																	? props['text']
+																	: ''
+															}
+															onChange={(e) =>
+																updateProps({ text: e.target.value })
+															}
+															disabled={disabled}
+														/>
+													</div>
+													<div className='space-y-1'>
+														<Label className='text-xs'>Variant</Label>
+														<Select
+															value={currentVariant}
+															onValueChange={(v) => updateProps({ variant: v })}
+															disabled={disabled}>
+															<SelectTrigger className='h-8'>
+																<SelectValue />
+															</SelectTrigger>
+															<SelectContent>
+																{variantOptions.map((v) => (
+																	<SelectItem
+																		key={v}
+																		value={v}>
+																		{v}
+																	</SelectItem>
+																))}
+															</SelectContent>
+														</Select>
+													</div>
+												</div>
+											);
+										})()
 									) : null}
 
 									{componentId !== 'alert' &&
@@ -1344,6 +1599,8 @@ function renderBlockBody({
 			) : null}
 
 			{block.type !== 'editor' &&
+			block.type !== 'slot' &&
+			block.type !== 'menu' &&
 			block.type !== 'button' &&
 			block.type !== 'card' &&
 			block.type !== 'separator' &&
@@ -1361,6 +1618,20 @@ function renderBlockBody({
 
 	if (type === 'editor') {
 		return { id: createId('blk'), type: 'editor', data: emptyEditorValue() };
+	}
+
+	if (type === 'slot') {
+		const d = isRecord(data) ? data : {};
+		const name = typeof d['name'] === 'string' ? d['name'] : undefined;
+		return { id: createId('blk'), type: 'slot', data: { name } };
+	}
+
+	if (type === 'menu') {
+		const d = isRecord(data) ? data : {};
+		const menu = typeof d['menu'] === 'string' ? d['menu'] : 'main';
+		const kindRaw = typeof d['kind'] === 'string' ? d['kind'].trim().toLowerCase() : undefined;
+		const kind = kindRaw === 'footer' || kindRaw === 'top' ? (kindRaw as 'top' | 'footer') : undefined;
+		return { id: createId('blk'), type: 'menu', data: { menu, kind } };
 	}
 
 	if (type === 'separator') {
@@ -1484,6 +1755,52 @@ export function PageBuilder({
 		onChange({
 			...value,
 			rows: value.rows.map((r) => (r.id === rowId ? ensureRowColumns(r, columns) : r)),
+		});
+	}
+
+	function setWrapper(rowId: string, wrapper: 'none' | 'card') {
+		if (disabledFlag) return;
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				const nextSettings = {
+					...(r.settings ?? {}),
+					wrapper: wrapper === 'none' ? undefined : wrapper,
+				} satisfies PageRow['settings'];
+
+				const hasAny =
+					typeof nextSettings.columns === 'number' ||
+					(Array.isArray(nextSettings.sizes) && nextSettings.sizes.length > 0) ||
+					typeof nextSettings.wrapper === 'string';
+
+				return {
+					...r,
+					settings: hasAny ? nextSettings : undefined,
+				};
+			}),
+		});
+	}
+
+	function setColumnWrapper(rowId: string, columnId: string, wrapper: 'none' | 'card') {
+		if (disabledFlag) return;
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				return {
+					...r,
+					columns: r.columns.map((c) => {
+						if (c.id !== columnId) return c;
+						const nextSettings = {
+							...(c.settings ?? {}),
+							wrapper: wrapper === 'none' ? undefined : wrapper,
+						} satisfies PageColumn['settings'];
+						const hasAny = typeof nextSettings.wrapper === 'string';
+						return { ...c, settings: hasAny ? nextSettings : undefined };
+					}),
+				};
+			}),
 		});
 	}
 
@@ -1897,7 +2214,8 @@ export function PageBuilder({
 									disabled={disabledFlag}
 									compact={compact}
 									onRemoveRow={removeRow}
-									onSetColumns={setColumns}>
+									onSetColumns={setColumns}
+									onSetWrapper={setWrapper}>
 									<SortableContext
 										items={columnIds}
 										strategy={horizontalListSortingStrategy}>
@@ -1917,7 +2235,8 @@ export function PageBuilder({
 														disabled={disabledFlag}
 														compact={compact}
 														defaultSize={sizes[idx] ?? 100}
-														onAddBlock={() => openAddBlock(row.id, col.id)}>
+														onAddBlock={() => openAddBlock(row.id, col.id)}
+														onSetWrapper={(w) => setColumnWrapper(row.id, col.id, w)}>
 														<SortableContext
 															items={col.blocks.map((b) => b.id)}
 															strategy={verticalListSortingStrategy}>
@@ -1984,4 +2303,4 @@ export function PageBuilder({
 	);
 }
 
-export { PageRenderer } from './page-renderer';
+export { PageRenderer, PageRendererWithSlot } from './page-renderer';

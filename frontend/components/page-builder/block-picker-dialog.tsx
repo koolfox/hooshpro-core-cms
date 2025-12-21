@@ -3,9 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { apiFetch } from '@/lib/http';
+import { isRecord } from '@/lib/page-builder';
+import { shadcnComponentMeta } from '@/lib/shadcn-meta';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
 
 import { ComponentPreview } from '@/components/components/component-preview';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
 	Dialog,
@@ -101,6 +104,16 @@ export function BlockPickerDialog({
 							<div className='text-sm text-red-600'>{error}</div>
 						) : items.length > 0 ? (
 							items.map((c) => (
+								(() => {
+									const shadcnSlug =
+										c.type === 'shadcn' &&
+										isRecord(c.data) &&
+										typeof c.data['component'] === 'string'
+											? c.data['component'].trim().toLowerCase()
+											: null;
+									const shadcnMeta = shadcnComponentMeta(shadcnSlug);
+
+									return (
 								<div
 									key={c.id}
 									className='rounded-md border bg-card p-3 space-y-3'>
@@ -108,8 +121,21 @@ export function BlockPickerDialog({
 										<div className='min-w-0 space-y-1'>
 											<div className='font-medium truncate'>{c.title}</div>
 											<div className='text-xs text-muted-foreground truncate'>
-												/{c.slug} · {c.type}
+												/{c.slug} ·{' '}
+												{c.type === 'shadcn' && shadcnSlug
+													? `shadcn/${shadcnSlug}`
+													: c.type}
 											</div>
+											{shadcnMeta ? (
+												<div className='flex items-center gap-2 pt-1'>
+													<Badge variant='outline'>{shadcnMeta.kind}</Badge>
+													{shadcnMeta.canWrapChildren ? (
+														<span className='text-xs text-muted-foreground'>
+															structural wrapper
+														</span>
+													) : null}
+												</div>
+											) : null}
 										</div>
 
 										<Button
@@ -121,7 +147,7 @@ export function BlockPickerDialog({
 										</Button>
 									</div>
 
-									<div className='rounded-md border bg-muted/10 p-3'>
+									<div className='p-3'>
 										<ComponentPreview
 											component={{
 												title: c.title,
@@ -129,9 +155,11 @@ export function BlockPickerDialog({
 												data: c.data,
 											}}
 											className='max-w-none'
-										/>
+											/>
 									</div>
 								</div>
+									);
+								})()
 							))
 						) : (
 							<div className='text-sm text-muted-foreground'>

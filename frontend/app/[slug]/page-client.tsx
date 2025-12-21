@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
-import type { Menu, MenuListOut, Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
+import type { Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { apiFetch } from '@/lib/http';
 import {
 	comparableJsonFromBlocks,
@@ -13,9 +13,7 @@ import {
 	type PageBuilderState,
 } from '@/lib/page-builder';
 
-import { PublicTopNav } from '@/components/public/public-top-nav';
-import { PublicFooterNav } from '@/components/public/public-footer-nav';
-import { PageBuilder, PageRenderer } from '@/components/page-builder/page-builder';
+import { PageBuilder, PageRenderer, PageRendererWithSlot } from '@/components/page-builder/page-builder';
 import { PageBuilderOutline } from '@/components/page-builder/page-outline';
 
 import { AppSidebar } from '@/components/app-sidebar';
@@ -45,12 +43,14 @@ import {
 
 export function PublicPageClient({
 	initialPage,
+	initialTemplate,
 	isAdmin,
 	defaultEdit,
 	menuOverride,
 	footerOverride,
 }: {
 	initialPage: Page;
+	initialTemplate?: PageTemplate | null;
 	isAdmin: boolean;
 	defaultEdit: boolean;
 	menuOverride?: string | null;
@@ -69,9 +69,10 @@ export function PublicPageClient({
 	const [templates, setTemplates] = useState<PageTemplate[]>([]);
 	const [templatesLoading, setTemplatesLoading] = useState(false);
 	const [templatesError, setTemplatesError] = useState<string | null>(null);
-	const [menus, setMenus] = useState<Menu[]>([]);
-	const [menusLoading, setMenusLoading] = useState(false);
-	const [menusError, setMenusError] = useState<string | null>(null);
+
+	const [activeTemplate, setActiveTemplate] = useState<PageTemplate | null>(initialTemplate ?? null);
+	const [activeTemplateLoading, setActiveTemplateLoading] = useState(false);
+	const [activeTemplateError, setActiveTemplateError] = useState<string | null>(null);
 
 	// editable fields
 	const [title, setTitle] = useState(page.title);
@@ -90,14 +91,17 @@ export function PublicPageClient({
 	const [error, setError] = useState<string | null>(null);
 
 	const viewState = useMemo(() => parsePageBuilderState(page.blocks), [page.blocks]);
-	const activeMenuId =
+
+	const activeTemplateSlug = editMode ? builder.template.id : viewState.template.id;
+
+	const legacyMenuId =
 		!editMode && menuOverride && menuOverride.trim()
 			? menuOverride.trim()
 			: editMode
 				? builder.template.menu
 				: viewState.template.menu;
 
-	const activeFooterId =
+	const legacyFooterId =
 		!editMode && footerOverride && footerOverride.trim()
 			? footerOverride.trim()
 			: editMode
@@ -110,11 +114,46 @@ export function PublicPageClient({
 		return m;
 	}, [templates]);
 
-	const menuSlugs = useMemo(() => new Set(menus.map((m) => m.slug)), [menus]);
-
 	useEffect(() => {
 		setHydrated(true);
 	}, []);
+
+	useEffect(() => {
+		if (!activeTemplateSlug) {
+			setActiveTemplate(null);
+			return;
+		}
+
+		if (activeTemplate?.slug === activeTemplateSlug) return;
+
+		let canceled = false;
+		async function load() {
+			setActiveTemplateLoading(true);
+			setActiveTemplateError(null);
+			try {
+				const t = await apiFetch<PageTemplate>(
+					`/api/public/templates/${encodeURIComponent(activeTemplateSlug)}`,
+					{
+						cache: 'no-store',
+						nextPath: `/${page.slug}`,
+					}
+				);
+				if (canceled) return;
+				setActiveTemplate(t);
+			} catch (e) {
+				if (canceled) return;
+				setActiveTemplate(null);
+				setActiveTemplateError(e instanceof Error ? e.message : String(e));
+			} finally {
+				if (!canceled) setActiveTemplateLoading(false);
+			}
+		}
+
+		void load();
+		return () => {
+			canceled = true;
+		};
+	}, [activeTemplateSlug, activeTemplate?.slug, page.slug]);
 
 	useEffect(() => {
 		if (!settingsOpen) return;
@@ -137,36 +176,6 @@ export function PublicPageClient({
 				setTemplates([]);
 			} finally {
 				if (!canceled) setTemplatesLoading(false);
-			}
-		}
-
-		void load();
-		return () => {
-			canceled = true;
-		};
-	}, [settingsOpen, isAdmin, page.slug]);
-
-	useEffect(() => {
-		if (!settingsOpen) return;
-		if (!isAdmin) return;
-
-		let canceled = false;
-		async function load() {
-			setMenusLoading(true);
-			setMenusError(null);
-			try {
-				const res = await apiFetch<MenuListOut>(`/api/admin/menus?limit=200&offset=0`, {
-					cache: 'no-store',
-					nextPath: `/${page.slug}?edit=1`,
-				});
-				if (canceled) return;
-				setMenus(res.items ?? []);
-			} catch (e) {
-				if (canceled) return;
-				setMenusError(e instanceof Error ? e.message : String(e));
-				setMenus([]);
-			} finally {
-				if (!canceled) setMenusLoading(false);
 			}
 		}
 
@@ -249,28 +258,118 @@ export function PublicPageClient({
 		router.replace(`/${page.slug}`);
 	}
 
-	const content = (
-		<div
-			className={
-				editMode && isAdmin ? 'w-full p-6 space-y-6' : 'max-w-5xl mx-auto p-6 space-y-6'
-			}>
-			{activeMenuId !== 'none' ? (
-				<div className='rounded-xl border overflow-hidden'>
-					<PublicTopNav menuId={activeMenuId} />
-				</div>
-			) : null}
+	function hasSlot(state: PageBuilderState): boolean {
+		return state.rows.some((r) => r.columns.some((c) => c.blocks.some((b) => b.type === 'slot')));
+	}
 
+	const templateState = useMemo(() => {
+		if (!activeTemplate) return null;
+		const base = parsePageBuilderState(activeTemplate.definition);
+		if (editMode) return base;
+
+		const topOverride = menuOverride?.trim();
+		const footerOverrideValue = footerOverride?.trim();
+		if (!topOverride && !footerOverrideValue) return base;
+
+		return {
+			...base,
+			rows: base.rows.map((r) => ({
+				...r,
+				columns: r.columns.map((c) => ({
+					...c,
+					blocks: c.blocks.map((b) => {
+						if (b.type !== 'menu') return b;
+						const kind = b.data.kind === 'footer' ? 'footer' : 'top';
+						if (kind === 'top' && topOverride) {
+							return { ...b, data: { ...b.data, menu: topOverride } };
+						}
+						if (kind === 'footer' && footerOverrideValue) {
+							return { ...b, data: { ...b.data, menu: footerOverrideValue } };
+						}
+						return b;
+					}),
+				})),
+			})),
+		};
+	}, [activeTemplate, editMode, menuOverride, footerOverride]);
+
+	const fallbackTemplateState = useMemo(() => {
+		const rows: Array<Record<string, unknown>> = [];
+
+		if (legacyMenuId && legacyMenuId.trim() && legacyMenuId.trim().toLowerCase() !== 'none') {
+			rows.push({
+				id: 'row_header',
+				settings: { columns: 1, sizes: [100] },
+				columns: [
+					{
+						id: 'col_header',
+						blocks: [
+							{
+								id: 'blk_menu_top',
+								type: 'menu',
+								data: { menu: legacyMenuId.trim(), kind: 'top' },
+							},
+						],
+					},
+				],
+			});
+		}
+
+		rows.push({
+			id: 'row_content',
+			settings: { columns: 1, sizes: [100] },
+			columns: [
+				{
+					id: 'col_content',
+					blocks: [
+						{
+							id: 'blk_slot',
+							type: 'slot',
+							data: { name: 'Page content' },
+						},
+					],
+				},
+			],
+		});
+
+		if (
+			legacyFooterId &&
+			legacyFooterId.trim() &&
+			legacyFooterId.trim().toLowerCase() !== 'none'
+		) {
+			rows.push({
+				id: 'row_footer',
+				settings: { columns: 1, sizes: [100] },
+				columns: [
+					{
+						id: 'col_footer',
+						blocks: [
+							{
+								id: 'blk_menu_footer',
+								type: 'menu',
+								data: { menu: legacyFooterId.trim(), kind: 'footer' },
+							},
+						],
+					},
+				],
+			});
+		}
+
+		return parsePageBuilderState({ version: 3, layout: { rows } });
+	}, [legacyMenuId, legacyFooterId]);
+
+	const rendererState = templateState && hasSlot(templateState) ? templateState : fallbackTemplateState;
+
+	const pageSlot = (
+		<div className={editMode && isAdmin ? 'w-full p-6 space-y-6' : 'max-w-5xl mx-auto p-6 space-y-6'}>
 			{/* Admin top bar */}
 			{isAdmin ? (
 				<div className='rounded-xl border p-3 flex items-center justify-between gap-3'>
 					<div className='flex items-center gap-2'>
-						<Badge
-							variant={status === 'published' ? 'default' : 'secondary'}>
+						<Badge variant={status === 'published' ? 'default' : 'secondary'}>
 							{status}
 						</Badge>
-						<span className='text-xs text-muted-foreground'>
-							Slug: /{page.slug}
-						</span>
+						<span className='text-xs text-muted-foreground'>Slug: /{page.slug}</span>
 					</div>
 
 					<div className='flex items-center gap-2'>
@@ -309,6 +408,15 @@ export function PublicPageClient({
 							{saving ? 'Saving…' : 'Save'}
 						</Button>
 					</div>
+				</div>
+			) : null}
+
+			{isAdmin && (activeTemplateLoading || activeTemplateError) ? (
+				<div className='rounded-lg border bg-muted/10 p-3 text-sm text-muted-foreground'>
+					{activeTemplateLoading ? 'Loading template…' : null}
+					{activeTemplateError ? (
+						<span className='text-red-600'>{activeTemplateError}</span>
+					) : null}
 				</div>
 			) : null}
 
@@ -355,8 +463,6 @@ export function PublicPageClient({
 
 			{error ? <p className='text-sm text-red-600'>{error}</p> : null}
 
-			{activeFooterId !== 'none' ? <PublicFooterNav menuId={activeFooterId} /> : null}
-
 			{/* Settings dialog */}
 			<Dialog
 				open={settingsOpen}
@@ -364,152 +470,52 @@ export function PublicPageClient({
 				<DialogContent className='sm:max-w-xl'>
 					<DialogHeader>
 						<DialogTitle>Page settings</DialogTitle>
-						<DialogDescription>
-							Template/menu + SEO controls (MVP).
-						</DialogDescription>
+						<DialogDescription>Template + SEO controls.</DialogDescription>
 					</DialogHeader>
 
 					<div className='space-y-4'>
-						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-								<div className='space-y-2'>
-									<Label>Template</Label>
-									<Select
-										value={builder.template.id}
-										onValueChange={(v) =>
-											setBuilder((prev) => {
-												const tmpl = templatesBySlug.get(v);
-												return {
-													...prev,
-													template: {
-														...prev.template,
-														id: v,
-														menu: tmpl ? tmpl.menu : prev.template.menu,
-														footer: tmpl ? tmpl.footer : prev.template.footer,
-													},
-												};
-											})
-										}
-										disabled={saving || templatesLoading}>
-										<SelectTrigger>
-											<SelectValue />
-										</SelectTrigger>
-										<SelectContent>
-											{templates.length > 0 ? (
-												<>
-													{!templatesBySlug.has(builder.template.id) ? (
-														<SelectItem value={builder.template.id}>
-															{builder.template.id} (missing)
-														</SelectItem>
-													) : null}
-													{templates.map((t) => (
-														<SelectItem
-															key={t.id}
-															value={t.slug}>
-															{t.slug}
-														</SelectItem>
-													))}
-												</>
-											) : (
-												<>
-													<SelectItem value='default'>
-														default
-													</SelectItem>
-													<SelectItem value='blank'>
-														blank
-													</SelectItem>
-												</>
-											)}
-										</SelectContent>
-									</Select>
-									{templatesLoading ? (
-										<p className='text-xs text-muted-foreground'>Loading templates…</p>
-									) : null}
-									{templatesError ? (
-										<p className='text-xs text-red-600'>{templatesError}</p>
-									) : null}
-								</div>
-
-							<div className='space-y-2'>
-								<Label>Menu</Label>
-								<Select
-									value={builder.template.menu}
-									onValueChange={(v) =>
-										setBuilder({
-											...builder,
-											template: {
-												...builder.template,
-												menu: v,
-											},
-										})
-									}
-									disabled={saving || menusLoading}>
-									<SelectTrigger>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='none'>
-											none
-										</SelectItem>
-										{builder.template.menu !== 'none' && !menuSlugs.has(builder.template.menu) ? (
-											<SelectItem value={builder.template.menu}>
-												{builder.template.menu} (missing)
-											</SelectItem>
-										) : null}
-										{menus.map((m) => (
-											<SelectItem
-												key={m.id}
-												value={m.slug}>
-												{m.slug}
-											</SelectItem>
-										))}
-									</SelectContent>
-								</Select>
-								{menusLoading ? (
-									<p className='text-xs text-muted-foreground'>Loading menus…</p>
-								) : null}
-								{menusError ? (
-									<p className='text-xs text-red-600'>{menusError}</p>
-								) : null}
-							</div>
-						</div>
-
 						<div className='space-y-2'>
-							<Label>Footer</Label>
+							<Label>Template</Label>
 							<Select
-								value={builder.template.footer}
+								value={builder.template.id}
 								onValueChange={(v) =>
-									setBuilder({
-										...builder,
-										template: {
-											...builder.template,
-											footer: v,
-										},
-									})
+									setBuilder((prev) => ({
+										...prev,
+										template: { ...prev.template, id: v },
+									}))
 								}
-								disabled={saving || menusLoading}>
+								disabled={saving || templatesLoading}>
 								<SelectTrigger>
 									<SelectValue />
 								</SelectTrigger>
 								<SelectContent>
-									<SelectItem value='none'>none</SelectItem>
-									{builder.template.footer !== 'none' && !menuSlugs.has(builder.template.footer) ? (
-										<SelectItem value={builder.template.footer}>
-											{builder.template.footer} (missing)
-										</SelectItem>
-									) : null}
-									{menus.map((m) => (
-										<SelectItem
-											key={m.id}
-											value={m.slug}>
-											{m.slug}
-										</SelectItem>
-									))}
+									{templates.length > 0 ? (
+										<>
+											{!templatesBySlug.has(builder.template.id) ? (
+												<SelectItem value={builder.template.id}>
+													{builder.template.id} (missing)
+												</SelectItem>
+											) : null}
+											{templates.map((t) => (
+												<SelectItem
+													key={t.id}
+													value={t.slug}>
+													{t.slug}
+												</SelectItem>
+											))}
+										</>
+									) : (
+										<>
+											<SelectItem value='default'>default</SelectItem>
+											<SelectItem value='blank'>blank</SelectItem>
+										</>
+									)}
 								</SelectContent>
 							</Select>
-							{menusLoading ? (
-								<p className='text-xs text-muted-foreground'>Loading menus…</p>
+							{templatesLoading ? (
+								<p className='text-xs text-muted-foreground'>Loading templates…</p>
 							) : null}
-							{menusError ? <p className='text-xs text-red-600'>{menusError}</p> : null}
+							{templatesError ? <p className='text-xs text-red-600'>{templatesError}</p> : null}
 						</div>
 
 						<div className='space-y-2'>
@@ -550,6 +556,8 @@ export function PublicPageClient({
 			</Dialog>
 		</div>
 	);
+
+	const content = <PageRendererWithSlot state={rendererState} slot={pageSlot} />;
 
 	if (editMode && isAdmin) {
 		return (

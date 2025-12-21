@@ -19,16 +19,22 @@ export type PageRow = {
 	settings?: {
 		columns?: number;
 		sizes?: number[];
+		wrapper?: 'none' | 'card';
 	};
 };
 
 export type PageColumn = {
 	id: string;
 	blocks: PageBlock[];
+	settings?: {
+		wrapper?: 'none' | 'card';
+	};
 };
 
 export type PageBlock =
 	| EditorBlock
+	| SlotBlock
+	| MenuBlock
 	| SeparatorBlock
 	| ButtonBlock
 	| CardBlock
@@ -40,6 +46,23 @@ export type EditorBlock = {
 	id: string;
 	type: 'editor';
 	data: EditorValue;
+};
+
+export type SlotBlock = {
+	id: string;
+	type: 'slot';
+	data: {
+		name?: string;
+	};
+};
+
+export type MenuBlock = {
+	id: string;
+	type: 'menu';
+	data: {
+		menu: string;
+		kind?: 'top' | 'footer';
+	};
 };
 
 export type SeparatorBlock = {
@@ -339,6 +362,32 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 						continue;
 					}
 
+					if (type === 'slot') {
+						const name =
+							isRecord(data) && typeof data['name'] === 'string'
+								? data['name']
+								: undefined;
+						colBlocks.push({ id, type: 'slot', data: { name } });
+						continue;
+					}
+
+					if (type === 'menu') {
+						const menu =
+							isRecord(data) && typeof data['menu'] === 'string'
+								? data['menu']
+								: 'main';
+						const kindRaw =
+							isRecord(data) && typeof data['kind'] === 'string'
+								? data['kind'].trim().toLowerCase()
+								: undefined;
+						const kind =
+							kindRaw === 'footer' || kindRaw === 'top'
+								? (kindRaw as 'top' | 'footer')
+								: undefined;
+						colBlocks.push({ id, type: 'menu', data: { menu, kind } });
+						continue;
+					}
+
 					if (type === 'separator') {
 						colBlocks.push({ id, type: 'separator', data: {} });
 						continue;
@@ -431,7 +480,21 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 					});
 				}
 
-				columns.push({ id: colId, blocks: colBlocks });
+				const colSettings = isRecord(c['settings']) ? c['settings'] : null;
+				const colWrapperSetting =
+					isRecord(colSettings) && typeof colSettings['wrapper'] === 'string'
+						? colSettings['wrapper'].trim().toLowerCase()
+						: undefined;
+				const colWrapper =
+					colWrapperSetting === 'card' || colWrapperSetting === 'none'
+						? (colWrapperSetting as 'card' | 'none')
+						: undefined;
+
+				columns.push({
+					id: colId,
+					blocks: colBlocks,
+					settings: colWrapper ? { wrapper: colWrapper } : undefined,
+				});
 			}
 
 			const settings = isRecord(r['settings']) ? r['settings'] : null;
@@ -442,13 +505,21 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 			const sizesSetting = isRecord(settings)
 				? parseRowSizes(settings['sizes'], columns.length)
 				: undefined;
+			const wrapperSetting =
+				isRecord(settings) && typeof settings['wrapper'] === 'string'
+					? settings['wrapper'].trim().toLowerCase()
+					: undefined;
+			const wrapper =
+				wrapperSetting === 'card' || wrapperSetting === 'none'
+					? (wrapperSetting as 'card' | 'none')
+					: undefined;
 
 			rows.push({
 				id: rowId,
 				columns: columns.length > 0 ? columns : fallback.rows[0].columns,
 				settings:
-					columnsSetting || sizesSetting
-						? { columns: columnsSetting, sizes: sizesSetting }
+					columnsSetting || sizesSetting || wrapper
+						? { columns: columnsSetting, sizes: sizesSetting, wrapper }
 						: undefined,
 			});
 		}
@@ -529,6 +600,7 @@ export function serializePageBuilderState(state: PageBuilderState) {
 				settings: r.settings,
 				columns: r.columns.map((c) => ({
 					id: c.id,
+					settings: c.settings,
 					blocks: c.blocks.map((b) => ({
 						id: b.id,
 						type:
@@ -572,6 +644,7 @@ export function cloneRowsWithNewIds(rows: PageRow[]): PageRow[] {
 		settings: row.settings ? deepClone(row.settings) : undefined,
 		columns: row.columns.map((col) => ({
 			id: createId('col'),
+			settings: col.settings ? deepClone(col.settings) : undefined,
 			blocks: col.blocks.map((b) => {
 				if (b.type === 'unknown') {
 					return {

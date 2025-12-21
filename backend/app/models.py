@@ -79,6 +79,12 @@ class PageTemplate(Base):
     menu: Mapped[str] = mapped_column(String(60), nullable=False, default="main")
     footer: Mapped[str] = mapped_column(String(60), nullable=False, default="none")
 
+    definition_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default='{"version":3,"layout":{"rows":[]}}',
+    )
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

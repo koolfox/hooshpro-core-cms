@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Optional
 from datetime import datetime
 
 from pydantic import BaseModel, Field
@@ -33,6 +33,9 @@ class TemplateCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
     menu: str = Field(default="main", min_length=1, max_length=60)
     footer: str = Field(default="none", min_length=1, max_length=60)
+    definition: dict[str, Any] = Field(
+        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+    )
 
     def normalized(self) -> "TemplateCreate":
         self.slug = validate_template_slug(self.slug)
@@ -47,6 +50,7 @@ class TemplateUpdate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
     menu: Optional[str] = Field(default=None, max_length=60)
     footer: Optional[str] = Field(default=None, max_length=60)
+    definition: Optional[dict[str, Any]] = None
 
     def normalized(self) -> "TemplateUpdate":
         if self.slug is not None:
@@ -65,6 +69,9 @@ class TemplateOut(BaseModel):
     description: Optional[str] = None
     menu: str
     footer: str
+    definition: dict[str, Any] = Field(
+        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+    )
     created_at: datetime
     updated_at: datetime
 

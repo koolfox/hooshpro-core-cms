@@ -73,6 +73,70 @@ def seed_defaults() -> None:
 
     db = SessionLocal()
     try:
+        def template_definition(menu: str, footer: str) -> dict:
+            rows: list[dict] = []
+
+            if menu.strip() and menu.strip().lower() != "none":
+                rows.append(
+                    {
+                        "id": "row_header",
+                        "settings": {"columns": 1, "sizes": [100]},
+                        "columns": [
+                            {
+                                "id": "col_header",
+                                "blocks": [
+                                    {
+                                        "id": "blk_menu_top",
+                                        "type": "menu",
+                                        "data": {"menu": menu.strip(), "kind": "top"},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+
+            rows.append(
+                {
+                    "id": "row_content",
+                    "settings": {"columns": 1, "sizes": [100]},
+                    "columns": [
+                        {
+                            "id": "col_content",
+                            "blocks": [
+                                {
+                                    "id": "blk_slot",
+                                    "type": "slot",
+                                    "data": {"name": "Page content"},
+                                }
+                            ],
+                        }
+                    ],
+                }
+            )
+
+            if footer.strip() and footer.strip().lower() != "none":
+                rows.append(
+                    {
+                        "id": "row_footer",
+                        "settings": {"columns": 1, "sizes": [100]},
+                        "columns": [
+                            {
+                                "id": "col_footer",
+                                "blocks": [
+                                    {
+                                        "id": "blk_menu_footer",
+                                        "type": "menu",
+                                        "data": {"menu": footer.strip(), "kind": "footer"},
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                )
+
+            return {"version": 3, "layout": {"rows": rows}}
+
         home_page: Page | None = None
         if "pages" in tables:
             home_page = db.query(Page).filter(Page.slug == "home").first()
@@ -177,7 +241,31 @@ def seed_defaults() -> None:
                         description=d["description"],
                         menu=d["menu"],
                         footer=d["footer"],
+                        definition_json=json.dumps(
+                            template_definition(d["menu"], d["footer"]),
+                            ensure_ascii=False,
+                        ),
                     )
+                )
+
+            # Backfill template definitions for older DBs / existing rows.
+            for t in db.query(PageTemplate).all():
+                try:
+                    parsed = json.loads(t.definition_json or "")
+                except Exception:
+                    parsed = None
+
+                rows = (
+                    parsed.get("layout", {}).get("rows")
+                    if isinstance(parsed, dict)
+                    else None
+                )
+                if isinstance(rows, list) and len(rows) > 0:
+                    continue
+
+                t.definition_json = json.dumps(
+                    template_definition(t.menu, t.footer),
+                    ensure_ascii=False,
                 )
 
         if "components" in tables:
@@ -188,6 +276,27 @@ def seed_defaults() -> None:
                     "type": "editor",
                     "description": "Rich text editor component.",
                     "data": {},
+                },
+                {
+                    "slug": "slot",
+                    "title": "Page Slot",
+                    "type": "slot",
+                    "description": "Template placeholder where the page content renders.",
+                    "data": {"name": "Page content"},
+                },
+                {
+                    "slug": "menu-top",
+                    "title": "Menu (Top)",
+                    "type": "menu",
+                    "description": "Top navigation menu (by slug).",
+                    "data": {"menu": "main", "kind": "top"},
+                },
+                {
+                    "slug": "menu-footer",
+                    "title": "Menu (Footer)",
+                    "type": "menu",
+                    "description": "Footer navigation menu (by slug).",
+                    "data": {"menu": "main", "kind": "footer"},
                 },
                 {
                     "slug": "button",
