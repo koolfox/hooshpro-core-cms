@@ -44,6 +44,22 @@ def _extract_body(blocks: dict) -> str:
 
     # v3 grid layout: { layout: { rows: [ { columns: [ { blocks: [...] } ] } ] } }
     if version == 3:
+        def walk_block_list(items: list, out: list[str]) -> None:
+            for b in items:
+                if not isinstance(b, dict):
+                    continue
+
+                if b.get("type") in ("editor", "tiptap"):
+                    data = b.get("data") or {}
+                    if isinstance(data, dict):
+                        html = data.get("html") or ""
+                        if html:
+                            out.append(str(html))
+
+                children = b.get("children")
+                if isinstance(children, list):
+                    walk_block_list(children, out)
+
         layout = blocks.get("layout") or {}
         rows = layout.get("rows") or []
         parts: list[str] = []
@@ -55,17 +71,8 @@ def _extract_body(blocks: dict) -> str:
                 if not isinstance(c, dict):
                     continue
                 c_blocks = c.get("blocks") or []
-                for b in c_blocks:
-                    if not isinstance(b, dict):
-                        continue
-                    if b.get("type") not in ("editor", "tiptap"):
-                        continue
-                    data = b.get("data") or {}
-                    if not isinstance(data, dict):
-                        continue
-                    html = data.get("html") or ""
-                    if html:
-                        parts.append(str(html))
+                if isinstance(c_blocks, list):
+                    walk_block_list(c_blocks, parts)
         if parts:
             return "".join(parts)
 

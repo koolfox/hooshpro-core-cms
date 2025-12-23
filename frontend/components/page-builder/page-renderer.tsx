@@ -70,10 +70,12 @@ export function renderBlockPreview(block: PageBlock, slot?: React.ReactNode) {
 	if (block.type === 'menu') {
 		const id = block.data.menu?.trim() || 'main';
 		if (id === 'none') return null;
+		const items =
+			Array.isArray(block.data.items) && block.data.items.length ? block.data.items : undefined;
 		return block.data.kind === 'footer' ? (
-			<PublicFooterNav menuId={id} />
+			<PublicFooterNav menuId={id} items={items} />
 		) : (
-			<PublicTopNav menuId={id} />
+			<PublicTopNav menuId={id} items={items} />
 		);
 	}
 
@@ -136,6 +138,27 @@ export function renderBlockPreview(block: PageBlock, slot?: React.ReactNode) {
 	}
 
 	if (block.type === 'shadcn') {
+		const componentId = (block.data.component || '').trim().toLowerCase();
+		const children = Array.isArray(block.children) ? block.children : null;
+
+		if (children && children.length > 0) {
+			const rendered = children.map((child) => (
+				<div key={child.id}>{renderBlockPreview(child, slot)}</div>
+			));
+
+			if (componentId === 'card') {
+				return (
+					<Card>
+						<CardContent>
+							<div className='space-y-4'>{rendered}</div>
+						</CardContent>
+					</Card>
+				);
+			}
+
+			return <div className='space-y-4'>{rendered}</div>;
+		}
+
 		const data = { component: block.data.component, ...(block.data.props ?? {}) };
 		return <ComponentPreview component={{ type: 'shadcn', data }} />;
 	}

@@ -10,19 +10,19 @@ import { Button } from '@/components/ui/button';
 import type { PublicMenuOut } from '@/lib/types';
 
 type MenuItem = {
+	id?: string;
 	label: string;
 	href: string;
 };
 
-const FALLBACK_MENU: { items: MenuItem[] } = {
-	items: [{ label: 'Home', href: '/' }],
-};
+const FALLBACK_ITEMS: MenuItem[] = [{ label: 'Home', href: '/' }];
 
-export function PublicTopNav({ menuId }: { menuId: string }) {
+export function PublicTopNav({ menuId, items }: { menuId: string; items?: MenuItem[] }) {
 	const pathname = usePathname();
-	const [menu, setMenu] = useState<{ items: MenuItem[] }>(FALLBACK_MENU);
+	const [fetchedItems, setFetchedItems] = useState<MenuItem[]>(FALLBACK_ITEMS);
 
 	useEffect(() => {
+		if (Array.isArray(items)) return;
 		if (menuId === 'none') return;
 
 		let canceled = false;
@@ -33,10 +33,10 @@ export function PublicTopNav({ menuId }: { menuId: string }) {
 					cache: 'no-store',
 				});
 				if (canceled) return;
-				setMenu({ items: out.items ?? [] });
+				setFetchedItems(out.items ?? []);
 			} catch {
 				if (canceled) return;
-				setMenu(FALLBACK_MENU);
+				setFetchedItems(FALLBACK_ITEMS);
 			}
 		}
 
@@ -44,9 +44,11 @@ export function PublicTopNav({ menuId }: { menuId: string }) {
 		return () => {
 			canceled = true;
 		};
-	}, [menuId]);
+	}, [menuId, items]);
 
 	if (menuId === 'none') return null;
+
+	const effectiveItems = Array.isArray(items) ? items : fetchedItems;
 
 	return (
 		<header className='bg-background/80 backdrop-blur border-b'>
@@ -58,9 +60,9 @@ export function PublicTopNav({ menuId }: { menuId: string }) {
 				</Link>
 
 				<nav className='flex items-center gap-2'>
-					{menu.items.map((it) => (
+					{effectiveItems.map((it) => (
 						<Link
-							key={it.href}
+							key={it.id ?? `${it.href}:${it.label}`}
 							href={it.href}
 							className={cn(
 								'text-sm px-3 py-2 rounded-md hover:bg-accent hover:text-accent-foreground',

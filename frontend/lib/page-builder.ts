@@ -62,6 +62,11 @@ export type MenuBlock = {
 	data: {
 		menu: string;
 		kind?: 'top' | 'footer';
+		/**
+		 * Optional embedded menu items (preferred). When present, public rendering
+		 * uses these items directly without fetching `/api/public/menus/:slug`.
+		 */
+		items?: Array<{ id: string; label: string; href: string }>;
 	};
 };
 
@@ -107,6 +112,11 @@ export type ShadcnBlock = {
 		component: string;
 		props?: Record<string, unknown>;
 	};
+	/**
+	 * Optional nested children for "structural" shadcn components (e.g. Card).
+	 * If present (even as an empty array), the block is treated as a container.
+	 */
+	children?: PageBlock[];
 };
 
 export type UnknownBlock = {
@@ -318,6 +328,135 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 
 	// v3: grid layout
 	if (version === 3) {
+		function parseBlockNode(
+			raw: unknown,
+			fallbackId: string,
+			path: Array<string | number>
+		): PageBlock | null {
+			if (!isRecord(raw)) return null;
+			const type = raw['type'];
+			if (typeof type !== 'string' || !type) return null;
+			const id =
+				typeof raw['id'] === 'string' && raw['id'].trim() ? raw['id'] : fallbackId;
+			const data = raw['data'];
+
+			if (type === 'editor' || type === 'tiptap') {
+				return {
+					id,
+					type: 'editor',
+					data: parseEditorValue(data) ?? emptyEditorValue(),
+				};
+			}
+
+			if (type === 'slot') {
+				const name =
+					isRecord(data) && typeof data['name'] === 'string' ? data['name'] : undefined;
+				return { id, type: 'slot', data: { name } };
+			}
+
+			if (type === 'menu') {
+				const menu = isRecord(data) && typeof data['menu'] === 'string' ? data['menu'] : 'main';
+				const kindRaw =
+					isRecord(data) && typeof data['kind'] === 'string'
+						? data['kind'].trim().toLowerCase()
+						: undefined;
+				const kind =
+					kindRaw === 'footer' || kindRaw === 'top' ? (kindRaw as 'top' | 'footer') : undefined;
+
+				let items: MenuBlock['data']['items'] | undefined;
+				const rawItems = isRecord(data) ? data['items'] : null;
+				if (Array.isArray(rawItems)) {
+					const parsed: NonNullable<MenuBlock['data']['items']> = [];
+					for (const [idx, it] of rawItems.entries()) {
+						if (!isRecord(it)) continue;
+						const label = typeof it['label'] === 'string' ? it['label'].trim() : '';
+						const href = typeof it['href'] === 'string' ? it['href'].trim() : '';
+						if (!label || !href) continue;
+						const itemId =
+							typeof it['id'] === 'string' && it['id'].trim()
+								? it['id']
+								: stableId('mi', ...path, idx);
+						parsed.push({ id: itemId, label, href });
+					}
+					items = parsed.length ? parsed : undefined;
+				}
+
+				return { id, type: 'menu', data: items ? { menu, kind, items } : { menu, kind } };
+			}
+
+			if (type === 'separator') {
+				return { id, type: 'separator', data: {} };
+			}
+
+			if (type === 'button') {
+				const label = isRecord(data) && typeof data['label'] === 'string' ? data['label'] : 'Button';
+				const href = isRecord(data) && typeof data['href'] === 'string' ? data['href'] : undefined;
+				const variant = isRecord(data) && typeof data['variant'] === 'string' ? data['variant'] : undefined;
+				return {
+					id,
+					type: 'button',
+					data: { label, href, variant: variant as ButtonBlock['data']['variant'] },
+				};
+			}
+
+			if (type === 'card') {
+				const title = isRecord(data) && typeof data['title'] === 'string' ? data['title'] : undefined;
+				const body = isRecord(data) && typeof data['body'] === 'string' ? data['body'] : undefined;
+				return { id, type: 'card', data: { title, body } };
+			}
+
+			if (type === 'image') {
+				const url = isRecord(data) && typeof data['url'] === 'string' ? data['url'] : '';
+				const alt = isRecord(data) && typeof data['alt'] === 'string' ? data['alt'] : undefined;
+				const mediaId = isRecord(data) && typeof data['media_id'] === 'number' ? data['media_id'] : undefined;
+				return { id, type: 'image', data: { url, alt, media_id: mediaId } };
+			}
+
+			if (type === 'shadcn') {
+				const component =
+					isRecord(data) && typeof data['component'] === 'string' ? data['component'] : '';
+				let props: Record<string, unknown> | undefined;
+				if (isRecord(data) && isRecord(data['props'])) {
+					props = data['props'] as Record<string, unknown>;
+				} else if (isRecord(data)) {
+					const rest: Record<string, unknown> = {};
+					for (const [k, v] of Object.entries(data)) {
+						if (k === 'component') continue;
+						rest[k] = v;
+					}
+					if (Object.keys(rest).length > 0) props = rest;
+				}
+
+				let children: PageBlock[] | undefined;
+				if (Array.isArray(raw['children'])) {
+					const parsed: PageBlock[] = [];
+					for (const [childIndex, childRaw] of raw['children'].entries()) {
+						const child = parseBlockNode(
+							childRaw,
+							stableId('blk', ...path, childIndex),
+							[...path, childIndex]
+						);
+						if (child) parsed.push(child);
+					}
+					children = parsed;
+				}
+
+				const out: ShadcnBlock = {
+					id,
+					type: 'shadcn',
+					data: props ? { component, props } : { component },
+				};
+				if (children) out.children = children;
+				return out;
+			}
+
+			return {
+				id,
+				type: 'unknown',
+				data: { originalType: type, data },
+			};
+		}
+
 		const template = parsePageTemplateSettings(blocks['template']);
 		const layout = blocks['layout'];
 		const rowsValue = isRecord(layout) ? layout['rows'] : null;
@@ -344,140 +483,12 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 				const blocksRaw = Array.isArray(c['blocks']) ? c['blocks'] : [];
 				const colBlocks: PageBlock[] = [];
 				for (const [blockIndex, b] of blocksRaw.entries()) {
-					if (!isRecord(b)) continue;
-					const type = b['type'];
-					if (typeof type !== 'string' || !type) continue;
-					const id =
-						typeof b['id'] === 'string' && b['id'].trim()
-							? b['id']
-							: stableId('blk', rowIndex, colIndex, blockIndex);
-					const data = b['data'];
-
-					if (type === 'editor' || type === 'tiptap') {
-						colBlocks.push({
-							id,
-							type: 'editor',
-							data: parseEditorValue(data) ?? emptyEditorValue(),
-						});
-						continue;
-					}
-
-					if (type === 'slot') {
-						const name =
-							isRecord(data) && typeof data['name'] === 'string'
-								? data['name']
-								: undefined;
-						colBlocks.push({ id, type: 'slot', data: { name } });
-						continue;
-					}
-
-					if (type === 'menu') {
-						const menu =
-							isRecord(data) && typeof data['menu'] === 'string'
-								? data['menu']
-								: 'main';
-						const kindRaw =
-							isRecord(data) && typeof data['kind'] === 'string'
-								? data['kind'].trim().toLowerCase()
-								: undefined;
-						const kind =
-							kindRaw === 'footer' || kindRaw === 'top'
-								? (kindRaw as 'top' | 'footer')
-								: undefined;
-						colBlocks.push({ id, type: 'menu', data: { menu, kind } });
-						continue;
-					}
-
-					if (type === 'separator') {
-						colBlocks.push({ id, type: 'separator', data: {} });
-						continue;
-					}
-
-					if (type === 'button') {
-						const label =
-							isRecord(data) && typeof data['label'] === 'string'
-								? data['label']
-								: 'Button';
-						const href =
-							isRecord(data) && typeof data['href'] === 'string'
-								? data['href']
-								: undefined;
-						const variant =
-							isRecord(data) && typeof data['variant'] === 'string'
-								? data['variant']
-								: undefined;
-
-						colBlocks.push({
-							id,
-							type: 'button',
-							data: { label, href, variant: variant as ButtonBlock['data']['variant'] },
-						});
-						continue;
-					}
-
-					if (type === 'card') {
-						const title =
-							isRecord(data) && typeof data['title'] === 'string'
-								? data['title']
-								: undefined;
-						const body =
-							isRecord(data) && typeof data['body'] === 'string'
-								? data['body']
-								: undefined;
-						colBlocks.push({ id, type: 'card', data: { title, body } });
-						continue;
-					}
-
-					if (type === 'image') {
-						const url =
-							isRecord(data) && typeof data['url'] === 'string'
-								? data['url']
-								: '';
-						const alt =
-							isRecord(data) && typeof data['alt'] === 'string'
-								? data['alt']
-								: undefined;
-						const mediaId =
-							isRecord(data) && typeof data['media_id'] === 'number'
-								? data['media_id']
-								: undefined;
-						colBlocks.push({
-							id,
-							type: 'image',
-							data: { url, alt, media_id: mediaId },
-						});
-						continue;
-					}
-
-					if (type === 'shadcn') {
-						const component =
-							isRecord(data) && typeof data['component'] === 'string'
-								? data['component']
-								: '';
-						let props: Record<string, unknown> | undefined;
-						if (isRecord(data) && isRecord(data['props'])) {
-							props = data['props'] as Record<string, unknown>;
-						} else if (isRecord(data)) {
-							const rest: Record<string, unknown> = {};
-							for (const [k, v] of Object.entries(data)) {
-								if (k === 'component') continue;
-								rest[k] = v;
-							}
-							if (Object.keys(rest).length > 0) props = rest;
-						}
-						colBlocks.push({
-							id,
-							type: 'shadcn',
-							data: props ? { component, props } : { component },
-						});
-						continue;
-					}
-
-					colBlocks.push({
-						id,
-						type: 'unknown',
-						data: { originalType: type, data },
-					});
+					const parsed = parseBlockNode(
+						b,
+						stableId('blk', rowIndex, colIndex, blockIndex),
+						[rowIndex, colIndex, blockIndex]
+					);
+					if (parsed) colBlocks.push(parsed);
 				}
 
 				const colSettings = isRecord(c['settings']) ? c['settings'] : null;
@@ -591,6 +602,18 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 }
 
 export function serializePageBuilderState(state: PageBuilderState) {
+	function serializeBlock(b: PageBlock): Record<string, unknown> {
+		const type = b.type === 'unknown' ? b.data.originalType : b.type;
+		const data = b.type === 'unknown' ? b.data.data ?? null : b.data ?? null;
+		const out: Record<string, unknown> = { id: b.id, type, data };
+
+		if (b.type === 'shadcn' && Array.isArray(b.children)) {
+			out['children'] = b.children.map(serializeBlock);
+		}
+
+		return out;
+	}
+
 	return {
 		version: 3,
 		template: state.template,
@@ -601,17 +624,7 @@ export function serializePageBuilderState(state: PageBuilderState) {
 				columns: r.columns.map((c) => ({
 					id: c.id,
 					settings: c.settings,
-					blocks: c.blocks.map((b) => ({
-						id: b.id,
-						type:
-							b.type === 'unknown'
-								? b.data.originalType
-								: b.type,
-						data:
-							b.type === 'unknown'
-								? b.data.data ?? null
-								: b.data ?? null,
-					})),
+					blocks: c.blocks.map(serializeBlock),
 				})),
 			})),
 		},
@@ -639,30 +652,44 @@ export function comparableJsonFromState(state: PageBuilderState): string {
 }
 
 export function cloneRowsWithNewIds(rows: PageRow[]): PageRow[] {
+	function cloneBlockWithNewIds(block: PageBlock): PageBlock {
+		if (block.type === 'unknown') {
+			return {
+				id: createId('blk'),
+				type: 'unknown',
+				data: {
+					originalType: block.data.originalType,
+					data: deepClone(block.data.data),
+				},
+			} satisfies UnknownBlock;
+		}
+
+		if (block.type === 'shadcn') {
+			const cloned: ShadcnBlock = {
+				id: createId('blk'),
+				type: 'shadcn',
+				data: deepClone(block.data),
+			};
+			if (Array.isArray(block.children)) {
+				cloned.children = block.children.map(cloneBlockWithNewIds);
+			}
+			return cloned;
+		}
+
+		return {
+			id: createId('blk'),
+			type: block.type,
+			data: deepClone(block.data),
+		} as PageBlock;
+	}
+
 	return rows.map((row) => ({
 		id: createId('row'),
 		settings: row.settings ? deepClone(row.settings) : undefined,
 		columns: row.columns.map((col) => ({
 			id: createId('col'),
 			settings: col.settings ? deepClone(col.settings) : undefined,
-			blocks: col.blocks.map((b) => {
-				if (b.type === 'unknown') {
-					return {
-						id: createId('blk'),
-						type: 'unknown',
-						data: {
-							originalType: b.data.originalType,
-							data: deepClone(b.data.data),
-						},
-					} satisfies UnknownBlock;
-				}
-
-				return {
-					id: createId('blk'),
-					type: b.type,
-					data: deepClone(b.data),
-				} as PageBlock;
-			}),
+			blocks: col.blocks.map(cloneBlockWithNewIds),
 		})),
 	}));
 }

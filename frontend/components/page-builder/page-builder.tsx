@@ -7,6 +7,7 @@ import {
 	PointerSensor,
 	closestCenter,
 	type DragEndEvent,
+	useDroppable,
 	useSensor,
 	useSensors,
 } from '@dnd-kit/core';
@@ -19,7 +20,18 @@ import {
 	verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { Check, GripVertical, LayoutTemplate, List, Plus, Sparkles, Trash2, Type } from 'lucide-react';
+import {
+	ArrowDown,
+	ArrowUp,
+	Check,
+	GripVertical,
+	LayoutTemplate,
+	List,
+	Plus,
+	Sparkles,
+	Trash2,
+	Type,
+} from 'lucide-react';
 
 import type {
 	PageBlock,
@@ -38,6 +50,7 @@ import {
 import type { BlockTemplate, ComponentDef } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { shadcnDocsUrl } from '@/lib/shadcn-docs';
+import { shadcnComponentMeta } from '@/lib/shadcn-meta';
 import { useShadcnVariants } from '@/hooks/use-shadcn-variants';
 
 import { EditorBlock } from '@/components/editor-block';
@@ -70,6 +83,15 @@ type SortableBlockData = {
 	kind: 'block';
 	rowId: string;
 	columnId: string;
+	/** Path of container block ids; empty = column root. */
+	containerPath: string[];
+};
+type SortableContainerDropData = {
+	kind: 'container-drop';
+	rowId: string;
+	columnId: string;
+	/** Path to the container's children list (includes the container block id). */
+	containerPath: string[];
 };
 
 const MAX_COLUMNS = 12;
@@ -547,22 +569,32 @@ function SortableBlock({
 	block,
 	rowId,
 	columnId,
+	containerPath,
 	disabled,
 	compact,
 	activeBlockId,
 	setActiveBlockId,
 	activeBlockRef,
+	openAddBlock,
+	updateBlockAt,
+	removeBlockAt,
+	onAddChild,
 	onRemove,
 	onUpdate,
 }: {
 	block: PageBlock;
 	rowId: string;
 	columnId: string;
+	containerPath: string[];
 	disabled: boolean;
 	compact: boolean;
 	activeBlockId: string | null;
 	setActiveBlockId: (id: string | null) => void;
 	activeBlockRef: React.RefObject<HTMLDivElement | null>;
+	openAddBlock: (rowId: string, columnId: string, containerPath?: string[]) => void;
+	updateBlockAt: (rowId: string, columnId: string, containerPath: string[], blockId: string, next: PageBlock) => void;
+	removeBlockAt: (rowId: string, columnId: string, containerPath: string[], blockId: string) => void;
+	onAddChild?: () => void;
 	onRemove: () => void;
 	onUpdate: (next: PageBlock) => void;
 }) {
@@ -594,7 +626,7 @@ function SortableBlock({
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging } =
 		useSortable({
 			id: block.id,
-			data: { kind: 'block', rowId, columnId } satisfies SortableBlockData,
+			data: { kind: 'block', rowId, columnId, containerPath } satisfies SortableBlockData,
 			disabled,
 		});
 
@@ -605,6 +637,57 @@ function SortableBlock({
 
 	const isActive = activeBlockId === block.id;
 	const label = describeBlock(block);
+
+	const canWrapChildren = useMemo(() => {
+		if (!shadcnComponentId) return false;
+		const meta = shadcnComponentMeta(shadcnComponentId);
+		return meta?.canWrapChildren ?? false;
+	}, [shadcnComponentId]);
+
+	const isContainerBlock = block.type === 'shadcn' && (canWrapChildren || Array.isArray(block.children));
+	const containerChildPath = useMemo(() => [...containerPath, block.id], [containerPath, block.id]);
+	const containerChildren =
+		isContainerBlock && block.type === 'shadcn' ? (Array.isArray(block.children) ? block.children : []) : [];
+
+	const { setNodeRef: setContainerDropRef, isOver: isContainerOver } = useDroppable({
+		id: `drop:${block.id}`,
+		data: {
+			kind: 'container-drop',
+			rowId,
+			columnId,
+			containerPath: containerChildPath,
+		} satisfies SortableContainerDropData,
+		disabled: disabled || !isContainerBlock,
+	});
+
+	const containerChildrenEditor = isContainerBlock ? (
+		<div
+			ref={setContainerDropRef}
+			className={cn(
+				'rounded-lg border bg-muted/5 p-3',
+				compact ? 'border-dashed' : 'bg-background',
+				isContainerOver && 'ring-2 ring-ring'
+			)}>
+			{containerChildren.length > 0 ? (
+				<SortableBlockList
+					blocks={containerChildren}
+					rowId={rowId}
+					columnId={columnId}
+					containerPath={containerChildPath}
+					disabled={disabled}
+					compact={compact}
+					activeBlockId={activeBlockId}
+					setActiveBlockId={setActiveBlockId}
+					activeBlockRef={activeBlockRef}
+					openAddBlock={openAddBlock}
+					updateBlockAt={updateBlockAt}
+					removeBlockAt={removeBlockAt}
+				/>
+			) : (
+				<p className='text-xs text-muted-foreground italic'>Drop components here</p>
+			)}
+		</div>
+	) : null;
 
 	return (
 		<div
@@ -637,22 +720,34 @@ function SortableBlock({
 								<span className='text-xs text-muted-foreground truncate'>{label}</span>
 							</div>
 
-							<div className='flex items-center gap-2 shrink-0'>
-								{block.type === 'editor' && isActive ? (
+ 							<div className='flex items-center gap-2 shrink-0'>
+ 								{block.type === 'editor' && isActive ? (
+ 									<Button
+ 										type='button'
+ 										variant='outline'
+ 										size='icon'
+ 										onClick={() => setActiveBlockId(null)}
+ 										disabled={disabled}>
+ 										<Check className='h-4 w-4' />
+ 										<span className='sr-only'>Done</span>
+ 									</Button>
+ 								) : null}
+
+								{onAddChild ? (
 									<Button
 										type='button'
 										variant='outline'
 										size='icon'
-										onClick={() => setActiveBlockId(null)}
+										onClick={onAddChild}
 										disabled={disabled}>
-										<Check className='h-4 w-4' />
-										<span className='sr-only'>Done</span>
+										<Plus className='h-4 w-4' />
+										<span className='sr-only'>Add inside</span>
 									</Button>
 								) : null}
-
-								<Button
-									type='button'
-									variant='outline'
+ 
+ 								<Button
+ 									type='button'
+ 									variant='outline'
 									size='icon'
 									onClick={onRemove}
 									disabled={disabled}>
@@ -676,6 +771,7 @@ function SortableBlock({
 								setShadcnPropsJson,
 								shadcnPropsJsonError,
 								setShadcnPropsJsonError,
+								containerChildrenEditor,
 								onUpdate,
 							})}
 						</div>
@@ -698,22 +794,34 @@ function SortableBlock({
 								<span className='text-xs text-muted-foreground truncate'>{label}</span>
 							</div>
 
-							<div className='flex items-center gap-2 shrink-0'>
-								{block.type === 'editor' && isActive ? (
+ 							<div className='flex items-center gap-2 shrink-0'>
+ 								{block.type === 'editor' && isActive ? (
+ 									<Button
+ 										type='button'
+ 										variant='outline'
+ 										size='icon'
+ 										onClick={() => setActiveBlockId(null)}
+ 										disabled={disabled}>
+ 										<Check className='h-4 w-4' />
+ 										<span className='sr-only'>Done</span>
+ 									</Button>
+ 								) : null}
+
+								{onAddChild ? (
 									<Button
 										type='button'
 										variant='outline'
 										size='icon'
-										onClick={() => setActiveBlockId(null)}
+										onClick={onAddChild}
 										disabled={disabled}>
-										<Check className='h-4 w-4' />
-										<span className='sr-only'>Done</span>
+										<Plus className='h-4 w-4' />
+										<span className='sr-only'>Add inside</span>
 									</Button>
 								) : null}
-
-								<Button
-									type='button'
-									variant='outline'
+ 
+ 								<Button
+ 									type='button'
+ 									variant='outline'
 									size='icon'
 									onClick={onRemove}
 									disabled={disabled}>
@@ -739,6 +847,7 @@ function SortableBlock({
 								setShadcnPropsJson,
 								shadcnPropsJsonError,
 								setShadcnPropsJsonError,
+								containerChildrenEditor,
 								onUpdate,
 							})}
 						</div>
@@ -746,6 +855,88 @@ function SortableBlock({
 				)}
 			</div>
 		</div>
+	);
+}
+
+function SortableBlockList({
+	blocks,
+	rowId,
+	columnId,
+	containerPath,
+	disabled,
+	compact,
+	activeBlockId,
+	setActiveBlockId,
+	activeBlockRef,
+	openAddBlock,
+	updateBlockAt,
+	removeBlockAt,
+}: {
+	blocks: PageBlock[];
+	rowId: string;
+	columnId: string;
+	containerPath: string[];
+	disabled: boolean;
+	compact: boolean;
+	activeBlockId: string | null;
+	setActiveBlockId: (id: string | null) => void;
+	activeBlockRef: React.RefObject<HTMLDivElement | null>;
+	openAddBlock: (rowId: string, columnId: string, containerPath?: string[]) => void;
+	updateBlockAt: (
+		rowId: string,
+		columnId: string,
+		containerPath: string[],
+		blockId: string,
+		next: PageBlock
+	) => void;
+	removeBlockAt: (rowId: string, columnId: string, containerPath: string[], blockId: string) => void;
+}) {
+	return (
+		<SortableContext
+			items={blocks.map((b) => b.id)}
+			strategy={verticalListSortingStrategy}>
+			<div className='space-y-3'>
+				{blocks.map((b) => {
+					const shadcnId =
+						b.type === 'shadcn'
+							? (b.data.component || '').trim().toLowerCase()
+							: '';
+					const isStructural =
+						b.type === 'shadcn' &&
+						((shadcnComponentMeta(shadcnId)?.canWrapChildren ?? false) ||
+							Array.isArray(b.children));
+
+					return (
+						<SortableBlock
+							key={b.id}
+							block={b}
+							rowId={rowId}
+							columnId={columnId}
+							containerPath={containerPath}
+							disabled={disabled}
+							compact={compact}
+							activeBlockId={activeBlockId}
+							setActiveBlockId={setActiveBlockId}
+							activeBlockRef={activeBlockRef}
+							openAddBlock={openAddBlock}
+							updateBlockAt={updateBlockAt}
+							removeBlockAt={removeBlockAt}
+							onAddChild={
+								isStructural
+									? () => openAddBlock(rowId, columnId, [...containerPath, b.id])
+									: undefined
+							}
+							onRemove={() =>
+								removeBlockAt(rowId, columnId, containerPath, b.id)
+							}
+							onUpdate={(next) =>
+								updateBlockAt(rowId, columnId, containerPath, b.id, next)
+							}
+						/>
+					);
+				})}
+			</div>
+		</SortableContext>
 	);
 }
 
@@ -762,6 +953,7 @@ function renderBlockBody({
 	setShadcnPropsJson,
 	shadcnPropsJsonError,
 	setShadcnPropsJsonError,
+	containerChildrenEditor,
 	onUpdate,
 }: {
 	block: PageBlock;
@@ -776,6 +968,7 @@ function renderBlockBody({
 	setShadcnPropsJson?: (next: string) => void;
 	shadcnPropsJsonError?: string | null;
 	setShadcnPropsJsonError?: (next: string | null) => void;
+	containerChildrenEditor?: React.ReactNode;
 	onUpdate: (next: PageBlock) => void;
 }) {
 	return (
@@ -844,44 +1037,176 @@ function renderBlockBody({
 						<summary className='text-sm font-medium cursor-pointer select-none'>
 							Settings
 						</summary>
-						<div className='mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3'>
-							<div className='space-y-1'>
-								<Label className='text-xs'>Menu slug</Label>
-								<Input
-									value={block.data.menu ?? ''}
-									onChange={(e) =>
-										onUpdate({
-											...block,
-											data: { ...block.data, menu: e.target.value },
-										})
-									}
-									placeholder='e.g. main'
-									disabled={disabled}
-								/>
+						<div className='mt-3 space-y-4'>
+							<div className='grid grid-cols-1 sm:grid-cols-2 gap-3'>
+								<div className='space-y-1'>
+									<Label className='text-xs'>Menu slug</Label>
+									<Input
+										value={block.data.menu ?? ''}
+										onChange={(e) =>
+											onUpdate({
+												...block,
+												data: { ...block.data, menu: e.target.value },
+											})
+										}
+										placeholder='e.g. main'
+										disabled={disabled}
+									/>
+								</div>
+								<div className='space-y-1'>
+									<Label className='text-xs'>Kind</Label>
+									<Select
+										value={block.data.kind === 'footer' ? 'footer' : 'top'}
+										onValueChange={(v) =>
+											onUpdate({
+												...block,
+												data: {
+													...block.data,
+													kind: v === 'footer' ? 'footer' : 'top',
+												},
+											})
+										}
+										disabled={disabled}>
+										<SelectTrigger className='h-8'>
+											<SelectValue />
+										</SelectTrigger>
+										<SelectContent>
+											<SelectItem value='top'>top</SelectItem>
+											<SelectItem value='footer'>footer</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
 							</div>
-							<div className='space-y-1'>
-								<Label className='text-xs'>Kind</Label>
-								<Select
-									value={block.data.kind === 'footer' ? 'footer' : 'top'}
-									onValueChange={(v) =>
-										onUpdate({
-											...block,
-											data: {
-												...block.data,
-												kind: v === 'footer' ? 'footer' : 'top',
-											},
-										})
-									}
-									disabled={disabled}>
-									<SelectTrigger className='h-8'>
-										<SelectValue />
-									</SelectTrigger>
-									<SelectContent>
-										<SelectItem value='top'>top</SelectItem>
-										<SelectItem value='footer'>footer</SelectItem>
-									</SelectContent>
-								</Select>
-							</div>
+
+							{(() => {
+								const menuBlock = block as Extract<PageBlock, { type: 'menu' }>;
+								const items = Array.isArray(menuBlock.data.items) ? menuBlock.data.items : [];
+
+								function updateItems(nextItems: typeof items | undefined) {
+									const itemsValue =
+										Array.isArray(nextItems) && nextItems.length === 0 ? undefined : nextItems;
+									onUpdate({
+										...menuBlock,
+										data: { ...menuBlock.data, items: itemsValue },
+									});
+								}
+
+								return (
+									<div className='space-y-2'>
+										<div className='flex items-start justify-between gap-3'>
+											<div className='space-y-0.5'>
+												<p className='text-xs font-medium'>Items (optional)</p>
+												<p className='text-xs text-muted-foreground'>
+													If set, this menu renders from embedded items (no fetch).
+												</p>
+											</div>
+
+											<div className='flex items-center gap-2 shrink-0'>
+												{items.length ? (
+													<Button
+														type='button'
+														variant='outline'
+														size='sm'
+														onClick={() => updateItems(undefined)}
+														disabled={disabled}>
+														Use slug
+													</Button>
+												) : null}
+												<Button
+													type='button'
+													variant='outline'
+													size='sm'
+													onClick={() =>
+														updateItems([
+															...items,
+															{ id: createId('mi'), label: 'New link', href: '/' },
+														])
+													}
+													disabled={disabled}>
+													<Plus className='h-4 w-4 mr-2' />
+													Add item
+												</Button>
+											</div>
+										</div>
+
+										{items.length ? (
+											<div className='space-y-2'>
+												{items.map((it, idx) => (
+													<div
+														key={it.id}
+														className='grid grid-cols-12 gap-2 items-end'>
+														<div className='col-span-4 space-y-1'>
+															<Label className='text-xs'>Label</Label>
+															<Input
+																value={it.label}
+																onChange={(e) =>
+																	updateItems(
+																		items.map((x) =>
+																			x.id === it.id
+																				? { ...x, label: e.target.value }
+																				: x
+																		)
+																	)
+																}
+																disabled={disabled}
+															/>
+														</div>
+														<div className='col-span-6 space-y-1'>
+															<Label className='text-xs'>Href</Label>
+															<Input
+																value={it.href}
+																onChange={(e) =>
+																	updateItems(
+																		items.map((x) =>
+																			x.id === it.id
+																				? { ...x, href: e.target.value }
+																				: x
+																		)
+																	)
+																}
+																disabled={disabled}
+															/>
+														</div>
+														<div className='col-span-2 flex items-center justify-end gap-1'>
+															<Button
+																type='button'
+																variant='outline'
+																size='icon'
+																onClick={() => updateItems(arrayMove(items, idx, idx - 1))}
+																disabled={disabled || idx === 0}
+																title='Move up'>
+																<ArrowUp className='h-4 w-4' />
+															</Button>
+															<Button
+																type='button'
+																variant='outline'
+																size='icon'
+																onClick={() => updateItems(arrayMove(items, idx, idx + 1))}
+																disabled={disabled || idx === items.length - 1}
+																title='Move down'>
+																<ArrowDown className='h-4 w-4' />
+															</Button>
+															<Button
+																type='button'
+																variant='destructive'
+																size='icon'
+																onClick={() => updateItems(items.filter((x) => x.id !== it.id))}
+																disabled={disabled}
+																title='Remove'>
+																<Trash2 className='h-4 w-4' />
+															</Button>
+														</div>
+													</div>
+												))}
+											</div>
+										) : (
+											<p className='text-xs text-muted-foreground italic'>
+												No embedded items. Uses menu slug.
+											</p>
+										)}
+									</div>
+								);
+							})()}
 						</div>
 					</details>
 				</div>
@@ -1121,7 +1446,7 @@ function renderBlockBody({
 
 					return (
 						<div className='space-y-3'>
-							{renderBlockPreview(block)}
+							{containerChildrenEditor ?? renderBlockPreview(block)}
 							<details
 								open={!compact ? true : undefined}
 								className={cn(
@@ -1630,8 +1955,30 @@ function renderBlockBody({
 		const d = isRecord(data) ? data : {};
 		const menu = typeof d['menu'] === 'string' ? d['menu'] : 'main';
 		const kindRaw = typeof d['kind'] === 'string' ? d['kind'].trim().toLowerCase() : undefined;
-		const kind = kindRaw === 'footer' || kindRaw === 'top' ? (kindRaw as 'top' | 'footer') : undefined;
-		return { id: createId('blk'), type: 'menu', data: { menu, kind } };
+		const kind =
+			kindRaw === 'footer' || kindRaw === 'top'
+				? (kindRaw as 'top' | 'footer')
+				: undefined;
+
+		let items: Array<{ id: string; label: string; href: string }> | undefined;
+		if (Array.isArray(d['items'])) {
+			const parsed: Array<{ id: string; label: string; href: string }> = [];
+			for (const [idx, it] of d['items'].entries()) {
+				if (!isRecord(it)) continue;
+				const label = typeof it['label'] === 'string' ? it['label'].trim() : '';
+				const href = typeof it['href'] === 'string' ? it['href'].trim() : '';
+				if (!label || !href) continue;
+				const id = typeof it['id'] === 'string' && it['id'].trim() ? it['id'] : createId(`mi_${idx}`);
+				parsed.push({ id, label, href });
+			}
+			items = parsed;
+		}
+
+		return {
+			id: createId('blk'),
+			type: 'menu',
+			data: items ? { menu, kind, items } : { menu, kind },
+		};
 	}
 
 	if (type === 'separator') {
@@ -1674,6 +2021,7 @@ function renderBlockBody({
 		const d = isRecord(data) ? data : {};
 		const componentId =
 			typeof d['component'] === 'string' ? d['component'] : component.slug;
+		const normalizedId = String(componentId).trim().toLowerCase();
 		let props: Record<string, unknown> | undefined;
 		if (isRecord(d['props'])) {
 			props = d['props'] as Record<string, unknown>;
@@ -1685,10 +2033,14 @@ function renderBlockBody({
 			}
 			if (Object.keys(rest).length > 0) props = rest;
 		}
+
+		const meta = shadcnComponentMeta(normalizedId);
+		const canWrapChildren = meta?.canWrapChildren ?? false;
 		return {
 			id: createId('blk'),
 			type: 'shadcn',
-			data: props ? { component: componentId, props } : { component: componentId },
+			data: props ? { component: normalizedId, props } : { component: normalizedId },
+			children: canWrapChildren ? [] : undefined,
 		};
 	}
 
@@ -1732,6 +2084,7 @@ export function PageBuilder({
 	const [addTarget, setAddTarget] = useState<{
 		rowId: string;
 		columnId: string;
+		containerPath: string[];
 	} | null>(null);
 
 	const [blockTemplatePickerOpen, setBlockTemplatePickerOpen] = useState(false);
@@ -1899,8 +2252,8 @@ export function PageBuilder({
 		});
 	}
 
-	function openAddBlock(rowId: string, columnId: string) {
-		setAddTarget({ rowId, columnId });
+	function openAddBlock(rowId: string, columnId: string, containerPath: string[] = []) {
+		setAddTarget({ rowId, columnId, containerPath });
 		setBlockPickerOpen(true);
 	}
 
@@ -1908,20 +2261,17 @@ export function PageBuilder({
 		if (!addTarget) return;
 
 		const nextBlock = createBlockFromComponent(component);
-		onChange({
-			...value,
-			rows: value.rows.map((r) => {
-				if (r.id !== addTarget.rowId) return r;
-				return {
-					...r,
-					columns: r.columns.map((c) =>
-						c.id === addTarget.columnId
-							? { ...c, blocks: [...c.blocks, nextBlock] }
-							: c
-					),
-				};
-			}),
-		});
+		onChange(
+			updateStateAtLocation(
+				value,
+				{
+					rowId: addTarget.rowId,
+					columnId: addTarget.columnId,
+					containerPath: addTarget.containerPath,
+				},
+				(blocks) => [...blocks, nextBlock]
+			)
+		);
 
 		setBlockPickerOpen(false);
 		setAddTarget(null);
@@ -1941,51 +2291,109 @@ export function PageBuilder({
 		setBlockTemplatePickerOpen(false);
 	}
 
-	function updateBlock(rowId: string, columnId: string, blockId: string, next: PageBlock) {
-		onChange({
-			...value,
-			rows: value.rows.map((r) => {
-				if (r.id !== rowId) return r;
-				return {
-					...r,
-					columns: r.columns.map((c) => {
-						if (c.id !== columnId) return c;
-						return {
-							...c,
-							blocks: c.blocks.map((b) => (b.id === blockId ? next : b)),
-						};
-					}),
-				};
-			}),
+	type BlockListLocation = { rowId: string; columnId: string; containerPath: string[] };
+
+	function updateBlocksInList(
+		blocks: PageBlock[],
+		containerPath: string[],
+		updater: (blocks: PageBlock[]) => PageBlock[]
+	): PageBlock[] {
+		if (containerPath.length === 0) return updater(blocks);
+
+		const [head, ...rest] = containerPath;
+		let changed = false;
+		const next = blocks.map((b) => {
+			if (b.id !== head) return b;
+			if (b.type !== 'shadcn') return b;
+
+			const children = Array.isArray(b.children) ? b.children : [];
+			const nextChildren = updateBlocksInList(children, rest, updater);
+			if (nextChildren === children) return b;
+
+			changed = true;
+			return { ...b, children: nextChildren };
 		});
+
+		return changed ? next : blocks;
 	}
 
-	function removeBlock(rowId: string, columnId: string, blockId: string) {
-		onChange({
-			...value,
-			rows: value.rows.map((r) => {
-				if (r.id !== rowId) return r;
+	function updateStateAtLocation(
+		state: PageBuilderState,
+		loc: BlockListLocation,
+		updater: (blocks: PageBlock[]) => PageBlock[]
+	): PageBuilderState {
+		return {
+			...state,
+			rows: state.rows.map((r) => {
+				if (r.id !== loc.rowId) return r;
 				return {
 					...r,
 					columns: r.columns.map((c) => {
-						if (c.id !== columnId) return c;
-						return { ...c, blocks: c.blocks.filter((b) => b.id !== blockId) };
+						if (c.id !== loc.columnId) return c;
+						const nextBlocks = updateBlocksInList(c.blocks, loc.containerPath, updater);
+						return nextBlocks === c.blocks ? c : { ...c, blocks: nextBlocks };
 					}),
 				};
 			}),
-		});
-		if (activeBlockId === blockId) setActiveBlockId(null);
+		};
+	}
+
+	function getBlocksAtLocation(state: PageBuilderState, loc: BlockListLocation): PageBlock[] | null {
+		const row = state.rows.find((r) => r.id === loc.rowId);
+		const col = row?.columns.find((c) => c.id === loc.columnId);
+		if (!col) return null;
+
+		let blocks: PageBlock[] = col.blocks;
+		for (const containerId of loc.containerPath) {
+			const container = blocks.find((b) => b.id === containerId);
+			if (!container || container.type !== 'shadcn') return null;
+			blocks = Array.isArray(container.children) ? container.children : [];
+		}
+		return blocks;
+	}
+
+	function findBlockInBlocks(blocks: PageBlock[], blockId: string): PageBlock | null {
+		for (const b of blocks) {
+			if (b.id === blockId) return b;
+			if (b.type === 'shadcn' && Array.isArray(b.children)) {
+				const found = findBlockInBlocks(b.children, blockId);
+				if (found) return found;
+			}
+		}
+		return null;
 	}
 
 	function findBlock(state: PageBuilderState, blockId: string): PageBlock | null {
 		for (const r of state.rows) {
 			for (const c of r.columns) {
-				for (const b of c.blocks) {
-					if (b.id === blockId) return b;
-				}
+				const found = findBlockInBlocks(c.blocks, blockId);
+				if (found) return found;
 			}
 		}
 		return null;
+	}
+
+	function updateBlock(
+		rowId: string,
+		columnId: string,
+		containerPath: string[],
+		blockId: string,
+		next: PageBlock
+	) {
+		onChange(
+			updateStateAtLocation(value, { rowId, columnId, containerPath }, (blocks) =>
+				blocks.map((b) => (b.id === blockId ? next : b))
+			)
+		);
+	}
+
+	function removeBlock(rowId: string, columnId: string, containerPath: string[], blockId: string) {
+		onChange(
+			updateStateAtLocation(value, { rowId, columnId, containerPath }, (blocks) =>
+				blocks.filter((b) => b.id !== blockId)
+			)
+		);
+		if (activeBlockId === blockId) setActiveBlockId(null);
 	}
 
 	function onDragEnd(event: DragEndEvent) {
@@ -2001,6 +2409,7 @@ export function PageBuilder({
 			| SortableRowData
 			| SortableColumnData
 			| SortableBlockData
+			| SortableContainerDropData
 			| undefined;
 
 		if (!activeData || !overData) return;
@@ -2042,62 +2451,87 @@ export function PageBuilder({
 		}
 
 		if (activeData.kind === 'block') {
-			const from = { rowId: activeData.rowId, columnId: activeData.columnId, blockId: String(active.id) };
+			const fromLoc = {
+				rowId: activeData.rowId,
+				columnId: activeData.columnId,
+				containerPath: activeData.containerPath ?? [],
+			} satisfies BlockListLocation;
+			const movingId = String(active.id);
 
-			let to: { rowId: string; columnId: string; index: number } | null = null;
+			let toLoc: BlockListLocation | null = null;
+			let toIndex: number | null = null;
 
 			if (overData.kind === 'block') {
-				const toRow = value.rows.find((r) => r.id === overData.rowId);
-				const toCol = toRow?.columns.find((c) => c.id === overData.columnId);
-				if (!toCol) return;
-				const overIndex = toCol.blocks.findIndex((b) => b.id === over.id);
+				toLoc = {
+					rowId: overData.rowId,
+					columnId: overData.columnId,
+					containerPath: overData.containerPath ?? [],
+				};
+				const blocks = getBlocksAtLocation(value, toLoc);
+				if (!blocks) return;
+				const overIndex = blocks.findIndex((b) => b.id === String(over.id));
 				if (overIndex === -1) return;
-				to = { rowId: overData.rowId, columnId: overData.columnId, index: overIndex };
+				toIndex = overIndex;
 			} else if (overData.kind === 'column') {
-				const toRow = value.rows.find((r) => r.id === overData.rowId);
-				const toCol = toRow?.columns.find((c) => c.id === overData.columnId);
-				if (!toCol) return;
-				to = { rowId: overData.rowId, columnId: overData.columnId, index: toCol.blocks.length };
+				toLoc = { rowId: overData.rowId, columnId: overData.columnId, containerPath: [] };
+				const blocks = getBlocksAtLocation(value, toLoc);
+				if (!blocks) return;
+				toIndex = blocks.length;
+			} else if (overData.kind === 'container-drop') {
+				toLoc = {
+					rowId: overData.rowId,
+					columnId: overData.columnId,
+					containerPath: overData.containerPath ?? [],
+				};
+				const blocks = getBlocksAtLocation(value, toLoc);
+				if (!blocks) return;
+				toIndex = blocks.length;
 			}
 
-			if (!to) return;
+			if (!toLoc || toIndex === null) return;
 
-			const moving = findBlock(value, from.blockId);
+			const fromBlocks = getBlocksAtLocation(value, fromLoc);
+			if (!fromBlocks) return;
+			const oldIndex = fromBlocks.findIndex((b) => b.id === movingId);
+			if (oldIndex === -1) return;
+
+			// Reorder within the same list.
+			const sameList =
+				fromLoc.rowId === toLoc.rowId &&
+				fromLoc.columnId === toLoc.columnId &&
+				fromLoc.containerPath.join('/') === toLoc.containerPath.join('/');
+
+			if (sameList) {
+				let newIndex = toIndex;
+				if (overData.kind !== 'block') {
+					newIndex = fromBlocks.length - 1;
+				}
+				if (oldIndex === newIndex) return;
+				onChange(
+					updateStateAtLocation(value, fromLoc, (blocks) => arrayMove(blocks, oldIndex, newIndex))
+				);
+				return;
+			}
+
+			const moving = findBlock(value, movingId);
 			if (!moving) return;
 
+			// Prevent moving a container into its own descendants.
+			if (moving.type === 'shadcn') {
+				const targetPath = toLoc.containerPath ?? [];
+				if (targetPath.includes(movingId)) return;
+			}
+
 			// remove from source
-			let next = {
-				...value,
-				rows: value.rows.map((r) => {
-					if (r.id !== from.rowId) return r;
-					return {
-						...r,
-						columns: r.columns.map((c) =>
-							c.id === from.columnId
-								? { ...c, blocks: c.blocks.filter((b) => b.id !== from.blockId) }
-								: c
-						),
-					};
-				}),
-			};
+			let next = updateStateAtLocation(value, fromLoc, (blocks) => blocks.filter((b) => b.id !== movingId));
 
 			// insert into target
-			next = {
-				...next,
-				rows: next.rows.map((r) => {
-					if (r.id !== to.rowId) return r;
-					return {
-						...r,
-						columns: r.columns.map((c) => {
-							if (c.id !== to.columnId) return c;
-							const blocks = [...c.blocks];
-							const safeIndex = Math.max(0, Math.min(to.index, blocks.length));
-							blocks.splice(safeIndex, 0, moving);
-							return { ...c, blocks };
-						}),
-					};
-				}),
-			};
+			next = updateStateAtLocation(next, toLoc, (blocks) => {
+				const out = [...blocks];
+				const safeIndex = Math.max(0, Math.min(toIndex ?? 0, out.length));
+				out.splice(safeIndex, 0, moving);
+				return out;
+			});
 
 			onChange(next);
 		}
@@ -2237,31 +2671,20 @@ export function PageBuilder({
 														defaultSize={sizes[idx] ?? 100}
 														onAddBlock={() => openAddBlock(row.id, col.id)}
 														onSetWrapper={(w) => setColumnWrapper(row.id, col.id, w)}>
-														<SortableContext
-															items={col.blocks.map((b) => b.id)}
-															strategy={verticalListSortingStrategy}>
-															<div className='space-y-3'>
-																{col.blocks.map((b) => (
-																	<SortableBlock
-																		key={b.id}
-																		block={b}
-																		rowId={row.id}
-																		columnId={col.id}
-																		disabled={disabledFlag}
-																		compact={compact}
-																		activeBlockId={activeBlockId}
-																		setActiveBlockId={setActiveBlockId}
-																		activeBlockRef={activeBlockRef}
-																		onRemove={() =>
-																			removeBlock(row.id, col.id, b.id)
-																		}
-																		onUpdate={(next) =>
-																			updateBlock(row.id, col.id, b.id, next)
-																		}
-																	/>
-																))}
-															</div>
-														</SortableContext>
+														<SortableBlockList
+															blocks={col.blocks}
+															rowId={row.id}
+															columnId={col.id}
+															containerPath={[]}
+															disabled={disabledFlag}
+															compact={compact}
+															activeBlockId={activeBlockId}
+															setActiveBlockId={setActiveBlockId}
+															activeBlockRef={activeBlockRef}
+															openAddBlock={openAddBlock}
+															updateBlockAt={updateBlock}
+															removeBlockAt={removeBlock}
+														/>
 													</SortableResizableColumnPanel>
 													{idx < row.columns.length - 1 ? (
 														<ResizableHandle

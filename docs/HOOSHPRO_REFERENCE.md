@@ -42,7 +42,6 @@ Quick check:
 - Public pages: `/[slug]`
 - Auth page: `/auth/login`
 - Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/media`
-- Legacy (hidden from sidebar): `/admin/menus`, `/admin/footers`
 - Homepage: `/` (renders the page with slug `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/home` redirects to `/`
 - Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override template menu blocks for previews)
@@ -196,12 +195,14 @@ Blocks:
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
   - Row `settings.columns`: supports `1..12`; columns are adjustable via shadcn `Resizable` and stored in `row.settings.sizes` (percentage weights).
   - Row `settings.wrapper`: optional section wrapper (`none` | `card`) that wraps the row content (useful for “structural” containers without nesting blocks yet).
-  - Column `settings.wrapper`: optional wrapper (`none` | `card`) that wraps a single column’s content (lets structural containers “host” components without nested block trees).
+  - Column `settings.wrapper`: optional wrapper (`none` | `card`) that wraps a single column’s content.
+  - **Structural shadcn components can nest**: `type:"shadcn"` blocks may include `children: PageBlock[]` and act as container drop zones in the editor.
   - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
-  - Drag/drop reorder uses dnd-kit (rows + columns + components).
+  - Drag/drop reorder uses dnd-kit (rows + columns + components), including moving components between columns and nested containers.
   - Builder UI modes: `Clean UI` (dashed row/column frames; controls/settings on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
   - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
   - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; shadcn variants are loaded from docs via `GET /shadcn/variants` and surfaced in editor settings), plus template blocks `slot` (page content placeholder) and `menu` (`data.menu` + `data.kind: top|footer`).
+    - `menu` blocks can optionally embed items: `data.items: [{ id, label, href }]` (preferred; public rendering uses embedded items without fetching).
   - Pages render through templates: the selected template’s `definition_json` is rendered and its `slot` is replaced by the page’s own rows/columns; `?menu`/`?footer` can override template `menu` blocks for previews.
 
 ---
@@ -233,7 +234,7 @@ Blocks:
 - [x] Page builder grid (rows/columns/components) + drag/drop reorder (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
 - [x] Page templates foundation (DB + admin CRUD + page settings wiring)
-- [x] Menu manager foundation (DB + admin drag/drop builder + public rendering)
+- [x] Menu rendering via template blocks (`menu` component supports embedded items; no dedicated admin menus/footers UI)
 - [x] Admin list template: numbered pagination (top+bottom) + URL query param state
 
 ### In Progress
@@ -296,8 +297,6 @@ Existing examples:
 - Components list: `frontend/app/admin/components/page.tsx`
 - Blocks list: `frontend/app/admin/blocks/page.tsx`
 - Media library: `frontend/app/admin/media/page.tsx`
-- Menus builder: `frontend/app/admin/menus/page.tsx`
-- Footers builder: `frontend/app/admin/footers/page.tsx`
 
 ---
 

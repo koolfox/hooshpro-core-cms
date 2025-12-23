@@ -17,6 +17,45 @@ function describeBlock(block: PageBlock): string {
 	return block.type;
 }
 
+function blockChildren(block: PageBlock): PageBlock[] {
+	if (block.type === 'shadcn' && Array.isArray(block.children)) return block.children;
+	return [];
+}
+
+function countBlocks(blocks: PageBlock[]): number {
+	let total = 0;
+	for (const b of blocks) {
+		total += 1;
+		const children = blockChildren(b);
+		if (children.length) total += countBlocks(children);
+	}
+	return total;
+}
+
+function OutlineBlockTree({ blocks }: { blocks: PageBlock[] }) {
+	return (
+		<ul className='pl-3 space-y-1'>
+			{blocks.map((b) => {
+				const children = blockChildren(b);
+				return (
+					<li
+						key={b.id}
+						className='space-y-1'>
+						<div className='text-xs text-muted-foreground truncate'>
+							{describeBlock(b)}
+						</div>
+						{children.length ? (
+							<div className='border-l pl-3'>
+								<OutlineBlockTree blocks={children} />
+							</div>
+						) : null}
+					</li>
+				);
+			})}
+		</ul>
+	);
+}
+
 export function PageBuilderOutline({
 	state,
 	className,
@@ -30,7 +69,7 @@ export function PageBuilderOutline({
 		const components = state.rows.reduce((sum, row) => {
 			return (
 				sum +
-				row.columns.reduce((colSum, col) => colSum + col.blocks.length, 0)
+				row.columns.reduce((colSum, col) => colSum + countBlocks(col.blocks), 0)
 			);
 		}, 0);
 		return { rows, columns, components };
@@ -73,20 +112,12 @@ export function PageBuilderOutline({
 											Col {colIndex + 1}
 										</span>
 										<span className='text-xs text-muted-foreground'>
-											{col.blocks.length} items
+											{countBlocks(col.blocks)} items
 										</span>
 									</div>
 
 									{col.blocks.length ? (
-										<ul className='pl-3 space-y-1'>
-											{col.blocks.map((b) => (
-												<li
-													key={b.id}
-													className='text-xs text-muted-foreground truncate'>
-													{describeBlock(b)}
-												</li>
-											))}
-										</ul>
+										<OutlineBlockTree blocks={col.blocks} />
 									) : (
 										<p className='text-xs text-muted-foreground italic pl-3'>
 											Empty
@@ -101,4 +132,3 @@ export function PageBuilderOutline({
 		</div>
 	);
 }
-

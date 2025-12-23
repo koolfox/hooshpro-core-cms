@@ -6,16 +6,15 @@ import { useEffect, useState } from 'react';
 import { apiFetch } from '@/lib/http';
 import type { PublicMenuOut } from '@/lib/types';
 
-type MenuItem = { label: string; href: string };
+type MenuItem = { id?: string; label: string; href: string };
 
-const FALLBACK_MENU: { items: MenuItem[] } = {
-	items: [{ label: 'Home', href: '/' }],
-};
+const FALLBACK_ITEMS: MenuItem[] = [{ label: 'Home', href: '/' }];
 
-export function PublicFooterNav({ menuId }: { menuId: string }) {
-	const [menu, setMenu] = useState<{ items: MenuItem[] }>(FALLBACK_MENU);
+export function PublicFooterNav({ menuId, items }: { menuId: string; items?: MenuItem[] }) {
+	const [fetchedItems, setFetchedItems] = useState<MenuItem[]>(FALLBACK_ITEMS);
 
 	useEffect(() => {
+		if (Array.isArray(items)) return;
 		if (menuId === 'none') return;
 
 		let canceled = false;
@@ -26,10 +25,10 @@ export function PublicFooterNav({ menuId }: { menuId: string }) {
 					cache: 'no-store',
 				});
 				if (canceled) return;
-				setMenu({ items: out.items ?? [] });
+				setFetchedItems(out.items ?? []);
 			} catch {
 				if (canceled) return;
-				setMenu(FALLBACK_MENU);
+				setFetchedItems(FALLBACK_ITEMS);
 			}
 		}
 
@@ -37,9 +36,11 @@ export function PublicFooterNav({ menuId }: { menuId: string }) {
 		return () => {
 			canceled = true;
 		};
-	}, [menuId]);
+	}, [menuId, items]);
 
 	if (menuId === 'none') return null;
+
+	const effectiveItems = Array.isArray(items) ? items : fetchedItems;
 
 	return (
 		<footer className='mt-10 border-t bg-muted/10'>
@@ -49,9 +50,9 @@ export function PublicFooterNav({ menuId }: { menuId: string }) {
 				</div>
 
 				<nav className='flex flex-wrap items-center gap-2'>
-					{menu.items.map((it) => (
+					{effectiveItems.map((it) => (
 						<Link
-							key={`${it.href}:${it.label}`}
+							key={it.id ?? `${it.href}:${it.label}`}
 							href={it.href}
 							className='text-sm px-3 py-2 rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground'>
 							{it.label}
@@ -62,4 +63,3 @@ export function PublicFooterNav({ menuId }: { menuId: string }) {
 		</footer>
 	);
 }
-
