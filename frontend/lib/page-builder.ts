@@ -20,6 +20,10 @@ export type PageRow = {
 		columns?: number;
 		sizes?: number[];
 		wrapper?: 'none' | 'card';
+		/** Minimum row height in pixels (editor + renderer). */
+		minHeightPx?: number;
+		/** Row max-width as a percent of the page container. */
+		maxWidthPct?: number;
 	};
 };
 
@@ -28,6 +32,8 @@ export type PageColumn = {
 	blocks: PageBlock[];
 	settings?: {
 		wrapper?: 'none' | 'card';
+		/** Minimum column height in pixels (editor + renderer). */
+		minHeightPx?: number;
 	};
 };
 
@@ -225,6 +231,34 @@ function parseRowSizes(value: unknown, count: number): number[] | undefined {
 	const nums = value.map((v) => (typeof v === 'number' ? v : Number.NaN));
 	if (!nums.every((n) => Number.isFinite(n) && n > 0)) return undefined;
 	return normalizeSizeList(nums);
+}
+
+function parseNumber(value: unknown): number | undefined {
+	if (typeof value === 'number') return value;
+	if (typeof value === 'string') {
+		const trimmed = value.trim();
+		if (!trimmed) return undefined;
+		const parsed = Number(trimmed);
+		if (Number.isFinite(parsed)) return parsed;
+	}
+	return undefined;
+}
+
+function parsePx(value: unknown, min: number, max: number): number | undefined {
+	const n = parseNumber(value);
+	if (typeof n !== 'number' || !Number.isFinite(n)) return undefined;
+	const rounded = Math.round(n);
+	if (rounded <= 0) return undefined;
+	const clamped = Math.max(min, Math.min(max, rounded));
+	return clamped;
+}
+
+function parsePct(value: unknown, min: number, max: number): number | undefined {
+	const n = parseNumber(value);
+	if (typeof n !== 'number' || !Number.isFinite(n)) return undefined;
+	const clamped = Math.max(min, Math.min(max, n));
+	const rounded = Math.round(clamped * 100) / 100;
+	return rounded;
 }
 
 function parseLegacyToEditorValue(blocks: unknown): EditorValue {
@@ -500,11 +534,17 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 					colWrapperSetting === 'card' || colWrapperSetting === 'none'
 						? (colWrapperSetting as 'card' | 'none')
 						: undefined;
+				const colMinHeightPx = isRecord(colSettings)
+					? parsePx(colSettings['minHeightPx'], 60, 5000)
+					: undefined;
 
 				columns.push({
 					id: colId,
 					blocks: colBlocks,
-					settings: colWrapper ? { wrapper: colWrapper } : undefined,
+					settings:
+						colWrapper || colMinHeightPx
+							? { wrapper: colWrapper, minHeightPx: colMinHeightPx }
+							: undefined,
 				});
 			}
 
@@ -524,13 +564,15 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 				wrapperSetting === 'card' || wrapperSetting === 'none'
 					? (wrapperSetting as 'card' | 'none')
 					: undefined;
+			const minHeightPx = isRecord(settings) ? parsePx(settings['minHeightPx'], 60, 8000) : undefined;
+			const maxWidthPct = isRecord(settings) ? parsePct(settings['maxWidthPct'], 10, 100) : undefined;
 
 			rows.push({
 				id: rowId,
 				columns: columns.length > 0 ? columns : fallback.rows[0].columns,
 				settings:
-					columnsSetting || sizesSetting || wrapper
-						? { columns: columnsSetting, sizes: sizesSetting, wrapper }
+					columnsSetting || sizesSetting || wrapper || minHeightPx || maxWidthPct
+						? { columns: columnsSetting, sizes: sizesSetting, wrapper, minHeightPx, maxWidthPct }
 						: undefined,
 			});
 		}

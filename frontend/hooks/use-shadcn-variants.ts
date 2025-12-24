@@ -4,11 +4,18 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { ShadcnVariantGroup } from '@/lib/shadcn-variants';
 
+type RadixLinks = { doc: string | null; api: string | null } | null;
+
 type ShadcnVariantsResponse = {
 	slug: string;
 	url: string;
+	title?: string | null;
+	description?: string | null;
+	exports?: string[];
+	install?: string[];
 	groups: ShadcnVariantGroup[];
 	defaults: Record<string, string>;
+	radix?: RadixLinks;
 	error?: string;
 };
 
@@ -16,8 +23,13 @@ type ShadcnVariantsState = {
 	loading: boolean;
 	error: string | null;
 	url: string | null;
+	title: string | null;
+	description: string | null;
+	exports: string[];
+	install: string[];
 	groups: ShadcnVariantGroup[];
 	defaults: Record<string, string>;
+	radix: RadixLinks;
 };
 
 const CACHE = new Map<string, ShadcnVariantsState>();
@@ -30,17 +42,50 @@ export function useShadcnVariants(slug: string | null): ShadcnVariantsState {
 	const normalized = useMemo(() => normalizeSlug(slug), [slug]);
 	const [state, setState] = useState<ShadcnVariantsState>(() => {
 		if (!normalized) {
-			return { loading: false, error: null, url: null, groups: [], defaults: {} };
+			return {
+				loading: false,
+				error: null,
+				url: null,
+				title: null,
+				description: null,
+				exports: [],
+				install: [],
+				groups: [],
+				defaults: {},
+				radix: null,
+			};
 		}
 		const cached = CACHE.get(normalized);
 		return (
-			cached ?? { loading: true, error: null, url: null, groups: [], defaults: {} }
+			cached ?? {
+				loading: true,
+				error: null,
+				url: null,
+				title: null,
+				description: null,
+				exports: [],
+				install: [],
+				groups: [],
+				defaults: {},
+				radix: null,
+			}
 		);
 	});
 
 	useEffect(() => {
 		if (!normalized) {
-			setState({ loading: false, error: null, url: null, groups: [], defaults: {} });
+			setState({
+				loading: false,
+				error: null,
+				url: null,
+				title: null,
+				description: null,
+				exports: [],
+				install: [],
+				groups: [],
+				defaults: {},
+				radix: null,
+			});
 			return;
 		}
 
@@ -69,8 +114,13 @@ export function useShadcnVariants(slug: string | null): ShadcnVariantsState {
 					loading: false,
 					error: null,
 					url: json.url ?? null,
+					title: typeof json.title === 'string' ? json.title : null,
+					description: typeof json.description === 'string' ? json.description : null,
+					exports: Array.isArray(json.exports) ? json.exports.filter((x) => typeof x === 'string') : [],
+					install: Array.isArray(json.install) ? json.install.filter((x) => typeof x === 'string') : [],
 					groups: Array.isArray(json.groups) ? json.groups : [],
 					defaults: json.defaults ?? {},
+					radix: json.radix ?? null,
 				};
 
 				CACHE.set(normalized, next);
@@ -81,8 +131,13 @@ export function useShadcnVariants(slug: string | null): ShadcnVariantsState {
 					loading: false,
 					error: e instanceof Error ? e.message : String(e),
 					url: null,
+					title: null,
+					description: null,
+					exports: [],
+					install: [],
 					groups: [],
 					defaults: {},
+					radix: null,
 				});
 			}
 		}
@@ -95,4 +150,3 @@ export function useShadcnVariants(slug: string | null): ShadcnVariantsState {
 
 	return state;
 }
-

@@ -698,6 +698,94 @@ export default function AdminComponentsScreen() {
 									</p>
 								) : null}
 
+								{compType === 'shadcn' && !shadcnVariants.loading && shadcnVariants.radix?.doc ? (
+									<p className='text-xs text-muted-foreground'>
+										Radix docs:{' '}
+										<a
+											href={shadcnVariants.radix.doc}
+											target='_blank'
+											rel='noreferrer'
+											className='underline underline-offset-4'>
+											{shadcnVariants.radix.doc}
+										</a>
+									</p>
+								) : null}
+
+								{compType === 'shadcn' && !shadcnVariants.loading && shadcnVariants.radix?.api ? (
+									<p className='text-xs text-muted-foreground'>
+										Radix API:{' '}
+										<a
+											href={shadcnVariants.radix.api}
+											target='_blank'
+											rel='noreferrer'
+											className='underline underline-offset-4'>
+											{shadcnVariants.radix.api}
+										</a>
+									</p>
+								) : null}
+
+								{compType === 'shadcn' &&
+								shadcnComponentSlug &&
+								!shadcnVariants.loading &&
+								((shadcnVariants.title || shadcnVariants.description) ||
+									shadcnVariants.exports.length ||
+									shadcnVariants.install.length) ? (
+									<details className='rounded-lg border bg-muted/10 p-3'>
+										<summary className='text-sm font-medium cursor-pointer select-none'>
+											Docs summary
+										</summary>
+										<div className='mt-3 space-y-3'>
+											{shadcnVariants.title ? (
+												<div className='space-y-1'>
+													<div className='text-xs font-medium'>Title</div>
+													<div className='text-xs text-muted-foreground'>
+														{shadcnVariants.title}
+													</div>
+												</div>
+											) : null}
+
+											{shadcnVariants.description ? (
+												<div className='space-y-1'>
+													<div className='text-xs font-medium'>Description</div>
+													<div className='text-xs text-muted-foreground'>
+														{shadcnVariants.description}
+													</div>
+												</div>
+											) : null}
+
+											{shadcnVariants.exports.length ? (
+												<div className='space-y-1'>
+													<div className='text-xs font-medium'>Exports (anatomy)</div>
+													<div className='flex flex-wrap gap-1'>
+														{shadcnVariants.exports.map((e) => (
+															<Badge
+																key={e}
+																variant='secondary'>
+																{e}
+															</Badge>
+														))}
+													</div>
+												</div>
+											) : null}
+
+											{shadcnVariants.install.length ? (
+												<div className='space-y-1'>
+													<div className='text-xs font-medium'>Dependencies</div>
+													<div className='flex flex-wrap gap-1'>
+														{shadcnVariants.install.map((pkg) => (
+															<Badge
+																key={pkg}
+																variant='outline'>
+																{pkg}
+															</Badge>
+														))}
+													</div>
+												</div>
+											) : null}
+										</div>
+									</details>
+								) : null}
+
 								{compType === 'shadcn' ? (
 									<details className='rounded-lg border bg-muted/10 p-3'>
 										<summary className='text-sm font-medium cursor-pointer select-none'>

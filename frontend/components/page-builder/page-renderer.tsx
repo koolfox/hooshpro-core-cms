@@ -10,6 +10,12 @@ import { sanitizeRichHtml } from '@/lib/sanitize';
 import { PublicFooterNav } from '@/components/public/public-footer-nav';
 import { PublicTopNav } from '@/components/public/public-top-nav';
 import { ComponentPreview } from '@/components/components/component-preview';
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Separator } from '@/components/ui/separator';
@@ -47,6 +53,19 @@ function normalizeColumnSizes(value: unknown, count: number): number[] | null {
 }
 
 export function renderBlockPreview(block: PageBlock, slot?: React.ReactNode) {
+	function labelForAccordionItem(b: PageBlock): string {
+		if (b.type === 'unknown') return b.data.originalType;
+		if (b.type === 'shadcn') return `shadcn/${b.data.component || 'component'}`;
+		if (b.type === 'button') return b.data.label || 'Button';
+		if (b.type === 'card') return b.data.title || 'Card';
+		if (b.type === 'image') return b.data.alt?.trim() ? b.data.alt.trim() : 'Image';
+		if (b.type === 'menu') return `menu/${b.data.menu || 'main'}`;
+		if (b.type === 'separator') return 'Divider';
+		if (b.type === 'slot') return b.data.name?.trim() ? b.data.name.trim() : 'Slot';
+		if (b.type === 'editor') return 'Text';
+		return 'Component';
+	}
+
 	if (block.type === 'editor') {
 		const html = block.data.html;
 		const safe = sanitizeRichHtml(html);
@@ -142,6 +161,71 @@ export function renderBlockPreview(block: PageBlock, slot?: React.ReactNode) {
 		const children = Array.isArray(block.children) ? block.children : null;
 
 		if (children && children.length > 0) {
+			if (componentId === 'accordion') {
+				const props = typeof block.data.props === 'object' && block.data.props ? block.data.props : {};
+				const typeRaw = typeof (props as Record<string, unknown>)['type'] === 'string'
+					? String((props as Record<string, unknown>)['type']).trim().toLowerCase()
+					: '';
+				const type = typeRaw === 'multiple' ? 'multiple' : 'single';
+
+				const className =
+					typeof (props as Record<string, unknown>)['className'] === 'string'
+						? String((props as Record<string, unknown>)['className'])
+						: '';
+
+				const defaultValueRaw = (props as Record<string, unknown>)['defaultValue'];
+				if (type === 'multiple') {
+					const defaultValue =
+						Array.isArray(defaultValueRaw) && defaultValueRaw.every((v) => typeof v === 'string')
+							? (defaultValueRaw as string[])
+							: [children[0]!.id];
+
+					return (
+						<Accordion
+							type='multiple'
+							defaultValue={defaultValue}
+							className={className || 'w-full'}>
+							{children.map((child) => (
+								<AccordionItem
+									key={child.id}
+									value={child.id}>
+									<AccordionTrigger>{labelForAccordionItem(child)}</AccordionTrigger>
+									<AccordionContent>
+										<div className='space-y-4'>{renderBlockPreview(child, slot)}</div>
+									</AccordionContent>
+								</AccordionItem>
+							))}
+						</Accordion>
+					);
+				}
+
+				const collapsible =
+					typeof (props as Record<string, unknown>)['collapsible'] === 'boolean'
+						? Boolean((props as Record<string, unknown>)['collapsible'])
+						: true;
+				const defaultValue =
+					typeof defaultValueRaw === 'string' ? defaultValueRaw : children[0]!.id;
+
+				return (
+					<Accordion
+						type='single'
+						collapsible={collapsible}
+						defaultValue={defaultValue}
+						className={className || 'w-full'}>
+						{children.map((child) => (
+							<AccordionItem
+								key={child.id}
+								value={child.id}>
+								<AccordionTrigger>{labelForAccordionItem(child)}</AccordionTrigger>
+								<AccordionContent>
+									<div className='space-y-4'>{renderBlockPreview(child, slot)}</div>
+								</AccordionContent>
+							</AccordionItem>
+						))}
+					</Accordion>
+				);
+			}
+
 			const rendered = children.map((child) => (
 				<div key={child.id}>{renderBlockPreview(child, slot)}</div>
 			));
@@ -190,19 +274,49 @@ export function PageRendererWithSlot({
 					defaultColumnSizes(columnsCount);
 				const template = sizes.map((n) => `${n}fr`).join(' ');
 				const wrapper = row.settings?.wrapper ?? 'none';
+				const rowMinHeightPx =
+					typeof row.settings?.minHeightPx === 'number' && Number.isFinite(row.settings.minHeightPx)
+						? row.settings.minHeightPx
+						: null;
+				const rowMaxWidthPct =
+					typeof row.settings?.maxWidthPct === 'number' && Number.isFinite(row.settings.maxWidthPct)
+						? row.settings.maxWidthPct
+						: null;
+
+				const rowStyle: CSSProperties = {};
+				if (rowMaxWidthPct && rowMaxWidthPct > 0 && rowMaxWidthPct < 100) {
+					rowStyle.maxWidth = `${Math.round(rowMaxWidthPct * 100) / 100}%`;
+					rowStyle.marginLeft = 'auto';
+					rowStyle.marginRight = 'auto';
+				}
 
 				const grid = (
 					<div
 						className='grid grid-cols-1 gap-6 md:grid-cols-[var(--hp-cols)]'
-						style={{ '--hp-cols': template } as CSSProperties}>
+						style={
+							{
+								'--hp-cols': template,
+								minHeight: rowMinHeightPx ? Math.max(0, rowMinHeightPx) : undefined,
+							} as CSSProperties
+						}>
 						{row.columns.map((col) => {
+							const colMinHeightPx =
+								typeof col.settings?.minHeightPx === 'number' &&
+								Number.isFinite(col.settings.minHeightPx)
+									? col.settings.minHeightPx
+									: null;
+
 							const blocks = col.blocks.map((b) => (
 								<div key={b.id}>{renderBlockPreview(b, slot)}</div>
 							));
 
 							if (col.settings?.wrapper === 'card') {
 								return (
-									<Card key={col.id}>
+									<Card
+										key={col.id}
+										style={{
+											minHeight: colMinHeightPx ? Math.max(0, colMinHeightPx) : undefined,
+										}}>
 										<CardContent>
 											<div className='space-y-4'>{blocks}</div>
 										</CardContent>
@@ -213,7 +327,10 @@ export function PageRendererWithSlot({
 							return (
 								<div
 									key={col.id}
-									className='space-y-4'>
+									className='space-y-4'
+									style={{
+										minHeight: colMinHeightPx ? Math.max(0, colMinHeightPx) : undefined,
+									}}>
 									{blocks}
 								</div>
 							);
@@ -221,7 +338,9 @@ export function PageRendererWithSlot({
 					</div>
 				);
 				return (
-					<section key={row.id}>
+					<section
+						key={row.id}
+						style={rowStyle}>
 						{wrapper === 'card' ? (
 							<Card>
 								<CardContent>{grid}</CardContent>

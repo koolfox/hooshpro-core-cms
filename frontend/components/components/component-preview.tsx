@@ -15,7 +15,14 @@ import {
 } from '@/components/ui/breadcrumb';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+	Accordion,
+	AccordionContent,
+	AccordionItem,
+	AccordionTrigger,
+} from '@/components/ui/accordion';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Separator } from '@/components/ui/separator';
@@ -645,23 +652,30 @@ export function ComponentPreview({
 		if (componentId === 'accordion') {
 			return (
 				<div className={className}>
-					<div className='rounded-lg border overflow-hidden bg-background'>
-						{['Accordion item', 'Another item', 'Last item'].map((label, idx) => (
-							<div
-								key={label}
-								className={idx === 0 ? '' : 'border-t'}>
-								<div className='flex items-center justify-between gap-3 px-3 py-2 text-sm'>
-									<span className='font-medium'>{label}</span>
-									<ChevronDown className='h-4 w-4 text-muted-foreground' />
-								</div>
-								{idx === 0 ? (
-									<div className='px-3 pb-3 text-xs text-muted-foreground'>
-										Accordion content…
-									</div>
-								) : null}
-							</div>
-						))}
-					</div>
+					<Accordion
+						type='single'
+						collapsible
+						className='w-full rounded-lg border bg-background px-3'
+						defaultValue='item-1'>
+						<AccordionItem value='item-1'>
+							<AccordionTrigger>Product Information</AccordionTrigger>
+							<AccordionContent className='text-muted-foreground'>
+								Accordion content…
+							</AccordionContent>
+						</AccordionItem>
+						<AccordionItem value='item-2'>
+							<AccordionTrigger>Shipping Details</AccordionTrigger>
+							<AccordionContent className='text-muted-foreground'>
+								Accordion content…
+							</AccordionContent>
+						</AccordionItem>
+						<AccordionItem value='item-3'>
+							<AccordionTrigger>Return Policy</AccordionTrigger>
+							<AccordionContent className='text-muted-foreground'>
+								Accordion content…
+							</AccordionContent>
+						</AccordionItem>
+					</Accordion>
 				</div>
 			);
 		}
@@ -758,24 +772,32 @@ export function ComponentPreview({
 		}
 
 		if (componentId === 'checkbox') {
+			const itemsRaw = d['items'];
+			const items =
+				Array.isArray(itemsRaw) && itemsRaw.every((x) => typeof x === 'string' && x.trim())
+					? (itemsRaw as string[])
+					: ['Option A', 'Option B', 'Option C'];
+
 			return (
 				<div className={className}>
-					<div className='rounded-lg border bg-background p-3 space-y-2'>
+					<div className='rounded-lg border bg-background p-3 space-y-3'>
 						<div className='text-sm font-medium'>Checkbox</div>
-						{['Option A', 'Option B', 'Option C'].map((label, idx) => (
-							<label key={label} className='flex items-center gap-2 text-sm'>
-								<span
-									className={
-										idx === 0
-											? 'h-4 w-4 rounded border bg-primary text-primary-foreground grid place-items-center text-[10px]'
-											: 'h-4 w-4 rounded border bg-background'
-									}
-									aria-hidden>
-									{idx === 0 ? '✓' : ''}
-								</span>
-								<span className='text-muted-foreground'>{label}</span>
-							</label>
-						))}
+						<div className='space-y-2'>
+							{items.map((labelText, idx) => {
+								const id = `chk-${idx}`;
+								return (
+									<div key={labelText} className='flex items-center gap-2'>
+										<Checkbox
+											id={id}
+											defaultChecked={idx === 0}
+										/>
+										<Label htmlFor={id} className='text-muted-foreground'>
+											{labelText}
+										</Label>
+									</div>
+								);
+							})}
+						</div>
 					</div>
 				</div>
 			);

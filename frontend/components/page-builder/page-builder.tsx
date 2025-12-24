@@ -96,6 +96,11 @@ type SortableContainerDropData = {
 
 const MAX_COLUMNS = 12;
 const BUILDER_UI_MODE_KEY = 'hooshpro_builder_ui_mode';
+const MIN_ROW_HEIGHT_PX = 120;
+const MAX_ROW_HEIGHT_PX = 8000;
+const MIN_COLUMN_HEIGHT_PX = 120;
+const MAX_COLUMN_HEIGHT_PX = 8000;
+const MIN_ROW_WIDTH_PCT = 10;
 
 type BuilderUiMode = 'clean' | 'detailed';
 type ShadcnVariantsState = ReturnType<typeof useShadcnVariants>;
@@ -103,6 +108,19 @@ type ShadcnVariantsState = ReturnType<typeof useShadcnVariants>;
 function parseBuilderUiMode(value: string | null): BuilderUiMode {
 	const v = (value ?? '').trim().toLowerCase();
 	return v === 'detailed' ? 'detailed' : 'clean';
+}
+
+function formatSizePercent(value: number): string {
+	if (!Number.isFinite(value)) return '0%';
+	const clamped = Math.max(0, Math.min(100, value));
+	const rounded = Math.round(clamped * 10) / 10;
+	if (Math.abs(rounded - Math.round(rounded)) < 0.05) return `${Math.round(rounded)}%`;
+	return `${rounded}%`;
+}
+
+function formatPx(value: number | null | undefined): string {
+	if (typeof value !== 'number' || !Number.isFinite(value)) return 'auto';
+	return `${Math.max(0, Math.round(value))}px`;
 }
 
 function clampColumnsCount(value: number): number {
@@ -199,6 +217,8 @@ function SortableRow({
 	onRemoveRow,
 	onSetColumns,
 	onSetWrapper,
+	onSetMinHeightPx,
+	onSetMaxWidthPct,
 	children,
 }: {
 	row: PageRow;
@@ -207,6 +227,8 @@ function SortableRow({
 	onRemoveRow: (rowId: string) => void;
 	onSetColumns: (rowId: string, columns: number) => void;
 	onSetWrapper: (rowId: string, wrapper: 'none' | 'card') => void;
+	onSetMinHeightPx: (rowId: string, minHeightPx: number | null) => void;
+	onSetMaxWidthPct: (rowId: string, maxWidthPct: number | null) => void;
 	children: React.ReactNode;
 }) {
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging } =
@@ -216,6 +238,12 @@ function SortableRow({
 			disabled,
 		});
 
+	const rowRef = useRef<HTMLElement | null>(null);
+	const setRowRef = (node: HTMLElement | null) => {
+		rowRef.current = node;
+		setNodeRef(node);
+	};
+
 	const style: CSSProperties = {
 		transform: CSS.Transform.toString(transform),
 		transition,
@@ -223,23 +251,117 @@ function SortableRow({
 
 	const columnsCount = clampColumnsCount(row.settings?.columns ?? row.columns.length);
 	const wrapper = row.settings?.wrapper === 'card' ? 'card' : 'none';
+	const rowMinHeightPx =
+		typeof row.settings?.minHeightPx === 'number' && Number.isFinite(row.settings.minHeightPx)
+			? row.settings.minHeightPx
+			: null;
+	const rowMaxWidthPct =
+		typeof row.settings?.maxWidthPct === 'number' && Number.isFinite(row.settings.maxWidthPct)
+			? row.settings.maxWidthPct
+			: null;
+
+	const sectionStyle: CSSProperties = { ...style };
+	if (rowMaxWidthPct && rowMaxWidthPct > 0 && rowMaxWidthPct < 100) {
+		sectionStyle.maxWidth = `${Math.round(rowMaxWidthPct * 100) / 100}%`;
+		sectionStyle.marginLeft = 'auto';
+		sectionStyle.marginRight = 'auto';
+	}
 
 	const inner =
 		wrapper === 'card' ? <div className='rounded-xl border bg-card p-4'>{children}</div> : children;
 
+	const resizeRef = useRef<{
+		startX: number;
+		startY: number;
+		containerWidthPx: number;
+		startWidthPx: number;
+		startHeightPx: number;
+	} | null>(null);
+	const [isResizing, setIsResizing] = useState(false);
+
+	function stopResizing() {
+		resizeRef.current = null;
+		setIsResizing(false);
+	}
+
+	function onResizeStart(e: React.PointerEvent<HTMLButtonElement>) {
+		if (disabled) return;
+		e.preventDefault();
+		e.stopPropagation();
+
+		const el = rowRef.current;
+		const container = el?.parentElement;
+		const rect = el?.getBoundingClientRect();
+		const containerRect = container?.getBoundingClientRect();
+		if (!rect || !containerRect) return;
+
+		resizeRef.current = {
+			startX: e.clientX,
+			startY: e.clientY,
+			containerWidthPx: containerRect.width || rect.width,
+			startWidthPx: rect.width,
+			startHeightPx: rowMinHeightPx ?? rect.height,
+		};
+		setIsResizing(true);
+		e.currentTarget.setPointerCapture(e.pointerId);
+	}
+
+	function onResizeMove(e: React.PointerEvent<HTMLButtonElement>) {
+		if (!resizeRef.current || disabled) return;
+		e.preventDefault();
+		e.stopPropagation();
+
+		const deltaX = e.clientX - resizeRef.current.startX;
+		const deltaY = e.clientY - resizeRef.current.startY;
+
+		const nextWidthPx = Math.max(0, resizeRef.current.startWidthPx + deltaX);
+		const pctRaw = (nextWidthPx / resizeRef.current.containerWidthPx) * 100;
+		const pct = Math.max(MIN_ROW_WIDTH_PCT, Math.min(100, pctRaw));
+		onSetMaxWidthPct(row.id, Math.round(pct * 100) / 100);
+
+		const nextHeight = Math.max(
+			MIN_ROW_HEIGHT_PX,
+			Math.min(MAX_ROW_HEIGHT_PX, resizeRef.current.startHeightPx + deltaY)
+		);
+		onSetMinHeightPx(row.id, Math.round(nextHeight));
+	}
+
+	function onResizeEnd(e: React.PointerEvent<HTMLButtonElement>) {
+		if (!isResizing) return;
+		e.preventDefault();
+		e.stopPropagation();
+		try {
+			e.currentTarget.releasePointerCapture(e.pointerId);
+		} catch {
+			// ignore
+		}
+		stopResizing();
+	}
+
 	return (
 		<section
-			ref={setNodeRef}
-			style={style}
+			ref={setRowRef}
+			style={sectionStyle}
 			className={isDragging ? 'opacity-70' : ''}
 			{...attributes}>
 			<div
 				className={cn(
-					'rounded-md border bg-background',
+					'rounded-md border bg-background relative',
 					compact && 'group/row border-dashed hover:ring-2 hover:ring-ring'
-				)}>
+				)}
+				style={{
+					minHeight: rowMinHeightPx ? Math.max(MIN_ROW_HEIGHT_PX, rowMinHeightPx) : undefined,
+				}}>
 				{compact ? (
 					<div className='p-4 pt-9 relative'>
+						<div
+							className={cn(
+								'absolute bottom-3 right-10 pointer-events-none select-none rounded-md border bg-background/85 px-2 py-1 text-xs font-medium text-muted-foreground backdrop-blur transition-opacity',
+								isResizing ? 'opacity-100' : 'opacity-0'
+							)}>
+							{formatSizePercent(rowMaxWidthPct ?? 100)} · {formatPx(rowMinHeightPx)}
+						</div>
+
 						<div className='absolute top-3 left-3 flex items-center gap-2 opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto'>
 							<Button
 								type='button'
@@ -296,6 +418,18 @@ function SortableRow({
 						</div>
 
 						{inner}
+
+						<button
+							type='button'
+							aria-label='Resize row'
+							title='Resize row (width + height)'
+							className='absolute bottom-2 right-2 h-4 w-4 rounded-sm border bg-background/80 backdrop-blur cursor-nwse-resize touch-none opacity-0 pointer-events-none transition-opacity group-hover/row:opacity-100 group-hover/row:pointer-events-auto group-focus-within/row:opacity-100 group-focus-within/row:pointer-events-auto'
+							disabled={disabled}
+							onPointerDown={onResizeStart}
+							onPointerMove={onResizeMove}
+							onPointerUp={onResizeEnd}
+							onPointerCancel={onResizeEnd}
+						/>
 					</div>
 				) : (
 					<>
@@ -312,7 +446,9 @@ function SortableRow({
 									<GripVertical className='h-4 w-4' />
 									<span className='sr-only'>Drag row</span>
 								</Button>
-								<span className='text-xs text-muted-foreground'>Row</span>
+								<span className='text-xs text-muted-foreground'>
+									Row · {formatSizePercent(rowMaxWidthPct ?? 100)} · {formatPx(rowMinHeightPx)}
+								</span>
 							</div>
 
 							<div className='flex items-center gap-2'>
@@ -366,6 +502,18 @@ function SortableRow({
 						</div>
 
 						<div className='p-4'>{inner}</div>
+
+						<button
+							type='button'
+							aria-label='Resize row'
+							title='Resize row (width + height)'
+							className='absolute bottom-3 right-3 h-5 w-5 rounded-md border bg-background cursor-nwse-resize touch-none'
+							disabled={disabled}
+							onPointerDown={onResizeStart}
+							onPointerMove={onResizeMove}
+							onPointerUp={onResizeEnd}
+							onPointerCancel={onResizeEnd}
+						/>
 					</>
 				)}
 			</div>
@@ -378,28 +526,87 @@ function ColumnFrame({
 	compact,
 	isDragging,
 	isOver,
+	sizePercent,
+	showSizePercent,
+	minHeightPx,
 	wrapper,
 	setActivatorNodeRef,
 	listeners,
 	attributes,
 	onAddBlock,
 	onSetWrapper,
+	onSetMinHeightPx,
 	children,
 }: {
 	disabled: boolean;
 	compact: boolean;
 	isDragging: boolean;
 	isOver: boolean;
+	sizePercent: number;
+	showSizePercent: boolean;
+	minHeightPx: number | null;
 	wrapper: 'none' | 'card';
 	setActivatorNodeRef: (node: HTMLElement | null) => void;
 	listeners: ReturnType<typeof useSortable>['listeners'];
 	attributes: ReturnType<typeof useSortable>['attributes'];
 	onAddBlock: () => void;
 	onSetWrapper: (wrapper: 'none' | 'card') => void;
+	onSetMinHeightPx: (minHeightPx: number | null) => void;
 	children: React.ReactNode;
 }) {
 	const content =
 		wrapper === 'card' ? <div className='rounded-xl border bg-card p-4'>{children}</div> : children;
+	const effectiveMinHeightPx = Math.max(MIN_COLUMN_HEIGHT_PX, minHeightPx ?? 0);
+
+	const frameRef = useRef<HTMLDivElement | null>(null);
+	const resizeRef = useRef<{ startY: number; startHeightPx: number } | null>(null);
+	const [isResizingHeight, setIsResizingHeight] = useState(false);
+
+	function stopResizingHeight() {
+		resizeRef.current = null;
+		setIsResizingHeight(false);
+	}
+
+	function onHeightResizeStart(e: React.PointerEvent<HTMLButtonElement>) {
+		if (disabled) return;
+		e.preventDefault();
+		e.stopPropagation();
+
+		const rect = frameRef.current?.getBoundingClientRect();
+		const startHeightPx =
+			typeof minHeightPx === 'number' && Number.isFinite(minHeightPx)
+				? minHeightPx
+				: rect?.height ?? effectiveMinHeightPx;
+
+		resizeRef.current = { startY: e.clientY, startHeightPx };
+		setIsResizingHeight(true);
+		e.currentTarget.setPointerCapture(e.pointerId);
+	}
+
+	function onHeightResizeMove(e: React.PointerEvent<HTMLButtonElement>) {
+		if (!resizeRef.current || disabled) return;
+		e.preventDefault();
+		e.stopPropagation();
+
+		const deltaY = e.clientY - resizeRef.current.startY;
+		const next = Math.max(
+			MIN_COLUMN_HEIGHT_PX,
+			Math.min(MAX_COLUMN_HEIGHT_PX, resizeRef.current.startHeightPx + deltaY)
+		);
+		onSetMinHeightPx(Math.round(next));
+	}
+
+	function onHeightResizeEnd(e: React.PointerEvent<HTMLButtonElement>) {
+		if (!isResizingHeight) return;
+		e.preventDefault();
+		e.stopPropagation();
+		try {
+			e.currentTarget.releasePointerCapture(e.pointerId);
+		} catch {
+			// ignore
+		}
+		stopResizingHeight();
+	}
 
 	return (
 		<div
@@ -409,14 +616,33 @@ function ColumnFrame({
 				isOver && 'ring-2 ring-ring rounded-md'
 			)}>
 			<div
+				ref={frameRef}
 				className={cn(
-					'rounded-md border min-h-[120px] h-full transition-colors',
+					'rounded-md border h-full transition-colors relative',
 					compact
-						? 'relative p-3 pt-9 group/col border-dashed bg-muted/5 hover:bg-muted/10 hover:ring-2 hover:ring-ring/20'
+						? 'p-3 pt-9 group/col border-dashed bg-muted/5 hover:bg-muted/10 hover:ring-2 hover:ring-ring/20'
 						: 'p-3 space-y-3 bg-background'
-				)}>
+				)}
+				style={{ minHeight: effectiveMinHeightPx }}>
 				{compact ? (
 					<>
+						<div
+							className={cn(
+								'absolute top-3 right-3 pointer-events-none select-none rounded-md border bg-background/85 px-2 py-1 text-xs font-medium text-muted-foreground backdrop-blur transition-opacity',
+								showSizePercent ? 'opacity-100' : 'opacity-0',
+								'group-hover/col:opacity-0 group-focus-within/col:opacity-0'
+							)}>
+							{formatSizePercent(sizePercent)}
+						</div>
+
+						<div
+							className={cn(
+								'absolute bottom-3 right-3 pointer-events-none select-none rounded-md border bg-background/85 px-2 py-1 text-xs font-medium text-muted-foreground backdrop-blur transition-opacity',
+								isResizingHeight ? 'opacity-100' : 'opacity-0'
+							)}>
+							{formatPx(minHeightPx ?? effectiveMinHeightPx)}
+						</div>
+
 						<div className='absolute top-3 left-3 right-3 flex items-center justify-between gap-2 opacity-0 pointer-events-none transition-opacity group-hover/col:opacity-100 group-hover/col:pointer-events-auto group-focus-within/col:opacity-100 group-focus-within/col:pointer-events-auto'>
 							<Button
 								type='button'
@@ -473,7 +699,9 @@ function ColumnFrame({
 									<GripVertical className='h-4 w-4' />
 									<span className='sr-only'>Drag column</span>
 								</Button>
-								<span className='text-xs text-muted-foreground'>Column</span>
+								<span className='text-xs text-muted-foreground'>
+									Column · {formatSizePercent(sizePercent)} · {formatPx(minHeightPx ?? effectiveMinHeightPx)}
+								</span>
 							</div>
 
 							<div className='flex items-center gap-2'>
@@ -505,6 +733,23 @@ function ColumnFrame({
 						{content}
 					</>
 				)}
+
+				<button
+					type='button'
+					aria-label='Resize column height'
+					title='Resize column height'
+					className={cn(
+						'absolute bottom-2 right-2 h-4 w-4 rounded-sm border bg-background/80 backdrop-blur cursor-ns-resize touch-none',
+						compact
+							? 'opacity-0 pointer-events-none transition-opacity group-hover/col:opacity-100 group-hover/col:pointer-events-auto group-focus-within/col:opacity-100 group-focus-within/col:pointer-events-auto'
+							: 'opacity-100'
+					)}
+					disabled={disabled}
+					onPointerDown={onHeightResizeStart}
+					onPointerMove={onHeightResizeMove}
+					onPointerUp={onHeightResizeEnd}
+					onPointerCancel={onHeightResizeEnd}
+				/>
 			</div>
 		</div>
 	);
@@ -516,8 +761,12 @@ function SortableResizableColumnPanel({
 	disabled,
 	compact,
 	defaultSize,
+	sizePercent,
+	showSizePercent,
+	minHeightPx,
 	onAddBlock,
 	onSetWrapper,
+	onSetMinHeightPx,
 	children,
 }: {
 	column: PageColumn;
@@ -525,8 +774,12 @@ function SortableResizableColumnPanel({
 	disabled: boolean;
 	compact: boolean;
 	defaultSize: number;
+	sizePercent: number;
+	showSizePercent: boolean;
+	minHeightPx: number | null;
 	onAddBlock: () => void;
 	onSetWrapper: (wrapper: 'none' | 'card') => void;
+	onSetMinHeightPx: (minHeightPx: number | null) => void;
 	children: React.ReactNode;
 }) {
 	const { setNodeRef, setActivatorNodeRef, listeners, attributes, transform, transition, isDragging, isOver } =
@@ -553,12 +806,16 @@ function SortableResizableColumnPanel({
 				compact={compact}
 				isDragging={isDragging}
 				isOver={isOver}
+				sizePercent={sizePercent}
+				showSizePercent={showSizePercent}
+				minHeightPx={minHeightPx}
 				wrapper={column.settings?.wrapper === 'card' ? 'card' : 'none'}
 				setActivatorNodeRef={setActivatorNodeRef}
 				listeners={listeners}
 				attributes={attributes}
 				onAddBlock={onAddBlock}
-				onSetWrapper={onSetWrapper}>
+				onSetWrapper={onSetWrapper}
+				onSetMinHeightPx={onSetMinHeightPx}>
 				{children}
 			</ColumnFrame>
 		</ResizablePanel>
@@ -1429,6 +1686,7 @@ function renderBlockBody({
 					const docsUrl = componentId ? shadcnDocsUrl(componentId) : null;
 					const variantGroups = shadcnVariants?.groups ?? [];
 					const variantDefaults = shadcnVariants?.defaults ?? {};
+					const shadcnMeta = shadcnComponentMeta(componentId);
 
 					function updateProps(nextPartial: Record<string, unknown>) {
 						const next = { ...props, ...nextPartial } as Record<string, unknown>;
@@ -1458,6 +1716,32 @@ function renderBlockBody({
 									Settings
 								</summary>
 								<div className='mt-3 space-y-4'>
+									{shadcnMeta ? (
+										<div className='flex flex-wrap items-center gap-2 text-xs text-muted-foreground'>
+											<span className='rounded bg-muted px-2 py-1'>kind: {shadcnMeta.kind}</span>
+											{shadcnMeta.canWrapChildren ? (
+												<span className='rounded bg-muted px-2 py-1'>structural wrapper</span>
+											) : (
+												<span className='rounded bg-muted px-2 py-1'>leaf</span>
+											)}
+										</div>
+									) : null}
+
+									{shadcnVariants &&
+									!shadcnVariants.loading &&
+									(shadcnVariants.title || shadcnVariants.description) ? (
+										<div className='space-y-1'>
+											{shadcnVariants.title ? (
+												<p className='text-sm font-medium'>{shadcnVariants.title}</p>
+											) : null}
+											{shadcnVariants.description ? (
+												<p className='text-xs text-muted-foreground'>
+													{shadcnVariants.description}
+												</p>
+											) : null}
+										</div>
+									) : null}
+
 									{docsUrl ? (
 										<p className='text-xs text-muted-foreground'>
 											Docs:{' '}
@@ -1467,6 +1751,62 @@ function renderBlockBody({
 												rel='noreferrer'
 												className='underline underline-offset-4'>
 												{docsUrl}
+											</a>
+										</p>
+									) : null}
+
+									{shadcnVariants && !shadcnVariants.loading && shadcnVariants.exports.length > 0 ? (
+										<div className='space-y-1'>
+											<p className='text-xs text-muted-foreground'>Anatomy (exports)</p>
+											<div className='flex flex-wrap gap-1'>
+												{shadcnVariants.exports.map((e) => (
+													<span
+														key={e}
+														className='rounded bg-muted px-2 py-1 text-xs font-mono'>
+														{e}
+													</span>
+												))}
+											</div>
+										</div>
+									) : null}
+
+									{shadcnVariants && !shadcnVariants.loading && shadcnVariants.install.length > 0 ? (
+										<div className='space-y-1'>
+											<p className='text-xs text-muted-foreground'>Dependencies</p>
+											<div className='flex flex-wrap gap-1'>
+												{shadcnVariants.install.map((pkg) => (
+													<span
+														key={pkg}
+														className='rounded bg-muted px-2 py-1 text-xs font-mono'>
+														{pkg}
+													</span>
+												))}
+											</div>
+										</div>
+									) : null}
+
+									{shadcnVariants?.radix?.doc ? (
+										<p className='text-xs text-muted-foreground'>
+											Radix docs:{' '}
+											<a
+												href={shadcnVariants.radix.doc}
+												target='_blank'
+												rel='noreferrer'
+												className='underline underline-offset-4'>
+												{shadcnVariants.radix.doc}
+											</a>
+										</p>
+									) : null}
+
+									{shadcnVariants?.radix?.api ? (
+										<p className='text-xs text-muted-foreground'>
+											Radix API:{' '}
+											<a
+												href={shadcnVariants.radix.api}
+												target='_blank'
+												rel='noreferrer'
+												className='underline underline-offset-4'>
+												{shadcnVariants.radix.api}
 											</a>
 										</p>
 									) : null}
@@ -2061,6 +2401,7 @@ export function PageBuilder({
 	disabled?: boolean;
 }) {
 	const [mounted, setMounted] = useState(false);
+	const [resizingRowId, setResizingRowId] = useState<string | null>(null);
 	const [uiMode, setUiMode] = useState<BuilderUiMode>(() => {
 		if (typeof window === 'undefined') return 'clean';
 		try {
@@ -2074,6 +2415,17 @@ export function PageBuilder({
 		const frame = window.requestAnimationFrame(() => setMounted(true));
 		return () => window.cancelAnimationFrame(frame);
 	}, []);
+
+	useEffect(() => {
+		if (!resizingRowId) return;
+		const clear = () => setResizingRowId(null);
+		window.addEventListener('pointerup', clear);
+		window.addEventListener('pointercancel', clear);
+		return () => {
+			window.removeEventListener('pointerup', clear);
+			window.removeEventListener('pointercancel', clear);
+		};
+	}, [resizingRowId]);
 
 	const sensors = useSensors(
 		useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
@@ -2125,7 +2477,9 @@ export function PageBuilder({
 				const hasAny =
 					typeof nextSettings.columns === 'number' ||
 					(Array.isArray(nextSettings.sizes) && nextSettings.sizes.length > 0) ||
-					typeof nextSettings.wrapper === 'string';
+					typeof nextSettings.wrapper === 'string' ||
+					typeof nextSettings.minHeightPx === 'number' ||
+					typeof nextSettings.maxWidthPct === 'number';
 
 				return {
 					...r,
@@ -2149,7 +2503,114 @@ export function PageBuilder({
 							...(c.settings ?? {}),
 							wrapper: wrapper === 'none' ? undefined : wrapper,
 						} satisfies PageColumn['settings'];
-						const hasAny = typeof nextSettings.wrapper === 'string';
+						const hasAny =
+							typeof nextSettings.wrapper === 'string' ||
+							typeof nextSettings.minHeightPx === 'number';
+						return { ...c, settings: hasAny ? nextSettings : undefined };
+					}),
+				};
+			}),
+		});
+	}
+
+	function setRowMinHeightPx(rowId: string, minHeightPx: number | null) {
+		if (disabledFlag) return;
+		const nextPx =
+			typeof minHeightPx === 'number' && Number.isFinite(minHeightPx)
+				? Math.max(MIN_ROW_HEIGHT_PX, Math.min(MAX_ROW_HEIGHT_PX, Math.round(minHeightPx)))
+				: null;
+
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				const current =
+					typeof r.settings?.minHeightPx === 'number' && Number.isFinite(r.settings.minHeightPx)
+						? r.settings.minHeightPx
+						: null;
+				if (current === nextPx) return r;
+
+				const nextSettings = {
+					...(r.settings ?? {}),
+					minHeightPx: nextPx ?? undefined,
+				} satisfies PageRow['settings'];
+
+				const hasAny =
+					typeof nextSettings.columns === 'number' ||
+					(Array.isArray(nextSettings.sizes) && nextSettings.sizes.length > 0) ||
+					typeof nextSettings.wrapper === 'string' ||
+					typeof nextSettings.minHeightPx === 'number' ||
+					typeof nextSettings.maxWidthPct === 'number';
+
+				return { ...r, settings: hasAny ? nextSettings : undefined };
+			}),
+		});
+	}
+
+	function setRowMaxWidthPct(rowId: string, maxWidthPct: number | null) {
+		if (disabledFlag) return;
+		const nextPct =
+			typeof maxWidthPct === 'number' && Number.isFinite(maxWidthPct)
+				? Math.max(MIN_ROW_WIDTH_PCT, Math.min(100, maxWidthPct))
+				: null;
+
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				const current =
+					typeof r.settings?.maxWidthPct === 'number' && Number.isFinite(r.settings.maxWidthPct)
+						? r.settings.maxWidthPct
+						: null;
+				if (current === nextPct) return r;
+
+				const nextSettings = {
+					...(r.settings ?? {}),
+					maxWidthPct: nextPct ?? undefined,
+				} satisfies PageRow['settings'];
+
+				const hasAny =
+					typeof nextSettings.columns === 'number' ||
+					(Array.isArray(nextSettings.sizes) && nextSettings.sizes.length > 0) ||
+					typeof nextSettings.wrapper === 'string' ||
+					typeof nextSettings.minHeightPx === 'number' ||
+					typeof nextSettings.maxWidthPct === 'number';
+
+				return { ...r, settings: hasAny ? nextSettings : undefined };
+			}),
+		});
+	}
+
+	function setColumnMinHeightPx(rowId: string, columnId: string, minHeightPx: number | null) {
+		if (disabledFlag) return;
+		const nextPx =
+			typeof minHeightPx === 'number' && Number.isFinite(minHeightPx)
+				? Math.max(MIN_COLUMN_HEIGHT_PX, Math.min(MAX_COLUMN_HEIGHT_PX, Math.round(minHeightPx)))
+				: null;
+
+		onChange({
+			...value,
+			rows: value.rows.map((r) => {
+				if (r.id !== rowId) return r;
+				return {
+					...r,
+					columns: r.columns.map((c) => {
+						if (c.id !== columnId) return c;
+						const current =
+							typeof c.settings?.minHeightPx === 'number' && Number.isFinite(c.settings.minHeightPx)
+								? c.settings.minHeightPx
+								: null;
+						if (current === nextPx) return c;
+
+						const nextSettings = {
+							...(c.settings ?? {}),
+							minHeightPx: nextPx ?? undefined,
+						} satisfies PageColumn['settings'];
+
+						const hasAny =
+							typeof nextSettings.wrapper === 'string' ||
+							typeof nextSettings.minHeightPx === 'number';
+
 						return { ...c, settings: hasAny ? nextSettings : undefined };
 					}),
 				};
@@ -2640,6 +3101,7 @@ export function PageBuilder({
 							const sizes =
 								normalizeColumnSizes(row.settings?.sizes ?? null, columnsCount) ??
 								defaultColumnSizes(columnsCount);
+							const showSizePercent = resizingRowId === row.id;
 
 							return (
 								<SortableRow
@@ -2649,7 +3111,9 @@ export function PageBuilder({
 									compact={compact}
 									onRemoveRow={removeRow}
 									onSetColumns={setColumns}
-									onSetWrapper={setWrapper}>
+									onSetWrapper={setWrapper}
+									onSetMinHeightPx={setRowMinHeightPx}
+									onSetMaxWidthPct={setRowMaxWidthPct}>
 									<SortableContext
 										items={columnIds}
 										strategy={horizontalListSortingStrategy}>
@@ -2669,8 +3133,19 @@ export function PageBuilder({
 														disabled={disabledFlag}
 														compact={compact}
 														defaultSize={sizes[idx] ?? 100}
+														sizePercent={sizes[idx] ?? 0}
+														showSizePercent={showSizePercent}
+														minHeightPx={
+															typeof col.settings?.minHeightPx === 'number' &&
+															Number.isFinite(col.settings.minHeightPx)
+																? col.settings.minHeightPx
+																: null
+														}
 														onAddBlock={() => openAddBlock(row.id, col.id)}
-														onSetWrapper={(w) => setColumnWrapper(row.id, col.id, w)}>
+														onSetWrapper={(w) => setColumnWrapper(row.id, col.id, w)}
+														onSetMinHeightPx={(px) =>
+															setColumnMinHeightPx(row.id, col.id, px)
+														}>
 														<SortableBlockList
 															blocks={col.blocks}
 															rowId={row.id}
@@ -2689,6 +3164,7 @@ export function PageBuilder({
 													{idx < row.columns.length - 1 ? (
 														<ResizableHandle
 															withHandle
+															onPointerDown={() => setResizingRowId(row.id)}
 															className={cn(
 																'[&>div]:transition-opacity hover:bg-muted/20',
 																compact &&
