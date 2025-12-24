@@ -45,7 +45,7 @@ Quick check:
 - Homepage: `/` (renders the page with slug `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/home` redirects to `/`
 - Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override template menu blocks for previews)
-- Internal docs helper: `GET /shadcn/variants?slug=<component>` (fetches shadcn `.md` docs and extracts CVA variant groups for the editor)
+- Internal docs helper: `GET /shadcn/variants?slug=<component>` (extracts CVA variant groups + title/description + exports/deps + Radix doc/API links; prefers local `docs/shadcn/components/*.md` synced via `python scripts/sync_shadcn_docs.py`)
 
 ### Backend Routes (from code)
 
@@ -134,13 +134,13 @@ Quick check:
 - Name: `hooshpro_session`
 - HttpOnly: True
 - SameSite: Lax
-- Secure: False in dev, True in prod (configurable `COOKIE_SECURE`)
+- Secure: False in dev, True in prod (env `HOOSHPRO_COOKIE_SECURE=1`)
 - Session length: 14 days
 
 ### Security gates (current)
 
 - Backend: every `/api/admin/*` and media endpoints require `get_current_user` (cookie or bearer token hash lookup with expiry).
-- Frontend: `middleware.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
+- Frontend: `frontend/proxy.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
 - Admin edit mode on public pages is gated server-side; `/[slug]?edit=1` only enables edit UI for valid sessions.
 
 ---
@@ -194,8 +194,11 @@ Blocks:
 - Page Builder V3 (current): `{ version: 3, template:{ id, menu, footer }, layout:{ rows:[ { id, settings:{ columns }, columns:[ { id, blocks:[ { id, type, data }, ... ] } ] } ] } }`
   - Grid is rows → columns → **components**; rich text is just one component type (`type: "editor"`).
   - Row `settings.columns`: supports `1..12`; columns are adjustable via shadcn `Resizable` and stored in `row.settings.sizes` (percentage weights).
+  - Row `settings.maxWidthPct`: optional max width (percent of page container); row is centered when set (< 100).
+  - Row `settings.minHeightPx`: optional minimum height (pixels).
   - Row `settings.wrapper`: optional section wrapper (`none` | `card`) that wraps the row content (useful for “structural” containers without nesting blocks yet).
   - Column `settings.wrapper`: optional wrapper (`none` | `card`) that wraps a single column’s content.
+  - Column `settings.minHeightPx`: optional minimum height (pixels).
   - **Structural shadcn components can nest**: `type:"shadcn"` blocks may include `children: PageBlock[]` and act as container drop zones in the editor.
   - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
   - Drag/drop reorder uses dnd-kit (rows + columns + components), including moving components between columns and nested containers.
@@ -226,7 +229,7 @@ Blocks:
 ### Done
 
 - [x] Feature 00 – Repo setup + baseline
-- [x] Feature 01 – Auth/session + admin gate (login/logout/me + middleware + admin ping)
+- [x] Feature 01 – Auth/session + admin gate (login/logout/me + proxy + admin ping)
 - [x] Admin shell UI (shadcn `sidebar-16`) shared by admin + public edit mode
 - [x] Theme toggle in admin header (system/light/dark)
 - [x] TipTap visual editing on public route (wiring complete; edit gated by session)
@@ -277,9 +280,15 @@ Per feature:
 - [ ] Verify components list CRUD + component picker uses DB entries
 - [ ] Create a sample Block and verify “Insert block” works
 - [ ] Verify template/menu selection shows correct public top nav
-- [ ] Verify middleware/admin layout redirect behavior with expired sessions
+- [ ] Verify proxy/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
+
+---
+
+## 10.1) Developer Onboarding (must-read)
+
+- Onboarding guide (repo structure + how to add APIs/admin CRUD): `docs/DEVELOPER_ONBOARDING.md`
 
 ---
 
