@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 
 import type { Page, PageTemplate, PageTemplateListOut } from '@/lib/types';
@@ -15,10 +15,6 @@ import {
 
 import { PageBuilder, PageRenderer, PageRendererWithSlot } from '@/components/page-builder/page-builder';
 import { PageBuilderOutline } from '@/components/page-builder/page-outline';
-
-import { AppSidebar } from '@/components/app-sidebar';
-import { SiteHeader } from '@/components/site-header';
-import { SidebarInset, SidebarProvider } from '@/components/ui/sidebar';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -40,6 +36,7 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
+import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 
 export function PublicPageClient({
 	initialPage,
@@ -63,6 +60,7 @@ export function PublicPageClient({
 
 	// view/edit
 	const [editMode, setEditMode] = useState<boolean>(isAdmin && defaultEdit);
+	const [outlineOpen, setOutlineOpen] = useState(false);
 
 	// settings modal
 	const [settingsOpen, setSettingsOpen] = useState(false);
@@ -79,6 +77,9 @@ export function PublicPageClient({
 	const [seoTitle, setSeoTitle] = useState(page.seo_title ?? '');
 	const [seoDesc, setSeoDesc] = useState(page.seo_description ?? '');
 	const [status, setStatus] = useState<'draft' | 'published'>(page.status);
+
+	const [editingTitle, setEditingTitle] = useState(false);
+	const titleRef = useRef<HTMLInputElement | null>(null);
 
 	const [builder, setBuilder] = useState<PageBuilderState>(() =>
 		parsePageBuilderState(initialPage.blocks)
@@ -117,6 +118,19 @@ export function PublicPageClient({
 	useEffect(() => {
 		setHydrated(true);
 	}, []);
+
+	useEffect(() => {
+		if (!editMode) {
+			setEditingTitle(false);
+			setOutlineOpen(false);
+		}
+	}, [editMode]);
+
+	useEffect(() => {
+		if (!editingTitle) return;
+		const t = setTimeout(() => titleRef.current?.focus(), 0);
+		return () => clearTimeout(t);
+	}, [editingTitle]);
 
 	useEffect(() => {
 		if (!activeTemplateSlug) {
@@ -361,53 +375,73 @@ export function PublicPageClient({
 	const rendererState = templateState && hasSlot(templateState) ? templateState : fallbackTemplateState;
 
 	const pageSlot = (
-		<div className={editMode && isAdmin ? 'w-full p-6 space-y-6' : 'max-w-5xl mx-auto p-6 space-y-6'}>
-			{/* Admin top bar */}
-			{isAdmin ? (
-				<div className='rounded-xl border p-3 flex items-center justify-between gap-3'>
-					<div className='flex items-center gap-2'>
-						<Badge variant={status === 'published' ? 'default' : 'secondary'}>
-							{status}
-						</Badge>
-						<span className='text-xs text-muted-foreground'>Slug: /{page.slug}</span>
-					</div>
+		<div className='max-w-5xl mx-auto p-6 space-y-6'>
+			{isAdmin && editMode ? (
+				<>
+					<div className='fixed bottom-4 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 rounded-full border bg-background/95 px-3 py-2 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80'>
+						<Badge variant={status === 'published' ? 'default' : 'secondary'}>{status}</Badge>
+						{dirty ? <Badge variant='outline'>Unsaved</Badge> : <Badge variant='secondary'>Saved</Badge>}
+						<span className='hidden md:inline text-xs text-muted-foreground'>/{page.slug}</span>
 
-					<div className='flex items-center gap-2'>
 						<Button
 							variant='outline'
+							size='sm'
+							onClick={() => setOutlineOpen(true)}
+							disabled={saving}>
+							Outline
+						</Button>
+
+						<Button
+							variant='outline'
+							size='sm'
 							onClick={() => setSettingsOpen(true)}
 							disabled={saving}>
 							Settings
 						</Button>
 
-						{editMode ? (
-							<Button
-								variant='outline'
-								onClick={exitEdit}
-								disabled={saving}>
-								Preview
-							</Button>
-						) : (
-							<Button
-								variant='outline'
-								onClick={enterEdit}>
-								Edit
-							</Button>
-						)}
-
 						<Button
 							variant='outline'
+							size='sm'
 							onClick={toggleStatus}
 							disabled={saving}>
 							{status === 'published' ? 'Unpublish' : 'Publish'}
 						</Button>
 
 						<Button
+							size='sm'
 							onClick={() => save()}
 							disabled={saving || !dirty}>
 							{saving ? 'Saving…' : 'Save'}
 						</Button>
+
+						<Button
+							variant='outline'
+							size='sm'
+							onClick={exitEdit}
+							disabled={saving}>
+							Done
+						</Button>
 					</div>
+
+					<Sheet
+						open={outlineOpen}
+						onOpenChange={setOutlineOpen}>
+						<SheetContent side='right' className='w-[360px] sm:max-w-sm'>
+							<SheetHeader>
+								<SheetTitle>Outline</SheetTitle>
+							</SheetHeader>
+							<div className='p-4'>
+								<PageBuilderOutline state={builder} />
+							</div>
+						</SheetContent>
+					</Sheet>
+				</>
+			) : null}
+
+			{isAdmin && !editMode ? (
+				<div className='fixed bottom-4 right-4 z-50 flex items-center gap-2'>
+					<Badge variant={status === 'published' ? 'default' : 'secondary'}>{status}</Badge>
+					<Button onClick={enterEdit}>Edit</Button>
 				</div>
 			) : null}
 
@@ -422,15 +456,33 @@ export function PublicPageClient({
 
 			{/* Title */}
 			{editMode ? (
-				<div className='space-y-2'>
-					<Label>Title</Label>
+				editingTitle ? (
 					<Input
+						ref={titleRef}
 						value={title}
 						onChange={(e) => setTitle(e.target.value)}
+						onBlur={() => setEditingTitle(false)}
+						onKeyDown={(e) => {
+							if (e.key === 'Enter' || e.key === 'Escape') {
+								setEditingTitle(false);
+							}
+						}}
 						placeholder='Page title'
 						disabled={saving}
+						className='text-4xl font-bold tracking-tight h-auto py-3'
 					/>
-				</div>
+				) : (
+					<button
+						type='button'
+						className='w-full text-left'
+						onClick={() => setEditingTitle(true)}
+						disabled={saving}>
+						<h1 className='text-4xl font-bold tracking-tight'>
+							{title.trim() ? title : 'Untitled page'}
+						</h1>
+						<p className='text-xs text-muted-foreground mt-1'>Click to edit title</p>
+					</button>
+				)
 			) : (
 				<h1 className='text-4xl font-bold tracking-tight'>{page.title}</h1>
 			)}
@@ -440,20 +492,11 @@ export function PublicPageClient({
 			{/* Body */}
 			{editMode ? (
 				hydrated ? (
-					<div className='flex flex-col lg:flex-row gap-6'>
-						<div className='flex-1 min-w-0'>
-							<PageBuilder
-								value={builder}
-								onChange={setBuilder}
-								disabled={saving}
-							/>
-						</div>
-						<aside className='lg:w-[320px] shrink-0'>
-							<div className='sticky top-(--header-height) max-h-[calc(100svh-var(--header-height))] overflow-auto rounded-md border bg-background p-4'>
-								<PageBuilderOutline state={builder} />
-							</div>
-						</aside>
-					</div>
+					<PageBuilder
+						value={builder}
+						onChange={setBuilder}
+						disabled={saving}
+					/>
 				) : (
 					<PageRenderer state={viewState} />
 				)
@@ -558,20 +601,6 @@ export function PublicPageClient({
 	);
 
 	const content = <PageRendererWithSlot state={rendererState} slot={pageSlot} />;
-
-	if (editMode && isAdmin) {
-		return (
-			<div className='[--header-height:calc(--spacing(14))]'>
-				<SidebarProvider className='flex flex-col'>
-					<SiteHeader title={`Editing /${page.slug}`} />
-					<div className='flex flex-1'>
-						<AppSidebar />
-						<SidebarInset>{content}</SidebarInset>
-					</div>
-				</SidebarProvider>
-			</div>
-		);
-	}
 
 	return <main>{content}</main>;
 }

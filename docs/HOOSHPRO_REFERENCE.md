@@ -202,7 +202,7 @@ Blocks:
   - **Structural shadcn components can nest**: `type:"shadcn"` blocks may include `children: PageBlock[]` and act as container drop zones in the editor.
   - Public rendering is responsive: mobile stacks to 1 column; desktop uses `sizes` for column width ratios.
   - Drag/drop reorder uses dnd-kit (rows + columns + components), including moving components between columns and nested containers.
-  - Builder UI modes: `Clean UI` (dashed row/column frames; controls/settings on hover) vs `Detailed UI` (controls always visible); Outline lives in a separate right sidebar in edit mode (keeps the canvas clean).
+  - Builder UI modes: `Clean UI` (dashed row/column frames; controls/settings on hover) vs `Detailed UI` (controls always visible); in public edit mode (`?edit=1`) admins edit **directly on the page** (PageBuilder renders the real components) with a small floating toolbar and an optional Outline drawer.
   - Builder is client-mounted (renders a placeholder until mounted) to avoid SSR hydration mismatches with dnd-kit/Radix.
   - Component types (current): `editor`, `image`, `button`, `card`, `separator`, `shadcn` (`data.component` + optional `data.props`; shadcn variants are loaded from docs via `GET /shadcn/variants` and surfaced in editor settings), plus template blocks `slot` (page content placeholder) and `menu` (`data.menu` + `data.kind: top|footer`).
     - `menu` blocks can optionally embed items: `data.items: [{ id, label, href }]` (preferred; public rendering uses embedded items without fetching).
