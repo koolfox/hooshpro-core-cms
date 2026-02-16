@@ -34,7 +34,15 @@ class TemplateCreate(BaseModel):
     menu: str = Field(default="main", min_length=1, max_length=60)
     footer: str = Field(default="none", min_length=1, max_length=60)
     definition: dict[str, Any] = Field(
-        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+        default_factory=lambda: {
+            "version": 4,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        }
     )
 
     def normalized(self) -> "TemplateCreate":
@@ -70,7 +78,15 @@ class TemplateOut(BaseModel):
     menu: str
     footer: str
     definition: dict[str, Any] = Field(
-        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+        default_factory=lambda: {
+            "version": 4,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        }
     )
     created_at: datetime
     updated_at: datetime

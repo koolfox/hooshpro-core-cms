@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session as OrmSession
 
-from app.db import get_db
+from app.db_session import get_db
 from app.models import User, UserSession
 from app.security import hash_session_token
 from app.config import settings
@@ -48,3 +48,4 @@ def get_current_user(
         return user
 
     raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid session")
+

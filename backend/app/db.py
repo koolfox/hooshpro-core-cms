@@ -1,16 +1,14 @@
 from __future__ import annotations
 
+import os
+import sys
 from pathlib import Path
-from typing import Generator
-import json
-from datetime import datetime, timezone
-from alembic import command
-from alembic.config import Config
-from sqlalchemy import create_engine, inspect
-from sqlalchemy.orm import sessionmaker, Session as OrmSession
 
-from app.models import Component, Menu, MenuItem, Page, PageTemplate
+from sqlalchemy import create_engine, inspect
+from sqlalchemy.orm import sessionmaker
+
 from app.core.config import DB_FILE
+from app.seed.bootstrap import seed_defaults as run_seed_defaults
 
 SQLALCHEMY_DATABASE_URL = f"sqlite:///{DB_FILE}"
 ALEMBIC_BASELINE_REVISION = "79769d50d480"
@@ -22,15 +20,50 @@ engine = create_engine(
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
-def _alembic_config() -> Config:
+
+def _path_points_to_backend_root(path_entry: str, backend_root: Path) -> bool:
+    candidate = path_entry or os.getcwd()
+    try:
+        return Path(candidate).resolve() == backend_root
+    except Exception:
+        return False
+
+
+def _require_alembic() -> tuple[object, type, type]:
+    try:
+        backend_root = Path(__file__).resolve().parent.parent
+        original_sys_path = list(sys.path)
+        try:
+            sys.path = [
+                entry for entry in sys.path if not _path_points_to_backend_root(entry, backend_root)
+            ]
+            from alembic import command as alembic_command  # type: ignore
+            from alembic.config import Config as AlembicConfig  # type: ignore
+            from alembic.script import ScriptDirectory  # type: ignore
+        finally:
+            sys.path = original_sys_path
+    except Exception as exc:  # pragma: no cover
+        raise RuntimeError(
+            "Alembic is required to run migrations.\n"
+            "If you see this while running `uvicorn`, you're likely not using the backend venv.\n"
+            "Fix: `cd backend; .\\.venv\\Scripts\\activate; python -m uvicorn app.main:app --reload`\n"
+            "Or install deps: `pip install -r backend/requirements.txt`."
+        ) from exc
+
+    return alembic_command, AlembicConfig, ScriptDirectory
+
+
+def _alembic_config() -> object:
+    _, AlembicConfig, _ = _require_alembic()
     backend_root = Path(__file__).resolve().parent.parent
-    cfg = Config(str(backend_root / "alembic.ini"))
+    cfg = AlembicConfig(str(backend_root / "alembic.ini"))
     cfg.set_main_option("sqlalchemy.url", SQLALCHEMY_DATABASE_URL)
     cfg.set_main_option("script_location", str(backend_root / "alembic"))
     return cfg
 
 
 def run_migrations() -> None:
+    command, _, ScriptDirectory = _require_alembic()
     cfg = _alembic_config()
 
     with engine.connect() as connection:
@@ -47,16 +80,20 @@ def run_migrations() -> None:
         "media_folders",
         "menus",
         "menu_items",
+        "content_types",
+        "content_fields",
+        "content_entries",
+        "options",
+        "themes",
+        "taxonomies",
+        "terms",
+        "term_relationships",
     }
     baseline_tables = {"users", "sessions", "pages"}
 
     if "alembic_version" not in tables and tables.intersection(known_tables):
-        # If the DB was created before migrations were wired (e.g. via `create_all`),
-        # stamp to an appropriate revision so we don't try to recreate existing tables.
         has_non_baseline = bool(tables.intersection(known_tables - baseline_tables))
         if has_non_baseline:
-            from alembic.script import ScriptDirectory
-
             head = ScriptDirectory.from_config(cfg).get_current_head()
             if not head:
                 raise RuntimeError("Alembic head revision not found")
@@ -67,363 +104,10 @@ def run_migrations() -> None:
     command.upgrade(cfg, "head")
 
 
-def seed_defaults() -> None:
-    with engine.connect() as connection:
-        tables = set(inspect(connection).get_table_names())
-
-    db = SessionLocal()
-    try:
-        def template_definition(menu: str, footer: str) -> dict:
-            rows: list[dict] = []
-
-            if menu.strip() and menu.strip().lower() != "none":
-                rows.append(
-                    {
-                        "id": "row_header",
-                        "settings": {"columns": 1, "sizes": [100]},
-                        "columns": [
-                            {
-                                "id": "col_header",
-                                "blocks": [
-                                    {
-                                        "id": "blk_menu_top",
-                                        "type": "menu",
-                                        "data": {"menu": menu.strip(), "kind": "top"},
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                )
-
-            rows.append(
-                {
-                    "id": "row_content",
-                    "settings": {"columns": 1, "sizes": [100]},
-                    "columns": [
-                        {
-                            "id": "col_content",
-                            "blocks": [
-                                {
-                                    "id": "blk_slot",
-                                    "type": "slot",
-                                    "data": {"name": "Page content"},
-                                }
-                            ],
-                        }
-                    ],
-                }
-            )
-
-            if footer.strip() and footer.strip().lower() != "none":
-                rows.append(
-                    {
-                        "id": "row_footer",
-                        "settings": {"columns": 1, "sizes": [100]},
-                        "columns": [
-                            {
-                                "id": "col_footer",
-                                "blocks": [
-                                    {
-                                        "id": "blk_menu_footer",
-                                        "type": "menu",
-                                        "data": {"menu": footer.strip(), "kind": "footer"},
-                                    }
-                                ],
-                            }
-                        ],
-                    }
-                )
-
-            return {"version": 3, "layout": {"rows": rows}}
-
-        home_page: Page | None = None
-        if "pages" in tables:
-            home_page = db.query(Page).filter(Page.slug == "home").first()
-
-            has_pages = db.query(Page.id).limit(1).first() is not None
-            if not has_pages:
-                blocks = {
-                    "version": 1,
-                    "blocks": [
-                        {"type": "hero", "data": {"headline": "Home", "subheadline": ""}},
-                        {
-                            "type": "paragraph",
-                            "data": {
-                                "text": "Welcome to HooshPro. Edit this page at /?edit=1.",
-                            },
-                        },
-                    ],
-                }
-                home_page = Page(
-                    title="Home",
-                    slug="home",
-                    status="published",
-                    blocks_json=json.dumps(blocks, ensure_ascii=False),
-                    published_at=datetime.now(timezone.utc),
-                )
-                db.add(home_page)
-                db.flush()
-
-        if "menus" in tables:
-            main = db.query(Menu).filter(Menu.slug == "main").first()
-            if not main:
-                main = Menu(
-                    slug="main",
-                    title="Main",
-                    description="Primary site navigation.",
-                )
-                db.add(main)
-                db.flush()
-
-            if "menu_items" in tables:
-                has_home_link = (
-                    db.query(MenuItem.id)
-                    .filter(MenuItem.menu_id == main.id, MenuItem.type == "link", MenuItem.href == "/")
-                    .first()
-                    is not None
-                )
-                has_home_page = (
-                    db.query(MenuItem.id)
-                    .join(Page, MenuItem.page_id == Page.id)
-                    .filter(MenuItem.menu_id == main.id, MenuItem.type == "page", Page.slug == "home")
-                    .first()
-                    is not None
-                )
-                has_home = has_home_link or has_home_page
-                if not has_home:
-                    if home_page is not None:
-                        db.add(
-                            MenuItem(
-                                menu_id=main.id,
-                                type="page",
-                                label="Home",
-                                page_id=home_page.id,
-                                order_index=0,
-                            )
-                        )
-                    else:
-                        db.add(
-                            MenuItem(
-                                menu_id=main.id,
-                                type="link",
-                                label="Home",
-                                href="/",
-                                order_index=0,
-                            )
-                        )
-
-        if "page_templates" in tables:
-            template_defaults = [
-                {
-                    "slug": "default",
-                    "title": "Default",
-                    "description": "Default site layout.",
-                    "menu": "main",
-                    "footer": "none",
-                },
-                {
-                    "slug": "blank",
-                    "title": "Blank",
-                    "description": "No header (menu: none).",
-                    "menu": "none",
-                    "footer": "none",
-                },
-            ]
-            for d in template_defaults:
-                exists = db.query(PageTemplate).filter(PageTemplate.slug == d["slug"]).first()
-                if exists:
-                    continue
-                db.add(
-                    PageTemplate(
-                        slug=d["slug"],
-                        title=d["title"],
-                        description=d["description"],
-                        menu=d["menu"],
-                        footer=d["footer"],
-                        definition_json=json.dumps(
-                            template_definition(d["menu"], d["footer"]),
-                            ensure_ascii=False,
-                        ),
-                    )
-                )
-
-            # Backfill template definitions for older DBs / existing rows.
-            for t in db.query(PageTemplate).all():
-                try:
-                    parsed = json.loads(t.definition_json or "")
-                except Exception:
-                    parsed = None
-
-                rows = (
-                    parsed.get("layout", {}).get("rows")
-                    if isinstance(parsed, dict)
-                    else None
-                )
-                if isinstance(rows, list) and len(rows) > 0:
-                    continue
-
-                t.definition_json = json.dumps(
-                    template_definition(t.menu, t.footer),
-                    ensure_ascii=False,
-                )
-
-        if "components" in tables:
-            defaults = [
-                {
-                    "slug": "editor",
-                    "title": "Text",
-                    "type": "editor",
-                    "description": "Rich text editor component.",
-                    "data": {},
-                },
-                {
-                    "slug": "slot",
-                    "title": "Page Slot",
-                    "type": "slot",
-                    "description": "Template placeholder where the page content renders.",
-                    "data": {"name": "Page content"},
-                },
-                {
-                    "slug": "menu-top",
-                    "title": "Menu (Top)",
-                    "type": "menu",
-                    "description": "Top navigation menu (by slug).",
-                    "data": {"menu": "main", "kind": "top"},
-                },
-                {
-                    "slug": "menu-footer",
-                    "title": "Menu (Footer)",
-                    "type": "menu",
-                    "description": "Footer navigation menu (by slug).",
-                    "data": {"menu": "main", "kind": "footer"},
-                },
-                {
-                    "slug": "button",
-                    "title": "Button",
-                    "type": "button",
-                    "description": "CTA button component.",
-                    "data": {"label": "Button", "href": "", "variant": "default"},
-                },
-                {
-                    "slug": "card",
-                    "title": "Card",
-                    "type": "card",
-                    "description": "Card container with title/body.",
-                    "data": {"title": "Card", "body": ""},
-                },
-                {
-                    "slug": "separator",
-                    "title": "Divider",
-                    "type": "separator",
-                    "description": "Horizontal divider component.",
-                    "data": {},
-                },
-                {
-                    "slug": "image",
-                    "title": "Image",
-                    "type": "image",
-                    "description": "Image component (URL or media picker).",
-                    "data": {"url": "", "alt": ""},
-                },
-            ]
-
-            shadcn = [
-                "accordion",
-                "alert-dialog",
-                "alert",
-                "aspect-ratio",
-                "avatar",
-                "badge",
-                "breadcrumb",
-                "button-group",
-                "calendar",
-                "carousel",
-                "chart",
-                "checkbox",
-                "collapsible",
-                "combobox",
-                "command",
-                "context-menu",
-                "data-table",
-                "date-picker",
-                "dialog",
-                "drawer",
-                "dropdown-menu",
-                "empty",
-                "field",
-                "form",
-                "hover-card",
-                "input-group",
-                "input-otp",
-                "input",
-                "item",
-                "kbd",
-                "label",
-                "menubar",
-                "native-select",
-                "navigation-menu",
-                "pagination",
-                "popover",
-                "progress",
-                "radio-group",
-                "resizable",
-                "scroll-area",
-                "select",
-                "sheet",
-                "sidebar",
-                "skeleton",
-                "slider",
-                "sonner",
-                "spinner",
-                "switch",
-                "table",
-                "tabs",
-                "textarea",
-                "toast",
-                "toggle-group",
-                "toggle",
-                "tooltip",
-                "typography",
-            ]
-            for cid in shadcn:
-                defaults.append(
-                    {
-                        "slug": f"shadcn-{cid}",
-                        "title": f"shadcn/{cid}",
-                        "type": "shadcn",
-                        "description": "shadcn/ui component (placeholder).",
-                        "data": {"component": cid},
-                    }
-                )
-
-            for d in defaults:
-                exists = db.query(Component).filter(Component.slug == d["slug"]).first()
-                if exists:
-                    continue
-                db.add(
-                    Component(
-                        slug=d["slug"],
-                        title=d["title"],
-                        type=d["type"],
-                        description=d["description"],
-                        data_json=json.dumps(d["data"]),
-                    )
-                )
-
-        db.commit()
-    finally:
-        db.close()
-
-
 def init_db() -> None:
     run_migrations()
-    seed_defaults()
+    run_seed_defaults(engine, SessionLocal)
 
 
-def get_db() -> Generator[OrmSession, None, None]:
-    db = SessionLocal()
-    try:
-        yield db
-    finally:
-        db.close()
+# NOTE: get_db moved to app.db_session to keep router deps separate from bootstrap logic.
+

@@ -21,7 +21,15 @@ class BlockCreate(BaseModel):
     slug: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
     definition: dict[str, Any] = Field(
-        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+        default_factory=lambda: {
+            "version": 4,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        }
     )
 
     def normalized(self) -> "BlockCreate":
@@ -47,7 +55,15 @@ class BlockOut(BaseModel):
     title: str
     description: Optional[str] = None
     definition: dict[str, Any] = Field(
-        default_factory=lambda: {"version": 3, "layout": {"rows": []}}
+        default_factory=lambda: {
+            "version": 4,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        }
     )
     created_at: datetime
     updated_at: datetime
@@ -58,4 +74,3 @@ class BlockListOut(BaseModel):
     total: int
     limit: int
     offset: int
-

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy import func
 
-from app.db import get_db
+from app.db_session import get_db
 from app.deps import get_current_user
 from app.models import Component, User
 from app.schemas.component import (
@@ -52,6 +52,8 @@ def admin_list_components(
     offset: int = 0,
     q: str | None = None,
     type: str | None = None,
+    sort: str | None = None,
+    dir: str | None = None,
 ):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -68,8 +70,26 @@ def admin_list_components(
         )
 
     total = base.with_entities(func.count(Component.id)).scalar() or 0
+
+    allowed_sorts = {
+        "updated_at": Component.updated_at,
+        "created_at": Component.created_at,
+        "title": func.lower(Component.title),
+        "slug": func.lower(Component.slug),
+        "type": func.lower(Component.type),
+        "id": Component.id,
+    }
+
+    sort_key = (sort or "updated_at").strip().lower()
+    sort_dir = (dir or "desc").strip().lower()
+    sort_col = allowed_sorts.get(sort_key) or allowed_sorts["updated_at"]
+    ascending = sort_dir == "asc"
+
+    order = sort_col.asc() if ascending else sort_col.desc()
+    tiebreaker = Component.id.asc() if ascending else Component.id.desc()
+
     items = (
-        base.order_by(Component.updated_at.desc())
+        base.order_by(order, tiebreaker)
         .limit(limit)
         .offset(offset)
         .all()

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from sqlalchemy import String, Integer, DateTime, ForeignKey, Text
+from sqlalchemy import Boolean, String, Integer, DateTime, ForeignKey, Text, UniqueConstraint
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -227,3 +227,176 @@ class BlockTemplate(Base):
         default=utcnow,
         onupdate=utcnow,
     )
+
+
+class ContentType(Base):
+    __tablename__ = "content_types"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    fields: Mapped[list["ContentField"]] = relationship(
+        back_populates="content_type",
+        cascade="all, delete-orphan",
+        order_by="ContentField.order_index",
+    )
+    entries: Mapped[list["ContentEntry"]] = relationship(
+        back_populates="content_type",
+        cascade="all, delete-orphan",
+        order_by="ContentEntry.updated_at.desc()",
+    )
+
+
+class ContentField(Base):
+    __tablename__ = "content_fields"
+
+    __table_args__ = (
+        UniqueConstraint("content_type_id", "slug", name="uq_content_fields_type_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    content_type_id: Mapped[int] = mapped_column(ForeignKey("content_types.id"), index=True)
+
+    slug: Mapped[str] = mapped_column(String(200), nullable=False)
+    label: Mapped[str] = mapped_column(String(200), nullable=False)
+    field_type: Mapped[str] = mapped_column(String(60), nullable=False)
+
+    required: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    options_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    content_type: Mapped["ContentType"] = relationship(back_populates="fields")
+
+
+class ContentEntry(Base):
+    __tablename__ = "content_entries"
+
+    __table_args__ = (
+        UniqueConstraint("content_type_id", "slug", name="uq_content_entries_type_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    content_type_id: Mapped[int] = mapped_column(ForeignKey("content_types.id"), index=True)
+
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    slug: Mapped[str] = mapped_column(String(200), nullable=False, index=True)
+    status: Mapped[str] = mapped_column(String(20), index=True, default="draft")
+
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+
+    data_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    published_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    content_type: Mapped["ContentType"] = relationship(back_populates="entries")
+
+
+class Option(Base):
+    __tablename__ = "options"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    value_json: Mapped[str] = mapped_column(Text, nullable=False, default="null")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class Theme(Base):
+    __tablename__ = "themes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    vars_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class Taxonomy(Base):
+    __tablename__ = "taxonomies"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    hierarchical: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class Term(Base):
+    __tablename__ = "terms"
+
+    __table_args__ = (
+        UniqueConstraint("taxonomy_id", "slug", name="uq_terms_taxonomy_slug"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    taxonomy_id: Mapped[int] = mapped_column(ForeignKey("taxonomies.id"), index=True)
+    parent_id: Mapped[int | None] = mapped_column(ForeignKey("terms.id"), nullable=True, index=True)
+
+    slug: Mapped[str] = mapped_column(String(200), nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+
+class TermRelationship(Base):
+    __tablename__ = "term_relationships"
+
+    __table_args__ = (
+        UniqueConstraint("term_id", "content_entry_id", name="uq_term_relationships_term_entry"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    term_id: Mapped[int] = mapped_column(ForeignKey("terms.id"), index=True)
+    content_entry_id: Mapped[int] = mapped_column(ForeignKey("content_entries.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)

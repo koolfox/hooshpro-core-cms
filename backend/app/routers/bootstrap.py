@@ -1,9 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.orm import Session as OrmSession
 
 from app.config import settings
-from app.db import get_db
+from app.db_session import get_db
 from app.models import User
 from app.security import hash_password
 
@@ -48,3 +48,4 @@ def bootstrap_create_admin(
     db.refresh(u)
 
     return {"ok": True, "admin": {"id": u.id, "email": u.email}}
+

@@ -6,7 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy import func
 
-from app.db import get_db
+from app.db_session import get_db
 from app.deps import get_current_user
 from app.models import BlockTemplate, User
 from app.schemas.block import (
@@ -31,7 +31,18 @@ def _safe_load_json(text: str | None, fallback: dict) -> dict:
 
 
 def _to_out(b: BlockTemplate) -> BlockOut:
-    definition = _safe_load_json(b.definition_json, {"version": 3, "layout": {"rows": []}})
+    definition = _safe_load_json(
+        b.definition_json,
+        {
+            "version": 4,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        },
+    )
     return BlockOut(
         id=b.id,
         slug=b.slug,
@@ -50,6 +61,8 @@ def admin_list_blocks(
     limit: int = 50,
     offset: int = 0,
     q: str | None = None,
+    sort: str | None = None,
+    dir: str | None = None,
 ):
     limit = max(1, min(limit, 200))
     offset = max(0, offset)
@@ -63,8 +76,25 @@ def admin_list_blocks(
         )
 
     total = base.with_entities(func.count(BlockTemplate.id)).scalar() or 0
+
+    allowed_sorts = {
+        "updated_at": BlockTemplate.updated_at,
+        "created_at": BlockTemplate.created_at,
+        "title": func.lower(BlockTemplate.title),
+        "slug": func.lower(BlockTemplate.slug),
+        "id": BlockTemplate.id,
+    }
+
+    sort_key = (sort or "updated_at").strip().lower()
+    sort_dir = (dir or "desc").strip().lower()
+    sort_col = allowed_sorts.get(sort_key) or allowed_sorts["updated_at"]
+    ascending = sort_dir == "asc"
+
+    order = sort_col.asc() if ascending else sort_col.desc()
+    tiebreaker = BlockTemplate.id.asc() if ascending else BlockTemplate.id.desc()
+
     items = (
-        base.order_by(BlockTemplate.updated_at.desc())
+        base.order_by(order, tiebreaker)
         .limit(limit)
         .offset(offset)
         .all()
@@ -91,7 +121,18 @@ def admin_create_block(
         slug=slug,
         title=payload.title.strip(),
         description=payload.description.strip() if payload.description else None,
-        definition_json=json.dumps(payload.definition or {"version": 3, "layout": {"rows": []}}),
+        definition_json=json.dumps(
+            payload.definition
+            or {
+                "version": 4,
+                "canvas": {
+                    "snapPx": 1,
+                    "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                    "minHeightPx": 800,
+                },
+                "layout": {"nodes": []},
+            }
+        ),
     )
 
     db.add(b)
