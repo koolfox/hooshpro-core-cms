@@ -8,6 +8,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from app.core.page_builder_validation import validate_page_builder_document
 from app.models import Page
 from app.schemas.page import PageCreate, PageUpdate, PageOut, PageListOut, validate_slug
 
@@ -208,7 +209,7 @@ def create_page(db: OrmSession, payload: PageCreate) -> PageOut:
     if not payload.blocks:
         blocks = _build_blocks_legacy(payload.title, payload.body or "")
     else:
-        blocks = payload.blocks
+        blocks = validate_page_builder_document(payload.blocks, context="page.blocks")
 
     p = Page(
         title=payload.title,
@@ -249,7 +250,8 @@ def update_page(db: OrmSession, page_id: int, payload: PageUpdate) -> PageOut:
     if payload.seo_description is not None:
         p.seo_description = payload.seo_description
     if payload.blocks is not None:
-        p.blocks_json = json.dumps(payload.blocks, ensure_ascii=False)
+        validated = validate_page_builder_document(payload.blocks, context="page.blocks")
+        p.blocks_json = json.dumps(validated, ensure_ascii=False)
     elif payload.body is not None:
         p.blocks_json = json.dumps(_build_blocks_legacy(p.title, payload.body), ensure_ascii=False)
 
@@ -284,3 +286,29 @@ def get_public_page_by_slug(db: OrmSession, slug: str) -> PageOut | None:
         .first()
     )
     return _to_out(p) if p else None
+
+
+def list_public_pages(
+    db: OrmSession,
+    limit: int,
+    offset: int,
+) -> PageListOut:
+    limit = max(1, min(limit, 200))
+    offset = max(0, offset)
+
+    base = db.query(Page).filter(Page.status == "published")
+    total = base.with_entities(func.count(Page.id)).scalar() or 0
+
+    items = (
+        base.order_by(Page.updated_at.desc(), Page.id.desc())
+        .limit(limit)
+        .offset(offset)
+        .all()
+    )
+
+    return PageListOut(
+        items=[_to_out(p) for p in items],
+        total=total,
+        limit=limit,
+        offset=offset,
+    )

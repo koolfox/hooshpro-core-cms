@@ -6,6 +6,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 from sqlalchemy import func
 
+from app.core.page_builder_validation import validate_page_builder_document
 from app.db_session import get_db
 from app.deps import get_current_user
 from app.models import BlockTemplate, User
@@ -117,22 +118,22 @@ def admin_create_block(
     payload.normalized()
     slug = validate_block_slug(payload.slug)
 
+    definition = payload.definition or {
+        "version": 4,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+    validated = validate_page_builder_document(definition, context="block.definition")
+
     b = BlockTemplate(
         slug=slug,
         title=payload.title.strip(),
         description=payload.description.strip() if payload.description else None,
-        definition_json=json.dumps(
-            payload.definition
-            or {
-                "version": 4,
-                "canvas": {
-                    "snapPx": 1,
-                    "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-                    "minHeightPx": 800,
-                },
-                "layout": {"nodes": []},
-            }
-        ),
+        definition_json=json.dumps(validated, ensure_ascii=False),
     )
 
     db.add(b)
@@ -178,7 +179,8 @@ def admin_update_block(
     if payload.description is not None:
         b.description = payload.description.strip() if payload.description else None
     if payload.definition is not None:
-        b.definition_json = json.dumps(payload.definition)
+        validated = validate_page_builder_document(payload.definition, context="block.definition")
+        b.definition_json = json.dumps(validated, ensure_ascii=False)
 
     try:
         db.commit()

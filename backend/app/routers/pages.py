@@ -89,6 +89,15 @@ def admin_delete_page(
     return {"ok": True}
 
 
+@router.get("/api/public/pages", response_model=PageListOut)
+def public_list_pages(
+    db: OrmSession = Depends(get_db),
+    limit: int = 100,
+    offset: int = 0,
+):
+    return pages_service.list_public_pages(db, limit, offset)
+
+
 @router.get("/api/public/pages/{slug}", response_model=PageOut)
 def public_get_page(slug: str, db: OrmSession = Depends(get_db)):
     p = pages_service.get_public_page_by_slug(db, slug)

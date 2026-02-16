@@ -6,6 +6,7 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
+from app.core.page_builder_validation import validate_page_builder_document
 from app.models import PageTemplate
 from app.schemas.template import (
     TemplateCreate,
@@ -168,10 +169,20 @@ def list_templates(
 def create_template(db: OrmSession, payload: TemplateCreate) -> TemplateOut:
     slug = validate_template_slug(payload.slug)
 
-    definition = payload.definition or {"version": 4, "layout": {"nodes": []}}
+    definition = payload.definition or {
+        "version": 4,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+    definition = validate_page_builder_document(definition, context="template.definition")
     nodes = definition.get("layout", {}).get("nodes") if isinstance(definition, dict) else None
     if not isinstance(nodes, list) or len(nodes) == 0:
         definition = _default_template_definition(payload.menu, payload.footer)
+    definition = validate_page_builder_document(definition, context="template.definition")
 
     t = PageTemplate(
         slug=slug,
@@ -214,7 +225,8 @@ def update_template(db: OrmSession, template_id: int, payload: TemplateUpdate) -
     if payload.footer is not None:
         t.footer = payload.footer.strip()
     if payload.definition is not None:
-        t.definition_json = json.dumps(payload.definition)
+        validated = validate_page_builder_document(payload.definition, context="template.definition")
+        t.definition_json = json.dumps(validated, ensure_ascii=False)
 
     try:
         db.commit()
