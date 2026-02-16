@@ -26,6 +26,10 @@ import {
 } from '@/components/ui/select';
 
 const LIMIT = 30;
+type SortDir = 'asc' | 'desc';
+type MediaSort = 'created_at' | 'name' | 'size_bytes' | 'content_type';
+const DEFAULT_SORT: MediaSort = 'created_at';
+const DEFAULT_DIR: SortDir = 'desc';
 
 type Props = {
 	open: boolean;
@@ -38,6 +42,10 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 	const [qInput, setQInput] = useState('');
 	const [q, setQ] = useState('');
 	const [folderFilter, setFolderFilter] = useState<number | null>(0);
+	const [sortInput, setSortInput] = useState<MediaSort>(DEFAULT_SORT);
+	const [dirInput, setDirInput] = useState<SortDir>(DEFAULT_DIR);
+	const [sort, setSort] = useState<MediaSort>(DEFAULT_SORT);
+	const [dir, setDir] = useState<SortDir>(DEFAULT_DIR);
 
 	const { data: foldersData, loading: foldersLoading, error: foldersError } =
 		useApiList<MediaFolderListOut>('/api/admin/media/folders', {
@@ -53,8 +61,12 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 		params.set('offset', String(offset));
 		if (folderFilter !== null) params.set('folder_id', String(folderFilter));
 		if (q.trim()) params.set('q', q.trim());
+		if (sort !== DEFAULT_SORT || dir !== DEFAULT_DIR) {
+			params.set('sort', sort);
+			params.set('dir', dir);
+		}
 		return `/api/admin/media?${params.toString()}`;
-	}, [offset, q, folderFilter]);
+	}, [offset, q, folderFilter, sort, dir]);
 
 	const { data, loading, error } = useApiList<MediaListOut>(listUrl, {
 		nextPath: '/admin/media',
@@ -70,6 +82,8 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 	function apply() {
 		setOffset(0);
 		setQ(qInput.trim());
+		setSort(sortInput);
+		setDir(dirInput);
 	}
 
 	function reset() {
@@ -77,6 +91,10 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 		setQInput('');
 		setQ('');
 		setFolderFilter(0);
+		setSortInput(DEFAULT_SORT);
+		setDirInput(DEFAULT_DIR);
+		setSort(DEFAULT_SORT);
+		setDir(DEFAULT_DIR);
 	}
 
 	return (
@@ -89,6 +107,10 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 					setQInput('');
 					setQ('');
 					setFolderFilter(0);
+					setSortInput(DEFAULT_SORT);
+					setDirInput(DEFAULT_DIR);
+					setSort(DEFAULT_SORT);
+					setDir(DEFAULT_DIR);
 				}
 			}}>
 			<DialogContent className='sm:max-w-3xl'>
@@ -101,7 +123,7 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 
 				<div className='space-y-3'>
 					<div className='grid grid-cols-1 sm:grid-cols-12 gap-3 items-end'>
-						<div className='sm:col-span-4 space-y-2'>
+						<div className='sm:col-span-3 space-y-2'>
 							<Label>Folder</Label>
 							<Select
 								value={folderFilter === null ? 'all' : String(folderFilter)}
@@ -127,7 +149,7 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 							</Select>
 						</div>
 
-						<div className='sm:col-span-5 space-y-2'>
+						<div className='sm:col-span-4 space-y-2'>
 							<Label>Search</Label>
 							<Input
 								value={qInput}
@@ -140,7 +162,41 @@ export function MediaPickerDialog({ open, onOpenChange, onPick }: Props) {
 							/>
 						</div>
 
-						<div className='sm:col-span-3 flex gap-2 justify-end'>
+						<div className='sm:col-span-3 space-y-2'>
+							<Label>Sort</Label>
+							<Select
+								value={sortInput}
+								onValueChange={(v) => setSortInput(v as MediaSort)}
+								disabled={loading}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='created_at'>Created</SelectItem>
+									<SelectItem value='name'>Name</SelectItem>
+									<SelectItem value='size_bytes'>Size</SelectItem>
+									<SelectItem value='content_type'>Type</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className='sm:col-span-2 space-y-2'>
+							<Label>Order</Label>
+							<Select
+								value={dirInput}
+								onValueChange={(v) => setDirInput(v as SortDir)}
+								disabled={loading}>
+								<SelectTrigger>
+									<SelectValue />
+								</SelectTrigger>
+								<SelectContent>
+									<SelectItem value='desc'>desc</SelectItem>
+									<SelectItem value='asc'>asc</SelectItem>
+								</SelectContent>
+							</Select>
+						</div>
+
+						<div className='sm:col-span-12 flex gap-2 justify-end'>
 							<Button
 								variant='outline'
 								onClick={reset}

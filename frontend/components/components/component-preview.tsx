@@ -1,9 +1,11 @@
 'use client';
 
 import Image from 'next/image';
+import { Theme } from '@radix-ui/themes';
 
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import { isRecord } from '@/lib/page-builder';
+import { cn } from '@/lib/utils';
 
 import {
 	Breadcrumb,
@@ -313,6 +315,80 @@ export function ComponentPreview({
 		);
 	}
 
+	if (type === 'frame') {
+		const d = isRecord(data) ? data : {};
+		const label =
+			typeof d['label'] === 'string' && d['label'].trim() ? d['label'].trim() : component.title ?? 'Frame';
+
+		const layoutRaw = typeof d['layout'] === 'string' ? d['layout'].trim().toLowerCase() : '';
+		const layout =
+			layoutRaw === 'box' ||
+			layoutRaw === 'flex' ||
+			layoutRaw === 'grid' ||
+			layoutRaw === 'container' ||
+			layoutRaw === 'section'
+				? layoutRaw
+				: undefined;
+
+		const props = isRecord(d['props']) ? (d['props'] as Record<string, unknown>) : {};
+		const sizeRaw = typeof props['size'] === 'string' ? props['size'].trim() : '';
+
+		const containerMaxW =
+			layout === 'container'
+				? sizeRaw === '1'
+					? 448
+					: sizeRaw === '2'
+						? 688
+						: sizeRaw === '3'
+							? 880
+							: 1136
+				: null;
+
+		const sectionPadY =
+			layout === 'section'
+				? sizeRaw === '1'
+					? 24
+					: sizeRaw === '2'
+						? 40
+						: sizeRaw === '3'
+							? 64
+							: 80
+				: null;
+
+		return (
+			<Theme
+				asChild
+				hasBackground={false}>
+				<div className={className}>
+					<div className='relative h-24 w-full rounded-lg border border-dashed bg-muted/10'>
+						{layout === 'container' && containerMaxW ? (
+							<div className='pointer-events-none absolute inset-0'>
+								<div
+									className='absolute inset-y-2 left-1/2 w-full -translate-x-1/2 rounded-md border border-dashed border-muted-foreground/30'
+									style={{ maxWidth: containerMaxW }}
+								/>
+							</div>
+						) : null}
+
+						{layout === 'section' && sectionPadY ? (
+							<div className='pointer-events-none absolute inset-0'>
+								<div className='absolute left-0 right-0 top-0 h-px bg-muted-foreground/20' />
+								<div className='absolute left-0 right-0 h-px bg-muted-foreground/20' style={{ top: sectionPadY }} />
+								<div className='absolute left-0 right-0 h-px bg-muted-foreground/20' style={{ bottom: sectionPadY }} />
+								<div className='absolute left-0 right-0 bottom-0 h-px bg-muted-foreground/20' />
+							</div>
+						) : null}
+
+						<div className='absolute inset-0 flex items-center justify-center px-3 text-center text-xs text-muted-foreground'>
+							{label}
+							{layout ? ` (${layout})` : ''}
+						</div>
+					</div>
+				</div>
+			</Theme>
+		);
+	}
+
 	if (type === 'button') {
 		const d = isRecord(data) ? data : {};
 		const label = typeof d['label'] === 'string' ? d['label'] : 'Button';
@@ -392,11 +468,50 @@ export function ComponentPreview({
 		);
 	}
 
-	if (type === 'shadcn') {
+	if (type === 'collection-list') {
 		const d = isRecord(data) ? data : {};
+		const typeSlug = typeof d['type_slug'] === 'string' ? d['type_slug'].trim() : '';
+		const columnsRaw = typeof d['columns'] === 'number' ? d['columns'] : 3;
+		const columns = Math.max(1, Math.min(4, Math.round(columnsRaw || 1)));
+		const limitRaw = typeof d['limit'] === 'number' ? d['limit'] : 6;
+		const limit = Math.max(1, Math.min(12, Math.round(limitRaw || 1)));
+
+		return (
+			<div className={className}>
+				<div className='rounded-lg border bg-muted/10 p-3 space-y-3'>
+					<div className='text-xs text-muted-foreground'>
+						Collection list {typeSlug ? <><span className='mx-1'>·</span><code>{typeSlug}</code></> : null}
+					</div>
+					<div
+						className={cn(
+							'grid gap-3',
+							columns === 1 ? 'grid-cols-1' : columns === 2 ? 'grid-cols-2' : columns === 3 ? 'grid-cols-3' : 'grid-cols-4'
+						)}>
+						{Array.from({ length: Math.min(limit, columns * 2) }, (_, i) => (
+							<Card key={i}>
+								<CardHeader className='py-3'>
+									<CardTitle className='text-sm'>Item {i + 1}</CardTitle>
+								</CardHeader>
+								<CardContent className='pb-3'>
+									<p className='text-xs text-muted-foreground'>Preview</p>
+								</CardContent>
+							</Card>
+						))}
+					</div>
+				</div>
+			</div>
+		);
+	}
+
+	if (type === 'shadcn') {
+		const raw = isRecord(data) ? (data as Record<string, unknown>) : {};
+		const nestedProps = isRecord(raw['props']) ? (raw['props'] as Record<string, unknown>) : null;
+		const d: Record<string, unknown> = nestedProps ? { ...raw, ...nestedProps } : { ...raw };
+		delete d['props'];
+
 		const componentId =
 			typeof d['component'] === 'string'
-				? d['component'].trim().toLowerCase()
+				? String(d['component']).trim().toLowerCase()
 				: 'component';
 
 		if (componentId === 'badge') {

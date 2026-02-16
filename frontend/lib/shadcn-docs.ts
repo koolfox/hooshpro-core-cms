@@ -23,6 +23,7 @@ export const SHADCN_COMPONENT_DOC_SLUGS = [
   "dialog",
   "drawer",
   "dropdown-menu",
+  "empty",
   "form",
   "hover-card",
   "input",
@@ -62,4 +63,3 @@ export function shadcnDocsUrl(slug: string): string {
   const normalized = slug.trim().toLowerCase()
   return `${SHADCN_DOCS_BASE}/${encodeURIComponent(normalized)}.md`
 }
-

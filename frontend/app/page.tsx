@@ -3,12 +3,14 @@ import Link from 'next/link';
 import { cookies } from 'next/headers';
 
 import type { Page } from '@/lib/types';
+import type { PageBuilderState, PageNode } from '@/lib/page-builder';
 import { parsePageBuilderState } from '@/lib/page-builder';
+import type { PublicContentEntryListOut } from '@/lib/types';
+import { fetchFrontPageSlug, fetchPublicTheme } from '@/lib/site-options';
 import { PublicPageClient } from './[slug]/page-client';
 
 const API_ORIGIN = process.env.API_ORIGIN ?? 'http://127.0.0.1:8000';
 const COOKIE_NAME = 'hooshpro_session';
-const HOMEPAGE_SLUG = 'home';
 
 type SearchParams = Record<string, string | string[] | undefined>;
 
@@ -37,6 +39,59 @@ async function fetchPublicTemplate(slug: string) {
 	return res.json();
 }
 
+async function fetchInitialCollections(states: PageBuilderState[]): Promise<Record<string, PublicContentEntryListOut>> {
+	const requests: Array<{
+		nodeId: string;
+		typeSlug: string;
+		limit: number;
+		sort: string;
+		dir: 'asc' | 'desc';
+	}> = [];
+
+	function walk(nodes: PageNode[]) {
+		for (const n of nodes) {
+			if (n.type === 'collection-list') {
+				const typeSlug = (n.data.type_slug || '').trim();
+				if (typeSlug) {
+					const limit = Number.isFinite(n.data.limit) ? Math.max(1, Math.min(100, Math.round(n.data.limit as number))) : 20;
+					const sort = (n.data.sort || 'published_at').trim();
+					const dir = n.data.dir === 'asc' ? 'asc' : 'desc';
+					requests.push({ nodeId: n.id, typeSlug, limit, sort, dir });
+				}
+			}
+			if (Array.isArray(n.nodes)) walk(n.nodes);
+		}
+	}
+
+	for (const s of states) walk(s.nodes);
+
+	const out: Record<string, PublicContentEntryListOut> = {};
+	if (requests.length === 0) return out;
+
+	const results = await Promise.all(
+		requests.map(async (r) => {
+			const params = new URLSearchParams();
+			params.set('limit', String(r.limit));
+			params.set('offset', '0');
+			params.set('sort', r.sort);
+			params.set('dir', r.dir);
+
+			const res = await fetch(`${API_ORIGIN}/api/public/entries/${encodeURIComponent(r.typeSlug)}?${params.toString()}`, {
+				cache: 'no-store',
+			});
+			if (!res.ok) return null;
+			const data = (await res.json()) as PublicContentEntryListOut;
+			return [r.nodeId, data] as const;
+		})
+	);
+
+	for (const r of results) {
+		if (!r) continue;
+		out[r[0]] = r[1];
+	}
+	return out;
+}
+
 async function isAdminSession(token: string): Promise<boolean> {
 	const res = await fetch(`${API_ORIGIN}/api/auth/me`, {
 		method: 'GET',
@@ -60,7 +115,8 @@ function resolveSearchParams(
 }
 
 export async function generateMetadata(): Promise<Metadata> {
-	const p = await fetchPublicPage(HOMEPAGE_SLUG);
+	const slug = await fetchFrontPageSlug();
+	const p = await fetchPublicPage(slug);
 	if (!p) return { title: 'HooshPro' };
 	return {
 		title: p.seo_title || p.title,
@@ -87,14 +143,16 @@ export default async function Home({
 	const token = (await cookies()).get(COOKIE_NAME)?.value ?? '';
 	const isAdmin = token ? await isAdminSession(token) : false;
 
-	const p = isAdmin ? await fetchAdminPage(HOMEPAGE_SLUG, token) : await fetchPublicPage(HOMEPAGE_SLUG);
+	const homepageSlug = await fetchFrontPageSlug();
+	const theme = await fetchPublicTheme();
+	const p = isAdmin ? await fetchAdminPage(homepageSlug, token) : await fetchPublicPage(homepageSlug);
 
 	if (!p) {
 		return (
 			<main className='max-w-3xl mx-auto p-10 space-y-4'>
 				<h1 className='text-2xl font-semibold'>Homepage not found</h1>
 				<p className='text-sm text-muted-foreground'>
-					Create a page with slug <code>home</code> (and publish it) to render the site root <code>/</code>.
+					Create and publish a page with slug <code>{homepageSlug}</code> to render the site root <code>/</code>.
 				</p>
 				<div className='flex items-center gap-3'>
 					<Link
@@ -117,15 +175,21 @@ export default async function Home({
 		);
 	}
 
-	const templateSlug = parsePageBuilderState(p.blocks).template.id;
+	const pageState = parsePageBuilderState(p.blocks);
+	const templateSlug = pageState.template.id;
 	const t = templateSlug ? await fetchPublicTemplate(templateSlug) : null;
+	const templateState = t && typeof t === 'object' ? parsePageBuilderState((t as { definition?: unknown }).definition) : null;
+	const initialCollections = await fetchInitialCollections(templateState ? [pageState, templateState] : [pageState]);
 
 	return (
 		<PublicPageClient
 			initialPage={p}
 			initialTemplate={t}
+			initialCollections={initialCollections}
 			isAdmin={isAdmin}
 			defaultEdit={edit}
+			siteTheme={theme.slug}
+			siteThemeVars={theme.vars}
 			menuOverride={menuOverride}
 			footerOverride={footerOverride}
 		/>
