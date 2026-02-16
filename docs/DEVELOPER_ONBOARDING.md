@@ -8,6 +8,10 @@ If you change routes, schema, or features, also update `docs/HOOSHPRO_REFERENCE.
 
 ## Quick Start (dev)
 
+Prereqs:
+
+- Python 3.10+ (backend uses modern type hints; the repo’s `backend/.venv` is the supported way to run).
+
 Backend:
 
 - `cd backend`
@@ -15,6 +19,10 @@ Backend:
   - Windows: `.\.venv\Scripts\activate`
   - macOS/Linux: `source .venv/bin/activate`
 - `python -m uvicorn app.main:app --reload`
+
+Troubleshooting:
+
+- If you see a startup error about Alembic being required, you are not running inside the backend venv. Activate the venv and retry (`cd backend; .\\.venv\\Scripts\\activate; python -m uvicorn app.main:app --reload`).
 
 Frontend:
 
@@ -52,7 +60,12 @@ Backend (optional overrides):
 - `db.py`: engine/session, Alembic auto-upgrade on startup, seeding defaults.
 - `deps.py`: auth dependency `get_current_user` (cookie or bearer token).
 - `routers/`: route modules (FastAPI routers).
+- `services/`: domain service layer (business rules + DB interactions); routers stay thin and map exceptions to HTTP.
 - `schemas/`: Pydantic request/response schemas + validation helpers.
+  - Collections (dynamic content): `routers/collections.py` + `schemas/content.py`
+  - Site options: `routers/options.py` + `schemas/option.py` (WordPress-like “settings/options”)
+  - Taxonomies/terms: `routers/taxonomies.py` + `schemas/taxonomy.py` (categories/tags/custom)
+  - Themes: `routers/themes.py` + `schemas/theme.py` (CSS variable tokens; public resolver `/api/public/themes/active`)
 
 Migrations:
 
@@ -66,10 +79,12 @@ Migrations:
   - `app/[slug]`: public page render + `?edit=1` admin edit mode
 - `components/`: UI + feature components
   - `components/admin/*`: reusable admin list shell + table
-  - `components/page-builder/*`: page builder (dnd-kit + resizable + editor)
+  - `components/client-only.tsx`: SSR-safe wrapper for client-only widgets (prevents hydration mismatches)
+  - `components/page-builder/*`: page builder (dnd-kit drag/drop + resize + inspector + renderer)
   - `components/ui/*`: shadcn/ui primitives
 - `lib/`:
-  - `lib/http.ts`: `apiFetch()` wrapper (cookie + 401 redirect)
+  - `lib/http.ts`: `apiFetch()` wrapper (cookie + 401 redirect). Throws `ApiError` with `status` and prefers JSON `{ "detail": "..." }` messages when present.
+  - For unsafe methods (`POST`/`PUT`/`PATCH`/`DELETE`), it auto-sends `X-CSRF-Token` from the `csrftoken` cookie (required by backend CSRF middleware for cookie-session requests).
   - `lib/types.ts`: frontend API types (keep aligned with backend outputs)
   - `lib/page-builder.ts`: page builder schema + parse/serialize
 - `hooks/use-api-list.ts`: generic list fetching hook (pagination/filter pages)
@@ -94,13 +109,46 @@ We keep a local mirror of the raw shadcn/ui markdown docs so devs can read every
   - Frontend admin routes: `/admin/*`
   - Backend admin APIs: `/api/admin/*` (must require `get_current_user`)
   - Backend public APIs: `/api/public/*` (no auth)
-- **Page builder (V3) is the canonical content format**
-  - `version: 3`
-  - `layout.rows[] -> columns[] -> blocks[]`
-  - Structural shadcn blocks can contain `children[]` and act like containers.
+- **Page builder (V4) is the canonical content format (HARDCUT)**
+  - `version: 4`
+  - `template` + `canvas` + `layout.nodes[]`
+  - Nodes use per-breakpoint frames: `frames.{mobile|tablet|desktop}.{x,y,w,h,z?}` (px); overlap is allowed.
+  - Nodes can be nested via `nodes[]` (frames are relative to the parent node).
+  - Editor constraints: drag/resize clamps to parent bounds; the root canvas allows infinite vertical growth (so pages can extend downward).
+  - Editor UX: if a drop lands outside the current viewport, the editor auto-focuses the moved node (prevents “lost” nodes).
+  - Editor UX: visible grid (minor/major) + rulers (top/left); `canvas.snapPx` controls drag/resize snapping.
+  - Viewport: **Frames view** shows Desktop/Tablet/Mobile side-by-side; only the active breakpoint is editable (click a frame to switch, or use the toolbar toggle).
+  - Editor navigation: `Ctrl/Cmd + wheel` zoom to cursor; `Space + drag` pans the viewport; toolbar has zoom controls.
+  - Editor UX: Figma-style layout (Layers/Assets left, Canvas center, Inspector right, bottom toolbar). Small screens: Layers uses a Sheet, Inspector uses a Popover.
+  - Selection: click selects, `Shift` adds, `Ctrl/Cmd` toggles, drag on empty canvas marquee-selects; drag a node to move it (text inputs/contenteditable don’t initiate drag).
+  - Layers panel: search + rename + hide + collapse; drag-reorder updates `z` within siblings (no lock; everything is editable).
+    - Layers reflect the real node hierarchy (`frame`/`shape`/`text`/`image`/etc); Inspector fields depend on the selected node type (geometry vs content).
+  - Z-order: Inspector “Order” buttons + `Ctrl/Cmd + [` / `Ctrl/Cmd + ]` (add `Shift` for send-to-back/bring-to-front).
+  - Hydration: wrap dnd-kit-heavy UI in `ClientOnly` (`frontend/components/client-only.tsx`) to avoid SSR hydration mismatches (Radix/dnd-kit ids).
+  - Locked decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real pages + 1px snap + V4 is canonical.
+  - Parser auto-upgrades `version 1/2/3` inputs to V4; serializer always outputs V4.
+  - Template-in-canvas editing: on public `?edit=1`, “Show chrome” composes the active template (menu + slot + footer) into the canvas, and the `slot` becomes a live frame containing the page nodes.
+    - V5: template nodes are editable by default (no lock); Save also persists the active template definition when modified.
+    - “Hide chrome” focuses on page-only editing (slot content only).
+    - “Clone as variant”: clones the active template and switches the page to the clone (safe per-page customization without affecting other pages using the original).
 - **Menus/footers are template blocks**
   - Use `menu` blocks inside templates (top/footer kind).
   - Optional: embed `data.items` to render without fetching a DB menu.
+  - For full primitives editing, use “Convert menu to shapes + text” in the Inspector on a selected `menu` node.
+- **Primitives-first editing**
+  - The editor inserts common items as primitives by default (e.g. buttons/cards become `shape` + `text`), and provides Inspector actions to convert legacy nodes to primitives when needed.
+- **Site options**
+  - Public routes use `reading.front_page_slug` to decide what page renders at `/`.
+  - Admin edits options in `/admin/settings` (backed by `options` table).
+  - Public theming:
+    - `appearance.active_theme` chooses the public theme slug (e.g. `jeweler` → `.theme-jeweler`).
+    - `/api/public/themes/active` resolves the active theme and returns merged CSS variables (theme base + `appearance.theme_vars` overrides), injected into the public root element (`frontend/app/[slug]/page-client.tsx`).
+
+---
+
+## Platform Doc
+
+- High-level “BaaS/backbone” overview: `docs/PLATFORM_BACKBONE.md`
 
 ---
 
@@ -128,7 +176,7 @@ Example reference implementation: `backend/app/routers/components.py`.
   - `db: OrmSession = Depends(get_db)`
   - `user: User = Depends(get_current_user)` for all admin endpoints
 - Typical admin endpoints:
-  - `GET /api/admin/<resource>?limit=&offset=&q=`
+  - `GET /api/admin/<resource>?limit=&offset=&q=&sort=&dir=` (sorting is optional but recommended for all list endpoints)
   - `POST /api/admin/<resource>`
   - `GET /api/admin/<resource>/{id}`
   - `PUT /api/admin/<resource>/{id}`
@@ -147,6 +195,7 @@ Example reference implementation: `backend/app/routers/components.py`.
 Examples:
 
 - List+dialog: `frontend/app/admin/components/page.tsx`, `frontend/app/admin/blocks/page.tsx`
+- Collections + entries: `frontend/app/admin/collections/page.tsx`, `frontend/app/admin/entries/page.tsx`
 - List + dedicated editor route: `frontend/app/admin/templates/page.tsx` + `frontend/app/admin/templates/[id]/page.tsx`
 
 1) Add/update frontend types
@@ -155,7 +204,7 @@ Examples:
 2) Create the admin route file
 - Add `frontend/app/admin/<resource>/page.tsx`.
 - Standard pattern:
-  - Parse URL state: `page`, `q`, and filters via `useSearchParams()`
+  - Parse URL state: `page`, `q`, filters, and list sorting (`sort` + `dir`) via `useSearchParams()`
   - Keep state stable in the URL via `router.replace(...)`
   - Fetch lists via `useApiList()` (build query string with `limit` + `offset`)
   - Render via `AdminListPage` and optionally `AdminDataTable`
@@ -182,14 +231,49 @@ You usually need to touch 3 layers:
   - Create block from component preset
   - Settings UI
   - DnD + container behaviors
+  - Component insertion is 2-step (pick → configure → insert): `frontend/components/page-builder/block-picker-dialog.tsx`
+    - Configure step also supports “Save as preset” (creates a new DB component variant) for Figma-like reuse.
+  - Block insertion (section templates) uses: `frontend/components/page-builder/block-template-browser.tsx`
+    - Used by the editor Insert panel (Blocks tab) and the dialog wrapper: `frontend/components/page-builder/block-template-picker-dialog.tsx`.
+    - Blocks are grouped into categories (`Pages`, `Navigation`, `Heroes`, `Features`, `CMS`, `Embeds`) via slug heuristics (temporary until DB-backed).
+  - Shared props/config UI: `frontend/components/components/component-data-editor.tsx`
+    - For `type: "shadcn"` presets, the canonical data shape is `{ "component": "<slug>", "props": { ... } }` (flat legacy props are still accepted for back-compat).
+    - shadcn “Quick settings” (component-specific friendly fields): `frontend/lib/shadcn-specs.ts`
 
 3) Rendering/preview
 - Public render: `frontend/components/page-builder/page-renderer.tsx`
 - Component preview cards: `frontend/components/components/component-preview.tsx`
+  - If the component needs server-fetched data for SEO (dynamic lists), also update:
+    - `frontend/app/page.tsx` and `frontend/app/[slug]/page.tsx` (server prefetch + pass-through props)
 
 Optional defaults:
 
 - Seed a default preset in `backend/app/db.py` (so it appears in the picker).
+
+### Radix Themes layout primitives (backbone frames)
+
+Frames can be configured to render Radix Themes layout primitives (`Box`, `Flex`, `Grid`, `Container`, `Section`) via `frame.data.layout` + `frame.data.props`.
+
+Docs (recommended reading for editor/backbone work):
+
+- Layout overview: `https://www.radix-ui.com/themes/docs/overview/layout`
+- `Box`: `https://www.radix-ui.com/themes/docs/components/box`
+- `Flex`: `https://www.radix-ui.com/themes/docs/components/flex`
+- `Grid`: `https://www.radix-ui.com/themes/docs/components/grid`
+- `Container`: `https://www.radix-ui.com/themes/docs/components/container`
+- `Section`: `https://www.radix-ui.com/themes/docs/components/section`
+
+If you need the authoritative prop names + allowed enum values, refer to the package types:
+
+- `frontend/node_modules/@radix-ui/themes/dist/esm/components/box.props.d.ts`
+- `frontend/node_modules/@radix-ui/themes/dist/esm/components/flex.props.d.ts`
+- `frontend/node_modules/@radix-ui/themes/dist/esm/components/grid.props.d.ts`
+- `frontend/node_modules/@radix-ui/themes/dist/esm/components/container.props.d.ts`
+- `frontend/node_modules/@radix-ui/themes/dist/esm/components/section.props.d.ts`
+- Shared layout/margin/padding props:
+  - `frontend/node_modules/@radix-ui/themes/dist/esm/props/layout.props.d.ts`
+  - `frontend/node_modules/@radix-ui/themes/dist/esm/props/margin.props.d.ts`
+  - `frontend/node_modules/@radix-ui/themes/dist/esm/props/padding.props.d.ts`
 
 ---
 
@@ -203,3 +287,4 @@ Optional defaults:
   - `/admin` works after login
   - `/api/admin/*` returns 401 without session cookie
   - `/?edit=1` works for admin and can save a page
+
