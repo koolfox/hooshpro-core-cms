@@ -4,7 +4,13 @@ import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
-import { apiFetch } from '@/lib/http';
+import { ApiError } from '@/lib/http';
+import {
+	buildAdminTemplatesListUrl,
+	createAdminTemplate,
+	deleteAdminTemplate,
+	updateAdminTemplate,
+} from '@/lib/api/templates';
 import type { PageTemplate, PageTemplateListOut } from '@/lib/types';
 import { useApiList } from '@/hooks/use-api-list';
 
@@ -22,6 +28,13 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import {
+	Select,
+	SelectContent,
+	SelectItem,
+	SelectTrigger,
+	SelectValue,
+} from '@/components/ui/select';
 
 import {
 	AlertDialog,
@@ -37,6 +50,13 @@ import {
 const LIMIT = 30;
 const EMPTY_TEMPLATES: PageTemplate[] = [];
 
+type SortDir = 'asc' | 'desc';
+
+const SORT_FIELDS = ['updated_at', 'created_at', 'title', 'slug', 'menu', 'footer'] as const;
+type TemplateSort = (typeof SORT_FIELDS)[number];
+const DEFAULT_SORT: TemplateSort = 'updated_at';
+const DEFAULT_DIR: SortDir = 'desc';
+
 function toErrorMessage(error: unknown): string {
 	if (error instanceof Error) return error.message;
 	return String(error);
@@ -46,6 +66,17 @@ function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : NaN;
 	if (!Number.isFinite(n) || n < 1) return 1;
 	return n;
+}
+
+function parseSortParam(value: string | null): TemplateSort {
+	const v = (value ?? '').trim().toLowerCase();
+	if ((SORT_FIELDS as readonly string[]).includes(v)) return v as TemplateSort;
+	return DEFAULT_SORT;
+}
+
+function parseDirParam(value: string | null): SortDir {
+	const v = (value ?? '').trim().toLowerCase();
+	return v === 'asc' ? 'asc' : DEFAULT_DIR;
 }
 
 function formatIso(iso: string) {
@@ -74,10 +105,16 @@ export default function AdminTemplatesScreen() {
 	const urlQ = (searchParams.get('q') ?? '').trim();
 	const urlPage = parsePageParam(searchParams.get('page'));
 	const urlOffset = (urlPage - 1) * LIMIT;
+	const urlSort = parseSortParam(searchParams.get('sort'));
+	const urlDir = parseDirParam(searchParams.get('dir'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [q, setQ] = useState(urlQ);
+	const [sortInput, setSortInput] = useState<TemplateSort>(urlSort);
+	const [dirInput, setDirInput] = useState<SortDir>(urlDir);
+	const [sort, setSort] = useState<TemplateSort>(urlSort);
+	const [dir, setDir] = useState<SortDir>(urlDir);
 
 	const qRef = useRef<HTMLInputElement | null>(null);
 
@@ -85,9 +122,13 @@ export default function AdminTemplatesScreen() {
 		setOffset(urlOffset);
 		setQ(urlQ);
 		setQInput(urlQ);
-	}, [urlOffset, urlQ]);
+		setSort(urlSort);
+		setDir(urlDir);
+		setSortInput(urlSort);
+		setDirInput(urlDir);
+	}, [urlOffset, urlQ, urlSort, urlDir]);
 
-	function updateUrl(next: { page?: number; q?: string }) {
+	function updateUrl(next: { page?: number; q?: string; sort?: TemplateSort; dir?: SortDir }) {
 		const params = new URLSearchParams(searchParams.toString());
 
 		const page = next.page ?? parsePageParam(params.get('page'));
@@ -97,6 +138,20 @@ export default function AdminTemplatesScreen() {
 		const nextQ = (next.q ?? params.get('q') ?? '').trim();
 		if (nextQ) params.set('q', nextQ);
 		else params.delete('q');
+
+		const rawSort = (next.sort ?? parseSortParam(params.get('sort'))).trim().toLowerCase();
+		const nextSort = parseSortParam(rawSort);
+
+		const rawDir = (next.dir ?? parseDirParam(params.get('dir'))).trim().toLowerCase();
+		const nextDir: SortDir = rawDir === 'asc' ? 'asc' : DEFAULT_DIR;
+
+		if (nextSort === DEFAULT_SORT && nextDir === DEFAULT_DIR) {
+			params.delete('sort');
+			params.delete('dir');
+		} else {
+			params.set('sort', nextSort);
+			params.set('dir', nextDir);
+		}
 
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
@@ -108,13 +163,17 @@ export default function AdminTemplatesScreen() {
 		updateUrl({ page: safeOffset / LIMIT + 1 });
 	}
 
-	const listUrl = useMemo(() => {
-		const params = new URLSearchParams();
-		params.set('limit', String(LIMIT));
-		params.set('offset', String(offset));
-		if (q.trim()) params.set('q', q.trim());
-		return `/api/admin/templates?${params.toString()}`;
-	}, [offset, q]);
+	const listUrl = useMemo(
+		() =>
+			buildAdminTemplatesListUrl({
+				limit: LIMIT,
+				offset,
+				q,
+				sort: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? sort : undefined,
+				dir: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? dir : undefined,
+			}),
+		[offset, q, sort, dir]
+	);
 
 	const { data, loading, error, reload } = useApiList<PageTemplateListOut>(listUrl, {
 		nextPath: '/admin/templates',
@@ -125,16 +184,24 @@ export default function AdminTemplatesScreen() {
 
 	function applyFilters() {
 		const nextQ = qInput.trim();
+		const nextSort = sortInput;
+		const nextDir = dirInput;
 		setOffset(0);
 		setQ(nextQ);
-		updateUrl({ page: 1, q: nextQ });
+		setSort(nextSort);
+		setDir(nextDir);
+		updateUrl({ page: 1, q: nextQ, sort: nextSort, dir: nextDir });
 	}
 
 	function resetFilters() {
 		setOffset(0);
 		setQInput('');
+		setSortInput(DEFAULT_SORT);
+		setDirInput(DEFAULT_DIR);
 		setQ('');
-		updateUrl({ page: 1, q: '' });
+		setSort(DEFAULT_SORT);
+		setDir(DEFAULT_DIR);
+		updateUrl({ page: 1, q: '', sort: DEFAULT_SORT, dir: DEFAULT_DIR });
 		qRef.current?.focus();
 	}
 
@@ -174,6 +241,45 @@ export default function AdminTemplatesScreen() {
 		setEditorOpen(true);
 	}
 
+	async function cloneAsVariant(source: PageTemplate) {
+		if (saving) return;
+		setSaving(true);
+		setFormError(null);
+
+		const baseSlug = slugify(source.slug) || 'template';
+		const baseVariant = baseSlug.endsWith('-variant') ? baseSlug : `${baseSlug}-variant`;
+		const payloadBase = {
+			title: `${(source.title || 'Template').trim() || 'Template'} (variant)`,
+			description: (source.description ?? '').trim() ? source.description : null,
+			menu: source.menu,
+			footer: source.footer,
+			definition: source.definition,
+		};
+
+		try {
+			let lastErr: unknown = null;
+			for (let i = 0; i < 50; i++) {
+				const candidate = i === 0 ? baseVariant : `${baseVariant}-${i + 1}`;
+				try {
+					const created = await createAdminTemplate({ ...payloadBase, slug: candidate }, '/admin/templates');
+					setActionError(null);
+					await reload();
+					openEdit(created);
+					return;
+				} catch (e) {
+					lastErr = e;
+					if (e instanceof ApiError && e.status === 409) continue;
+					throw e;
+				}
+			}
+			throw lastErr ?? new Error('Failed to clone template');
+		} catch (e) {
+			setFormError(toErrorMessage(e));
+		} finally {
+			setSaving(false);
+		}
+	}
+
 	async function save() {
 		setSaving(true);
 		setFormError(null);
@@ -186,19 +292,9 @@ export default function AdminTemplatesScreen() {
 
 		try {
 			if (editing) {
-				await apiFetch<PageTemplate>(`/api/admin/templates/${editing.id}`, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-					nextPath: '/admin/templates',
-				});
+				await updateAdminTemplate(editing.id, payload, '/admin/templates');
 			} else {
-				await apiFetch<PageTemplate>('/api/admin/templates', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-					nextPath: '/admin/templates',
-				});
+				await createAdminTemplate(payload, '/admin/templates');
 			}
 			setEditorOpen(false);
 			setActionError(null);
@@ -214,10 +310,7 @@ export default function AdminTemplatesScreen() {
 
 	async function doDelete(t: PageTemplate) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/templates/${t.id}`, {
-				method: 'DELETE',
-				nextPath: '/admin/templates',
-			});
+			await deleteAdminTemplate(t.id, '/admin/templates');
 			setConfirmDelete(null);
 			setActionError(null);
 
@@ -247,7 +340,7 @@ export default function AdminTemplatesScreen() {
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
-					<div className='md:col-span-9 space-y-2'>
+					<div className='md:col-span-7 space-y-2'>
 						<Label>Search</Label>
 						<Input
 							ref={qRef}
@@ -260,7 +353,41 @@ export default function AdminTemplatesScreen() {
 							}}
 						/>
 					</div>
-					<div className='md:col-span-3 flex gap-2 justify-end'>
+					<div className='md:col-span-3 space-y-2'>
+						<Label>Sort</Label>
+						<Select
+							value={sortInput}
+							onValueChange={(v) => setSortInput(v as TemplateSort)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='updated_at'>Updated</SelectItem>
+								<SelectItem value='created_at'>Created</SelectItem>
+								<SelectItem value='title'>Title</SelectItem>
+								<SelectItem value='slug'>Slug</SelectItem>
+								<SelectItem value='menu'>Menu</SelectItem>
+								<SelectItem value='footer'>Footer</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className='md:col-span-2 space-y-2'>
+						<Label>Order</Label>
+						<Select
+							value={dirInput}
+							onValueChange={(v) => setDirInput(v as SortDir)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='desc'>desc</SelectItem>
+								<SelectItem value='asc'>asc</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className='md:col-span-12 flex gap-2 justify-end'>
 						<Button
 							variant='outline'
 							onClick={resetFilters}
@@ -402,6 +529,14 @@ export default function AdminTemplatesScreen() {
 					</div>
 
 					<DialogFooter>
+						{editing ? (
+							<Button
+								variant='secondary'
+								onClick={() => cloneAsVariant(editing)}
+								disabled={saving}>
+								Clone as variant
+							</Button>
+						) : null}
 						<Button
 							variant='outline'
 							onClick={() => setEditorOpen(false)}
@@ -450,3 +585,5 @@ export default function AdminTemplatesScreen() {
 		</AdminListPage>
 	);
 }
+
+

@@ -36,7 +36,7 @@ import {
 	AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 
-import { apiFetch } from '@/lib/http';
+import { buildAdminPagesListUrl, createAdminPage, deleteAdminPage } from '@/lib/api/pages';
 import type { Page, PageListOut } from '@/lib/types';
 import {
 	defaultPageBuilderState,
@@ -50,10 +50,28 @@ const LIMIT = 20;
 type StatusFilter = 'all' | 'draft' | 'published';
 const EMPTY_PAGES: Page[] = [];
 
+type SortDir = 'asc' | 'desc';
+
+const SORT_FIELDS = ['updated_at', 'created_at', 'published_at', 'title', 'slug', 'status'] as const;
+type PageSort = (typeof SORT_FIELDS)[number];
+const DEFAULT_SORT: PageSort = 'updated_at';
+const DEFAULT_DIR: SortDir = 'desc';
+
 function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : NaN;
 	if (!Number.isFinite(n) || n < 1) return 1;
 	return n;
+}
+
+function parseSortParam(value: string | null): PageSort {
+	const v = (value ?? '').trim().toLowerCase();
+	if ((SORT_FIELDS as readonly string[]).includes(v)) return v as PageSort;
+	return DEFAULT_SORT;
+}
+
+function parseDirParam(value: string | null): SortDir {
+	const v = (value ?? '').trim().toLowerCase();
+	return v === 'asc' ? 'asc' : DEFAULT_DIR;
 }
 
 function formatIso(iso: string) {
@@ -89,13 +107,19 @@ export default function AdminPagesScreen() {
 		urlStatusRaw === 'draft' || urlStatusRaw === 'published' ? urlStatusRaw : 'all';
 	const urlPage = parsePageParam(searchParams.get('page'));
 	const urlOffset = (urlPage - 1) * LIMIT;
+	const urlSort = parseSortParam(searchParams.get('sort'));
+	const urlDir = parseDirParam(searchParams.get('dir'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [statusInput, setStatusInput] = useState<StatusFilter>(urlStatus);
+	const [sortInput, setSortInput] = useState<PageSort>(urlSort);
+	const [dirInput, setDirInput] = useState<SortDir>(urlDir);
 
 	const [q, setQ] = useState(urlQ);
 	const [status, setStatus] = useState<StatusFilter>(urlStatus);
+	const [sort, setSort] = useState<PageSort>(urlSort);
+	const [dir, setDir] = useState<SortDir>(urlDir);
 
 	const qRef = useRef<HTMLInputElement | null>(null);
 
@@ -105,9 +129,19 @@ export default function AdminPagesScreen() {
 		setStatus(urlStatus);
 		setQInput(urlQ);
 		setStatusInput(urlStatus);
-	}, [urlOffset, urlQ, urlStatus]);
+		setSort(urlSort);
+		setDir(urlDir);
+		setSortInput(urlSort);
+		setDirInput(urlDir);
+	}, [urlOffset, urlQ, urlStatus, urlSort, urlDir]);
 
-	function updateUrl(next: { page?: number; q?: string; status?: StatusFilter }) {
+	function updateUrl(next: {
+		page?: number;
+		q?: string;
+		status?: StatusFilter;
+		sort?: PageSort;
+		dir?: SortDir;
+	}) {
 		const params = new URLSearchParams(searchParams.toString());
 
 		const page = next.page ?? parsePageParam(params.get('page'));
@@ -124,6 +158,20 @@ export default function AdminPagesScreen() {
 		if (nextStatus !== 'all') params.set('status', nextStatus);
 		else params.delete('status');
 
+		const rawSort = (next.sort ?? parseSortParam(params.get('sort'))).trim().toLowerCase();
+		const nextSort = parseSortParam(rawSort);
+
+		const rawDir = (next.dir ?? parseDirParam(params.get('dir'))).trim().toLowerCase();
+		const nextDir: SortDir = rawDir === 'asc' ? 'asc' : DEFAULT_DIR;
+
+		if (nextSort === DEFAULT_SORT && nextDir === DEFAULT_DIR) {
+			params.delete('sort');
+			params.delete('dir');
+		} else {
+			params.set('sort', nextSort);
+			params.set('dir', nextDir);
+		}
+
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
@@ -134,14 +182,18 @@ export default function AdminPagesScreen() {
 		updateUrl({ page: safeOffset / LIMIT + 1 });
 	}
 
-	const listUrl = useMemo(() => {
-		const params = new URLSearchParams();
-		params.set('limit', String(LIMIT));
-		params.set('offset', String(offset));
-		if (q.trim()) params.set('q', q.trim());
-		if (status !== 'all') params.set('status', status);
-		return `/api/admin/pages?${params.toString()}`;
-	}, [offset, q, status]);
+	const listUrl = useMemo(
+		() =>
+			buildAdminPagesListUrl({
+				limit: LIMIT,
+				offset,
+				q,
+				status,
+				sort: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? sort : undefined,
+				dir: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? dir : undefined,
+			}),
+		[offset, q, status, sort, dir]
+	);
 
 	const { data, loading, error, reload } = useApiList<PageListOut>(listUrl, {
 		nextPath: '/admin/pages',
@@ -153,19 +205,27 @@ export default function AdminPagesScreen() {
 	function applyFilters() {
 		const nextQ = qInput.trim();
 		const nextStatus = statusInput;
+		const nextSort = sortInput;
+		const nextDir = dirInput;
 		setOffset(0);
 		setQ(nextQ);
 		setStatus(nextStatus);
-		updateUrl({ page: 1, q: nextQ, status: nextStatus });
+		setSort(nextSort);
+		setDir(nextDir);
+		updateUrl({ page: 1, q: nextQ, status: nextStatus, sort: nextSort, dir: nextDir });
 	}
 
 	function resetFilters() {
 		setOffset(0);
 		setQInput('');
 		setStatusInput('all');
+		setSortInput(DEFAULT_SORT);
+		setDirInput(DEFAULT_DIR);
 		setQ('');
 		setStatus('all');
-		updateUrl({ page: 1, q: '', status: 'all' });
+		setSort(DEFAULT_SORT);
+		setDir(DEFAULT_DIR);
+		updateUrl({ page: 1, q: '', status: 'all', sort: DEFAULT_SORT, dir: DEFAULT_DIR });
 		qRef.current?.focus();
 	}
 
@@ -209,12 +269,7 @@ export default function AdminPagesScreen() {
 		};
 
 		try {
-			await apiFetch<Page>('/api/admin/pages', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload),
-				nextPath: '/admin/pages',
-			});
+			await createAdminPage(payload, '/admin/pages');
 			setEditorOpen(false);
 			await reload();
 		} catch (e) {
@@ -228,10 +283,7 @@ export default function AdminPagesScreen() {
 
 	async function doDelete(p: Page) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/pages/${p.id}`, {
-				method: 'DELETE',
-				nextPath: '/admin/pages',
-			});
+			await deleteAdminPage(p.id, '/admin/pages');
 			setConfirmDelete(null);
 			setActionError(null);
 
@@ -261,7 +313,7 @@ export default function AdminPagesScreen() {
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
-					<div className='md:col-span-6 space-y-2'>
+					<div className='md:col-span-5 space-y-2'>
 						<Label>Search</Label>
 						<Input
 							ref={qRef}
@@ -275,7 +327,7 @@ export default function AdminPagesScreen() {
 						/>
 					</div>
 
-					<div className='md:col-span-3 space-y-2'>
+					<div className='md:col-span-2 space-y-2'>
 						<Label>Status</Label>
 						<Select
 							value={statusInput}
@@ -293,7 +345,41 @@ export default function AdminPagesScreen() {
 						</Select>
 					</div>
 
-					<div className='md:col-span-3 flex gap-2 justify-end'>
+					<div className='md:col-span-3 space-y-2'>
+						<Label>Sort</Label>
+						<Select
+							value={sortInput}
+							onValueChange={(v) => setSortInput(v as PageSort)}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='updated_at'>Updated</SelectItem>
+								<SelectItem value='created_at'>Created</SelectItem>
+								<SelectItem value='published_at'>Published</SelectItem>
+								<SelectItem value='title'>Title</SelectItem>
+								<SelectItem value='slug'>Slug</SelectItem>
+								<SelectItem value='status'>Status</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className='md:col-span-2 space-y-2'>
+						<Label>Order</Label>
+						<Select
+							value={dirInput}
+							onValueChange={(v) => setDirInput(v as SortDir)}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='desc'>desc</SelectItem>
+								<SelectItem value='asc'>asc</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className='md:col-span-12 flex gap-2 justify-end'>
 						<Button
 							variant='outline'
 							onClick={resetFilters}
@@ -510,3 +596,11 @@ export default function AdminPagesScreen() {
 		</AdminListPage>
 	);
 }
+
+
+
+
+
+
+
+

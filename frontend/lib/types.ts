@@ -74,7 +74,7 @@ export type BlockTemplate = {
 	slug: string;
 	title: string;
 	description?: string | null;
-	definition: unknown;
+	definition: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
 };
@@ -93,7 +93,7 @@ export type PageTemplate = {
 	description?: string | null;
 	menu: string;
 	footer: string;
-	definition: unknown;
+	definition: Record<string, unknown>;
 	created_at: string;
 	updated_at: string;
 };
@@ -149,3 +149,160 @@ export type PublicMenuOut = {
 	title: string;
 	items: PublicMenuItem[];
 };
+
+export type ContentType = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ContentTypeListOut = {
+	items: ContentType[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type ContentField = {
+	id: number;
+	content_type_id: number;
+	slug: string;
+	label: string;
+	field_type: string;
+	required: boolean;
+	options: Record<string, unknown>;
+	order_index: number;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ContentFieldListOut = {
+	items: ContentField[];
+};
+
+export type ContentEntry = {
+	id: number;
+	content_type_id: number;
+	content_type_slug: string;
+	title: string;
+	slug: string;
+	status: 'draft' | 'published';
+	order_index: number;
+	data: Record<string, unknown>;
+	published_at?: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ContentEntryListOut = {
+	items: ContentEntry[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type PublicContentEntry = {
+	id: number;
+	content_type_slug: string;
+	title: string;
+	slug: string;
+	data: Record<string, unknown>;
+	published_at?: string | null;
+};
+
+export type PublicContentEntryListOut = {
+	items: PublicContentEntry[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type OptionOut = {
+	id: number;
+	key: string;
+	value: unknown;
+	created_at: string;
+	updated_at: string;
+};
+
+export type OptionListOut = {
+	items: OptionOut[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type Theme = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	vars: Record<string, string>;
+	created_at: string;
+	updated_at: string;
+};
+
+export type ThemeListOut = {
+	items: Theme[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type PublicThemeOut = {
+	slug: string;
+	title: string;
+	vars: Record<string, string>;
+};
+
+export type Taxonomy = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	hierarchical: boolean;
+	created_at: string;
+	updated_at: string;
+};
+
+export type TaxonomyListOut = {
+	items: Taxonomy[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type Term = {
+	id: number;
+	taxonomy_id: number;
+	parent_id?: number | null;
+	slug: string;
+	title: string;
+	description?: string | null;
+	created_at: string;
+	updated_at: string;
+};
+
+export type TermListOut = {
+	items: Term[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type EntryTerm = {
+	id: number;
+	taxonomy_id: number;
+	taxonomy_slug: string;
+	taxonomy_title: string;
+	slug: string;
+	title: string;
+};
+
+export type EntryTermListOut = {
+	items: EntryTerm[];
+};
+

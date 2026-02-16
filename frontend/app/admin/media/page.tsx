@@ -16,7 +16,16 @@ import {
 } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { FileImage, Folder, GripVertical, LayoutGrid, List } from 'lucide-react';
-import { apiFetch } from '@/lib/http';
+import {
+	buildAdminMediaListUrl,
+	ADMIN_MEDIA_FOLDERS_URL,
+	createAdminMediaFolder,
+	deleteAdminMedia,
+	deleteAdminMediaFolder,
+	updateAdminMedia,
+	updateAdminMediaFolder,
+	uploadAdminMedia,
+} from '@/lib/api/media';
 import { cn } from '@/lib/utils';
 import { useApiList } from '@/hooks/use-api-list';
 import { AdminListPage } from '@/components/admin/admin-list-page';
@@ -85,6 +94,24 @@ function parseViewParam(value: string | null): ViewMode {
 	const v = (value ?? '').trim().toLowerCase();
 	if (v === 'details' || v === 'tree' || v === 'list') return 'details';
 	return 'icons';
+}
+
+type SortDir = 'asc' | 'desc';
+
+const SORT_FIELDS = ['created_at', 'name', 'size_bytes', 'content_type'] as const;
+type MediaSort = (typeof SORT_FIELDS)[number];
+const DEFAULT_SORT: MediaSort = 'created_at';
+const DEFAULT_DIR: SortDir = 'desc';
+
+function parseSortParam(value: string | null): MediaSort {
+	const v = (value ?? '').trim().toLowerCase();
+	if ((SORT_FIELDS as readonly string[]).includes(v)) return v as MediaSort;
+	return DEFAULT_SORT;
+}
+
+function parseDirParam(value: string | null): SortDir {
+	const v = (value ?? '').trim().toLowerCase();
+	return v === 'asc' ? 'asc' : DEFAULT_DIR;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -690,11 +717,17 @@ export default function MediaScreen() {
 	const urlOffset = (urlPage - 1) * LIMIT;
 	const urlFolderFilter = parseFolderParam(searchParams.get('folder_id'));
 	const urlView = parseViewParam(searchParams.get('view'));
+	const urlSort = parseSortParam(searchParams.get('sort'));
+	const urlDir = parseDirParam(searchParams.get('dir'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [q, setQ] = useState(urlQ);
 	const [view, setView] = useState<ViewMode>(urlView);
+	const [sortInput, setSortInput] = useState<MediaSort>(urlSort);
+	const [dirInput, setDirInput] = useState<SortDir>(urlDir);
+	const [sort, setSort] = useState<MediaSort>(urlSort);
+	const [dir, setDir] = useState<SortDir>(urlDir);
 
 	// folders: null = all media, 0 = root
 	const [folderFilter, setFolderFilter] = useState<number | null>(urlFolderFilter);
@@ -721,7 +754,7 @@ export default function MediaScreen() {
 	const [actionError, setActionError] = useState<string | null>(null);
 
 	const { data: foldersData, loading: foldersLoading, error: foldersError, reload: reloadFolders } =
-		useApiList<MediaFolderListOut>('/api/admin/media/folders', {
+		useApiList<MediaFolderListOut>(ADMIN_MEDIA_FOLDERS_URL, {
 			nextPath: '/admin/media',
 		});
 
@@ -753,13 +786,19 @@ export default function MediaScreen() {
 		setQInput(urlQ);
 		setFolderFilter(urlFolderFilter);
 		setView(urlView);
-	}, [urlOffset, urlQ, urlFolderFilter, urlView]);
+		setSort(urlSort);
+		setDir(urlDir);
+		setSortInput(urlSort);
+		setDirInput(urlDir);
+	}, [urlOffset, urlQ, urlFolderFilter, urlView, urlSort, urlDir]);
 
 	function updateUrl(next: {
 		page?: number;
 		q?: string;
 		folder?: number | null;
 		view?: ViewMode;
+		sort?: MediaSort;
+		dir?: SortDir;
 	}) {
 		const params = new URLSearchParams(searchParams.toString());
 
@@ -784,6 +823,20 @@ export default function MediaScreen() {
 		if (nextView === 'details') params.set('view', 'details');
 		else params.delete('view');
 
+		const rawSort = (next.sort ?? parseSortParam(params.get('sort'))).trim().toLowerCase();
+		const nextSort = parseSortParam(rawSort);
+
+		const rawDir = (next.dir ?? parseDirParam(params.get('dir'))).trim().toLowerCase();
+		const nextDir: SortDir = rawDir === 'asc' ? 'asc' : DEFAULT_DIR;
+
+		if (nextSort === DEFAULT_SORT && nextDir === DEFAULT_DIR) {
+			params.delete('sort');
+			params.delete('dir');
+		} else {
+			params.set('sort', nextSort);
+			params.set('dir', nextDir);
+		}
+
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
@@ -794,14 +847,18 @@ export default function MediaScreen() {
 		updateUrl({ page: safeOffset / LIMIT + 1 });
 	}
 
-	const listUrl = useMemo(() => {
-		const params = new URLSearchParams();
-		params.set('limit', String(LIMIT));
-		params.set('offset', String(offset));
-		if (folderFilter !== null) params.set('folder_id', String(folderFilter));
-		if (q.trim()) params.set('q', q.trim());
-		return `/api/admin/media?${params.toString()}`;
-	}, [offset, q, folderFilter]);
+	const listUrl = useMemo(
+		() =>
+			buildAdminMediaListUrl({
+				limit: LIMIT,
+				offset,
+				folder_id: folderFilter,
+				q,
+				sort: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? sort : undefined,
+				dir: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? dir : undefined,
+			}),
+		[offset, q, folderFilter, sort, dir]
+	);
 
 	const { data, loading, error, reload } = useApiList<MediaListOut>(listUrl, {
 		nextPath: '/admin/media',
@@ -857,12 +914,7 @@ export default function MediaScreen() {
 
 		setMovingMediaId(mediaId);
 		try {
-			await apiFetch<MediaAsset>(`/api/admin/media/${mediaId}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ folder_id: folderId }),
-				nextPath: '/admin/media',
-			});
+			await updateAdminMedia(mediaId, { folder_id: folderId }, '/admin/media');
 			setActionError(null);
 			await reload();
 		} catch (e) {
@@ -903,12 +955,7 @@ export default function MediaScreen() {
 
 		setMovingFolderId(folderId);
 		try {
-			await apiFetch<MediaFolder>(`/api/admin/media/folders/${folderId}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify({ parent_id: parentId }),
-				nextPath: '/admin/media',
-			});
+			await updateAdminMediaFolder(folderId, { parent_id: parentId }, '/admin/media');
 			setFolderActionError(null);
 			await reloadFolders();
 		} catch (e) {
@@ -969,16 +1016,24 @@ export default function MediaScreen() {
 
 	function applyFilters() {
 		const nextQ = qInput.trim();
+		const nextSort = sortInput;
+		const nextDir = dirInput;
 		setOffset(0);
 		setQ(nextQ);
-		updateUrl({ page: 1, q: nextQ });
+		setSort(nextSort);
+		setDir(nextDir);
+		updateUrl({ page: 1, q: nextQ, sort: nextSort, dir: nextDir });
 	}
 
 	function resetFilters() {
 		setOffset(0);
 		setQInput('');
+		setSortInput(DEFAULT_SORT);
+		setDirInput(DEFAULT_DIR);
 		setQ('');
-		updateUrl({ page: 1, q: '' });
+		setSort(DEFAULT_SORT);
+		setDir(DEFAULT_DIR);
+		updateUrl({ page: 1, q: '', sort: DEFAULT_SORT, dir: DEFAULT_DIR });
 	}
 
 	function setViewMode(next: ViewMode) {
@@ -1019,12 +1074,7 @@ export default function MediaScreen() {
 				parent_id: folderCreateParentId === 0 ? null : folderCreateParentId,
 			};
 
-			const created = await apiFetch<MediaFolder>('/api/admin/media/folders', {
-				method: 'POST',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload),
-				nextPath: '/admin/media',
-			});
+			const created = await createAdminMediaFolder(payload, '/admin/media');
 
 			setFolderCreateOpen(false);
 			setFolderCreateName('');
@@ -1042,10 +1092,7 @@ export default function MediaScreen() {
 
 	async function doDeleteFolder(f: MediaFolder) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/media/folders/${f.id}`, {
-				method: 'DELETE',
-				nextPath: '/admin/media',
-			});
+			await deleteAdminMediaFolder(f.id, '/admin/media');
 			setConfirmDeleteFolder(null);
 			setFolderActionError(null);
 
@@ -1075,11 +1122,7 @@ export default function MediaScreen() {
 				fd.append('file', f);
 				fd.append('folder_id', String(folderFilter ?? 0));
 
-				await apiFetch<MediaAsset>('/api/admin/media/upload', {
-					method: 'POST',
-					body: fd,
-					nextPath: '/admin/media',
-				});
+				await uploadAdminMedia(f, folderFilter ?? 0, '/admin/media');
 				okCount++;
 			}
 
@@ -1098,10 +1141,7 @@ export default function MediaScreen() {
 
 	async function doDelete(m: MediaAsset) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/media/${m.id}`, {
-				method: 'DELETE',
-				nextPath: '/admin/media',
-			});
+			await deleteAdminMedia(m.id, '/admin/media');
 			setConfirmDelete(null);
 
 			const nextTotal = Math.max(0, total - 1);
@@ -1131,7 +1171,7 @@ export default function MediaScreen() {
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
-					<div className='md:col-span-9 space-y-2'>
+					<div className='md:col-span-7 space-y-2'>
 						<Label>Search</Label>
 						<Input
 							value={qInput}
@@ -1143,7 +1183,39 @@ export default function MediaScreen() {
 							}}
 						/>
 					</div>
-					<div className='md:col-span-3 flex gap-2 justify-end'>
+					<div className='md:col-span-3 space-y-2'>
+						<Label>Sort</Label>
+						<Select
+							value={sortInput}
+							onValueChange={(v) => setSortInput(v as MediaSort)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='created_at'>Created</SelectItem>
+								<SelectItem value='name'>Name</SelectItem>
+								<SelectItem value='size_bytes'>Size</SelectItem>
+								<SelectItem value='content_type'>Type</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className='md:col-span-2 space-y-2'>
+						<Label>Order</Label>
+						<Select
+							value={dirInput}
+							onValueChange={(v) => setDirInput(v as SortDir)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='desc'>desc</SelectItem>
+								<SelectItem value='asc'>asc</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+					<div className='md:col-span-12 flex gap-2 justify-end'>
 						<Button
 							variant='outline'
 							onClick={resetFilters}
@@ -1629,3 +1701,5 @@ export default function MediaScreen() {
 		</AdminListPage>
 	);
 }
+
+

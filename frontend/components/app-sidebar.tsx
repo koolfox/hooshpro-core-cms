@@ -4,14 +4,18 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
 	Blocks,
+	Database,
 	FileText,
 	ImageIcon,
 	LayoutTemplate,
 	LayoutDashboard,
+	ListOrdered,
 	LogOut,
+	Palette,
 	Puzzle,
+	Settings,
+	Tags,
 } from 'lucide-react';
-
 import {
 	Sidebar,
 	SidebarContent,
@@ -23,13 +27,20 @@ import {
 	SidebarSeparator,
 } from '@/components/ui/sidebar';
 
+import { apiFetch } from '@/lib/http';
+
 const nav = [
 	{ title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
 	{ title: 'Pages', href: '/admin/pages', icon: FileText },
 	{ title: 'Templates', href: '/admin/templates', icon: LayoutTemplate },
 	{ title: 'Components', href: '/admin/components', icon: Puzzle },
 	{ title: 'Blocks', href: '/admin/blocks', icon: Blocks },
+	{ title: 'Collections', href: '/admin/collections', icon: Database },
+	{ title: 'Entries', href: '/admin/entries', icon: ListOrdered },
+	{ title: 'Taxonomies', href: '/admin/taxonomies', icon: Tags },
 	{ title: 'Media', href: '/admin/media', icon: ImageIcon },
+	{ title: 'Themes', href: '/admin/themes', icon: Palette },
+	{ title: 'Settings', href: '/admin/settings', icon: Settings },
 ] as const;
 
 function isActivePath(pathname: string, href: string) {
@@ -40,11 +51,11 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 	const pathname = usePathname();
 
 	async function logout() {
-		await fetch('/api/auth/logout', {
-			method: 'POST',
-			credentials: 'include',
-		});
-		window.location.href = '/auth/login';
+		try {
+			await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST', nextPath: '/auth/login' });
+		} finally {
+			window.location.href = '/auth/login';
+		}
 	}
 
 	return (
@@ -114,3 +125,4 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 		</Sidebar>
 	);
 }
+

@@ -4,18 +4,19 @@ import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 
-import { apiFetch } from '@/lib/http';
+import { getAdminTemplate, updateAdminTemplate } from '@/lib/api/templates';
 import {
 	comparableJsonFromState,
 	createId,
 	parsePageBuilderState,
 	serializePageBuilderState,
 	type PageBuilderState,
+	type PageNode,
 } from '@/lib/page-builder';
 import type { PageTemplate } from '@/lib/types';
 
+import { ClientOnly } from '@/components/client-only';
 import { PageBuilder } from '@/components/page-builder/page-builder';
-import { PageBuilderOutline } from '@/components/page-builder/page-outline';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -37,7 +38,14 @@ function parseId(value: unknown): number | null {
 }
 
 function hasSlot(state: PageBuilderState): boolean {
-	return state.rows.some((r) => r.columns.some((c) => c.blocks.some((b) => b.type === 'slot')));
+	function walk(nodes: PageNode[]): boolean {
+		for (const n of nodes) {
+			if (n.type === 'slot') return true;
+			if (Array.isArray(n.nodes) && walk(n.nodes)) return true;
+		}
+		return false;
+	}
+	return walk(state.nodes);
 }
 
 export default function AdminTemplateEditorPage() {
@@ -64,15 +72,14 @@ export default function AdminTemplateEditorPage() {
 			return;
 		}
 
+		const resolvedTemplateId = templateId;
 		let canceled = false;
+
 		async function load() {
 			setLoading(true);
 			setLoadError(null);
 			try {
-				const t = await apiFetch<PageTemplate>(`/api/admin/templates/${templateId}`, {
-					cache: 'no-store',
-					nextPath: `/admin/templates/${templateId}`,
-				});
+				const t = await getAdminTemplate(resolvedTemplateId, `/admin/templates/${resolvedTemplateId}`);
 				if (canceled) return;
 				const state = parsePageBuilderState(t.definition);
 				setTemplate(t);
@@ -107,23 +114,51 @@ export default function AdminTemplateEditorPage() {
 		setBuilder((prev) => {
 			if (hasSlot(prev)) return prev;
 
-			const row = {
-				id: createId('row'),
-				settings: { columns: 1, sizes: [100] },
-				columns: [
-					{
-						id: createId('col'),
-						blocks: [{ id: createId('blk'), type: 'slot', data: { name: 'Page content' } }],
-					},
-				],
-			} satisfies PageBuilderState['rows'][number];
+			function maxBottom(nodes: PageNode[], breakpoint: 'desktop' | 'tablet' | 'mobile'): number {
+				let max = 0;
+				for (const n of nodes) {
+					const f = n.frames[breakpoint];
+					const childMax = Array.isArray(n.nodes) ? maxBottom(n.nodes, breakpoint) : 0;
+					max = Math.max(max, f.y + Math.max(f.h, childMax));
+				}
+				return max;
+			}
 
-			return { ...prev, rows: [...prev.rows, row] };
+			const y = Math.max(0, Math.round(maxBottom(prev.nodes, 'desktop') + 80));
+			const padding = 24;
+			const sectionHeight = 600;
+			const slotHeight = 520;
+
+			const slotNode: PageNode = {
+				id: createId('node'),
+				type: 'slot',
+				data: { name: 'Page content' },
+				frames: {
+					mobile: { x: padding, y: padding, w: prev.canvas.widths.mobile - padding * 2, h: slotHeight },
+					tablet: { x: padding, y: padding, w: prev.canvas.widths.tablet - padding * 2, h: slotHeight },
+					desktop: { x: padding, y: padding, w: prev.canvas.widths.desktop - padding * 2, h: slotHeight },
+				},
+			};
+
+			const frame: PageNode = {
+				id: createId('node'),
+				type: 'frame',
+				data: { label: 'Page slot', paddingPx: padding },
+				frames: {
+					mobile: { x: 0, y, w: prev.canvas.widths.mobile, h: sectionHeight },
+					tablet: { x: 0, y, w: prev.canvas.widths.tablet, h: sectionHeight },
+					desktop: { x: 0, y, w: prev.canvas.widths.desktop, h: sectionHeight },
+				},
+				nodes: [slotNode],
+			};
+
+			return { ...prev, nodes: [...prev.nodes, frame] };
 		});
 	}
 
 	async function save() {
-		if (!template || !templateId) return;
+		const resolvedTemplateId = templateId;
+		if (!template || !resolvedTemplateId) return;
 
 		setSaving(true);
 		setSaveError(null);
@@ -135,12 +170,11 @@ export default function AdminTemplateEditorPage() {
 		};
 
 		try {
-			const out = await apiFetch<PageTemplate>(`/api/admin/templates/${templateId}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload),
-				nextPath: `/admin/templates/${templateId}`,
-			});
+			const out = await updateAdminTemplate(
+				resolvedTemplateId,
+				payload,
+				`/admin/templates/${resolvedTemplateId}`
+			);
 
 			const nextState = parsePageBuilderState(out.definition);
 			setTemplate(out);
@@ -202,7 +236,7 @@ export default function AdminTemplateEditorPage() {
 			{template ? (
 				<>
 					<div className='grid grid-cols-1 lg:grid-cols-12 gap-6'>
-						<div className='lg:col-span-8 space-y-4'>
+						<div className='lg:col-span-12 space-y-4'>
 							<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
 								<div className='space-y-2'>
 									<Label>Title</Label>
@@ -239,22 +273,17 @@ export default function AdminTemplateEditorPage() {
 
 							<Separator />
 
-							<PageBuilder
-								value={builder}
-								onChange={setBuilder}
-								disabled={saving}
-							/>
+							<ClientOnly fallback={<div className='rounded-lg border bg-muted/10 p-4 text-sm text-muted-foreground'>Loading editor…</div>}>
+								<PageBuilder
+									value={builder}
+									onChange={setBuilder}
+									disabled={saving}
+								/>
+							</ClientOnly>
 						</div>
-
-						<aside className='lg:col-span-4'>
-							<div className='sticky top-(--header-height) max-h-[calc(100svh-var(--header-height))] overflow-auto rounded-md border bg-background p-4'>
-								<PageBuilderOutline state={builder} />
-							</div>
-						</aside>
 					</div>
 				</>
 			) : null}
 		</div>
 	);
 }
-

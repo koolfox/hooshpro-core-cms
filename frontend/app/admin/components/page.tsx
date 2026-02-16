@@ -4,7 +4,12 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 import { LayoutGrid, List } from 'lucide-react';
 
-import { apiFetch } from '@/lib/http';
+import {
+	buildAdminComponentsListUrl,
+	createAdminComponent,
+	deleteAdminComponent,
+	updateAdminComponent,
+} from '@/lib/api/components';
 import type { ComponentDef, ComponentListOut } from '@/lib/types';
 import { SHADCN_DOCS_BASE, shadcnDocsUrl } from '@/lib/shadcn-docs';
 import { shadcnComponentMeta } from '@/lib/shadcn-meta';
@@ -14,6 +19,7 @@ import { useShadcnVariants } from '@/hooks/use-shadcn-variants';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
+import { ComponentDataEditor } from '@/components/components/component-data-editor';
 import { ComponentPreview } from '@/components/components/component-preview';
 
 import { Badge } from '@/components/ui/badge';
@@ -52,6 +58,12 @@ const LIMIT = 50;
 const EMPTY_COMPONENTS: ComponentDef[] = [];
 
 type ViewMode = 'table' | 'gallery';
+type SortDir = 'asc' | 'desc';
+
+const SORT_FIELDS = ['updated_at', 'created_at', 'title', 'slug', 'type'] as const;
+type ComponentSort = (typeof SORT_FIELDS)[number];
+const DEFAULT_SORT: ComponentSort = 'updated_at';
+const DEFAULT_DIR: SortDir = 'desc';
 
 function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : NaN;
@@ -63,6 +75,17 @@ function parseViewParam(value: string | null): ViewMode {
 	const v = (value ?? '').trim().toLowerCase();
 	if (v === 'gallery' || v === 'grid') return 'gallery';
 	return 'table';
+}
+
+function parseSortParam(value: string | null): ComponentSort {
+	const v = (value ?? '').trim().toLowerCase();
+	if ((SORT_FIELDS as readonly string[]).includes(v)) return v as ComponentSort;
+	return DEFAULT_SORT;
+}
+
+function parseDirParam(value: string | null): SortDir {
+	const v = (value ?? '').trim().toLowerCase();
+	return v === 'asc' ? 'asc' : DEFAULT_DIR;
 }
 
 function toErrorMessage(error: unknown): string {
@@ -82,6 +105,18 @@ function formatIso(iso: string) {
 
 function defaultDataJson() {
 	return JSON.stringify({}, null, 2);
+}
+
+function deepClone<T>(value: T): T {
+	const sc = (globalThis as unknown as { structuredClone?: (v: unknown) => unknown }).structuredClone;
+	if (typeof sc === 'function') {
+		try {
+			return sc(value) as T;
+		} catch {
+			// fall through
+		}
+	}
+	return JSON.parse(JSON.stringify(value)) as T;
 }
 
 function nextCloneSlug(base: string, existingSlugs: Set<string>): string {
@@ -110,14 +145,20 @@ export default function AdminComponentsScreen() {
 	const urlPage = parsePageParam(searchParams.get('page'));
 	const urlOffset = (urlPage - 1) * LIMIT;
 	const urlView = parseViewParam(searchParams.get('view'));
+	const urlSort = parseSortParam(searchParams.get('sort'));
+	const urlDir = parseDirParam(searchParams.get('dir'));
 
 	const [offset, setOffset] = useState(urlOffset);
 	const [qInput, setQInput] = useState(urlQ);
 	const [typeInput, setTypeInput] = useState<'all' | string>(urlType);
 	const [view, setView] = useState<ViewMode>(urlView);
+	const [sortInput, setSortInput] = useState<ComponentSort>(urlSort);
+	const [dirInput, setDirInput] = useState<SortDir>(urlDir);
 
 	const [q, setQ] = useState(urlQ);
 	const [type, setType] = useState<'all' | string>(urlType);
+	const [sort, setSort] = useState<ComponentSort>(urlSort);
+	const [dir, setDir] = useState<SortDir>(urlDir);
 
 	const qRef = useRef<HTMLInputElement | null>(null);
 
@@ -128,9 +169,20 @@ export default function AdminComponentsScreen() {
 		setQInput(urlQ);
 		setTypeInput(urlType);
 		setView(urlView);
-	}, [urlOffset, urlQ, urlType, urlView]);
+		setSort(urlSort);
+		setDir(urlDir);
+		setSortInput(urlSort);
+		setDirInput(urlDir);
+	}, [urlOffset, urlQ, urlType, urlView, urlSort, urlDir]);
 
-	function updateUrl(next: { page?: number; q?: string; type?: string; view?: ViewMode }) {
+	function updateUrl(next: {
+		page?: number;
+		q?: string;
+		type?: string;
+		view?: ViewMode;
+		sort?: ComponentSort;
+		dir?: SortDir;
+	}) {
 		const params = new URLSearchParams(searchParams.toString());
 
 		const page = next.page ?? parsePageParam(params.get('page'));
@@ -149,6 +201,20 @@ export default function AdminComponentsScreen() {
 		if (nextView !== 'table') params.set('view', nextView);
 		else params.delete('view');
 
+		const rawSort = (next.sort ?? parseSortParam(params.get('sort'))).trim().toLowerCase();
+		const nextSort = parseSortParam(rawSort);
+
+		const rawDir = (next.dir ?? parseDirParam(params.get('dir'))).trim().toLowerCase();
+		const nextDir: SortDir = rawDir === 'asc' ? 'asc' : DEFAULT_DIR;
+
+		if (nextSort === DEFAULT_SORT && nextDir === DEFAULT_DIR) {
+			params.delete('sort');
+			params.delete('dir');
+		} else {
+			params.set('sort', nextSort);
+			params.set('dir', nextDir);
+		}
+
 		const qs = params.toString();
 		router.replace(qs ? `${pathname}?${qs}` : pathname);
 	}
@@ -159,14 +225,18 @@ export default function AdminComponentsScreen() {
 		updateUrl({ page: safeOffset / LIMIT + 1 });
 	}
 
-	const listUrl = useMemo(() => {
-		const params = new URLSearchParams();
-		params.set('limit', String(LIMIT));
-		params.set('offset', String(offset));
-		if (q.trim()) params.set('q', q.trim());
-		if (type !== 'all' && type.trim()) params.set('type', type.trim());
-		return `/api/admin/components?${params.toString()}`;
-	}, [offset, q, type]);
+	const listUrl = useMemo(
+		() =>
+			buildAdminComponentsListUrl({
+				limit: LIMIT,
+				offset,
+				q,
+				type,
+				sort: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? sort : undefined,
+				dir: sort !== DEFAULT_SORT || dir !== DEFAULT_DIR ? dir : undefined,
+			}),
+		[offset, q, type, sort, dir]
+	);
 
 	const { data, loading, error, reload } = useApiList<ComponentListOut>(listUrl, {
 		nextPath: '/admin/components',
@@ -180,19 +250,27 @@ export default function AdminComponentsScreen() {
 	function applyFilters() {
 		const nextQ = qInput.trim();
 		const nextType = typeInput;
+		const nextSort = sortInput;
+		const nextDir = dirInput;
 		setOffset(0);
 		setQ(nextQ);
 		setType(nextType);
-		updateUrl({ page: 1, q: nextQ, type: nextType });
+		setSort(nextSort);
+		setDir(nextDir);
+		updateUrl({ page: 1, q: nextQ, type: nextType, sort: nextSort, dir: nextDir });
 	}
 
 	function resetFilters() {
 		setOffset(0);
 		setQInput('');
 		setTypeInput('all');
+		setSortInput(DEFAULT_SORT);
+		setDirInput(DEFAULT_DIR);
 		setQ('');
 		setType('all');
-		updateUrl({ page: 1, q: '', type: 'all' });
+		setSort(DEFAULT_SORT);
+		setDir(DEFAULT_DIR);
+		updateUrl({ page: 1, q: '', type: 'all', sort: DEFAULT_SORT, dir: DEFAULT_DIR });
 		qRef.current?.focus();
 	}
 
@@ -209,6 +287,8 @@ export default function AdminComponentsScreen() {
 	const [compType, setCompType] = useState('editor');
 	const [description, setDescription] = useState('');
 	const [dataJson, setDataJson] = useState(defaultDataJson());
+	const [dataValue, setDataValue] = useState<Record<string, unknown>>({});
+	const [dataValueError, setDataValueError] = useState<string | null>(null);
 
 	const [saving, setSaving] = useState(false);
 	const [formError, setFormError] = useState<string | null>(null);
@@ -223,6 +303,8 @@ export default function AdminComponentsScreen() {
 		setCompType('editor');
 		setDescription('');
 		setDataJson(defaultDataJson());
+		setDataValue({});
+		setDataValueError(null);
 		setFormError(null);
 		setEditorOpen(true);
 	}
@@ -234,6 +316,8 @@ export default function AdminComponentsScreen() {
 		setCompType(c.type);
 		setDescription(c.description ?? '');
 		setDataJson(JSON.stringify(c.data ?? {}, null, 2));
+		setDataValue(deepClone((c.data ?? {}) as Record<string, unknown>));
+		setDataValueError(null);
 		setFormError(null);
 		setEditorOpen(true);
 	}
@@ -245,6 +329,8 @@ export default function AdminComponentsScreen() {
 		setCompType(c.type);
 		setDescription(c.description ?? '');
 		setDataJson(JSON.stringify(c.data ?? {}, null, 2));
+		setDataValue(deepClone((c.data ?? {}) as Record<string, unknown>));
+		setDataValueError(null);
 		setFormError(null);
 		setEditorOpen(true);
 	}
@@ -253,15 +339,8 @@ export default function AdminComponentsScreen() {
 		setSaving(true);
 		setFormError(null);
 
-		let dataObj: unknown = {};
-		try {
-			const raw = dataJson.trim();
-			dataObj = raw ? JSON.parse(raw) : {};
-			if (dataObj === null || typeof dataObj !== 'object' || Array.isArray(dataObj)) {
-				throw new Error('Data JSON must be an object.');
-			}
-		} catch (e) {
-			setFormError(toErrorMessage(e));
+		if (dataValueError) {
+			setFormError(dataValueError);
 			setSaving(false);
 			return;
 		}
@@ -271,24 +350,14 @@ export default function AdminComponentsScreen() {
 			slug: slug.trim(),
 			type: compType.trim(),
 			description: description.trim() ? description.trim() : null,
-			data: dataObj as Record<string, unknown>,
+			data: dataValue as Record<string, unknown>,
 		};
 
 		try {
 			if (editing) {
-				await apiFetch<ComponentDef>(`/api/admin/components/${editing.id}`, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-					nextPath: '/admin/components',
-				});
+				await updateAdminComponent(editing.id, payload, '/admin/components');
 			} else {
-				await apiFetch<ComponentDef>('/api/admin/components', {
-					method: 'POST',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify(payload),
-					nextPath: '/admin/components',
-				});
+				await createAdminComponent(payload, '/admin/components');
 			}
 			setEditorOpen(false);
 			setActionError(null);
@@ -302,10 +371,7 @@ export default function AdminComponentsScreen() {
 
 	async function doDelete(c: ComponentDef) {
 		try {
-			await apiFetch<{ ok: boolean }>(`/api/admin/components/${c.id}`, {
-				method: 'DELETE',
-				nextPath: '/admin/components',
-			});
+			await deleteAdminComponent(c.id, '/admin/components');
 			setConfirmDelete(null);
 			setActionError(null);
 
@@ -322,17 +388,8 @@ export default function AdminComponentsScreen() {
 			}
 	}
 
-	let previewData: unknown = {};
-	let previewError: string | null = null;
-	try {
-		const parsed = dataJson.trim() ? JSON.parse(dataJson) : {};
-		if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-			throw new Error('Data JSON must be an object.');
-		}
-		previewData = parsed;
-	} catch (e) {
-		previewError = toErrorMessage(e);
-	}
+	const previewData: unknown = dataValue;
+	const previewError: string | null = dataValueError;
 
 	const shadcnDocsLink =
 		compType === 'shadcn' &&
@@ -384,7 +441,7 @@ export default function AdminComponentsScreen() {
 			}
 			filters={
 				<div className='grid grid-cols-1 md:grid-cols-12 gap-3 items-end'>
-					<div className='md:col-span-7 space-y-2'>
+					<div className='md:col-span-5 space-y-2'>
 						<Label>Search</Label>
 						<Input
 							ref={qRef}
@@ -397,7 +454,7 @@ export default function AdminComponentsScreen() {
 							}}
 						/>
 					</div>
-					<div className='md:col-span-3 space-y-2'>
+					<div className='md:col-span-2 space-y-2'>
 						<Label>Type</Label>
 						<Select
 							value={typeInput}
@@ -417,7 +474,43 @@ export default function AdminComponentsScreen() {
 							</SelectContent>
 						</Select>
 					</div>
-					<div className='md:col-span-2 flex gap-2 justify-end'>
+
+					<div className='md:col-span-3 space-y-2'>
+						<Label>Sort</Label>
+						<Select
+							value={sortInput}
+							onValueChange={(v) => setSortInput(v as ComponentSort)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='updated_at'>Updated</SelectItem>
+								<SelectItem value='created_at'>Created</SelectItem>
+								<SelectItem value='title'>Title</SelectItem>
+								<SelectItem value='slug'>Slug</SelectItem>
+								<SelectItem value='type'>Type</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className='md:col-span-2 space-y-2'>
+						<Label>Order</Label>
+						<Select
+							value={dirInput}
+							onValueChange={(v) => setDirInput(v as SortDir)}
+							disabled={loading}>
+							<SelectTrigger>
+								<SelectValue />
+							</SelectTrigger>
+							<SelectContent>
+								<SelectItem value='desc'>desc</SelectItem>
+								<SelectItem value='asc'>asc</SelectItem>
+							</SelectContent>
+						</Select>
+					</div>
+
+					<div className='md:col-span-12 flex gap-2 justify-end'>
 						<Button
 							variant='outline'
 							onClick={resetFilters}
@@ -678,7 +771,20 @@ export default function AdminComponentsScreen() {
 								<Label>Data (JSON)</Label>
 								<Textarea
 									value={dataJson}
-									onChange={(e) => setDataJson(e.target.value)}
+									onChange={(e) => {
+										const next = e.target.value;
+										setDataJson(next);
+										try {
+											const parsed = next.trim() ? JSON.parse(next) : {};
+											if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+												throw new Error('Data JSON must be an object.');
+											}
+											setDataValue(parsed as Record<string, unknown>);
+											setDataValueError(null);
+										} catch (err) {
+											setDataValueError(toErrorMessage(err));
+										}
+									}}
 									className='font-mono text-xs min-h-[220px]'
 									disabled={saving}
 								/>
@@ -823,6 +929,33 @@ export default function AdminComponentsScreen() {
 										</div>
 									</details>
 								) : null}
+
+								<details className='rounded-lg border bg-muted/10 p-3'>
+									<summary className='text-sm font-medium cursor-pointer select-none'>
+										Visual editor (recommended)
+									</summary>
+									<div className='mt-3 space-y-3'>
+										{dataValueError ? (
+											<p className='text-xs text-amber-600'>
+												Raw JSON is invalid; the visual editor is showing the last valid values.
+											</p>
+										) : null}
+										<ComponentDataEditor
+											type={compType}
+											value={dataValue}
+											disabled={saving}
+											onChange={(next) => {
+												if (next === null || typeof next !== 'object' || Array.isArray(next)) {
+													setDataValueError('Data must be a JSON object.');
+													return;
+												}
+												setDataValue(next as Record<string, unknown>);
+												setDataValueError(null);
+												setDataJson(JSON.stringify(next, null, 2));
+											}}
+										/>
+									</div>
+								</details>
 							</div>
 
 							{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
@@ -899,3 +1032,5 @@ export default function AdminComponentsScreen() {
 		</AdminListPage>
 	);
 }
+
+

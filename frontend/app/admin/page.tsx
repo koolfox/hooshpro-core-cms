@@ -26,6 +26,10 @@ import type {
 	MediaListOut,
 	PageListOut,
 	PageTemplateListOut,
+	ContentTypeListOut,
+	ContentEntryListOut,
+	TaxonomyListOut,
+	ThemeListOut,
 } from '@/lib/types';
 
 import { cn } from '@/lib/utils';
@@ -38,7 +42,7 @@ type DashboardWidget = {
 	title: string;
 	description: string;
 	href: string;
-	key: 'pages' | 'templates' | 'components' | 'blocks' | 'media';
+	key: 'pages' | 'templates' | 'components' | 'blocks' | 'collections' | 'entries' | 'taxonomies' | 'media' | 'themes';
 };
 
 const WIDGETS: DashboardWidget[] = [
@@ -71,11 +75,39 @@ const WIDGETS: DashboardWidget[] = [
 		href: '/admin/blocks',
 	},
 	{
+		id: 'collections',
+		key: 'collections',
+		title: 'Collections',
+		description: 'Define content types (Products, Projects, etc.).',
+		href: '/admin/collections',
+	},
+	{
+		id: 'entries',
+		key: 'entries',
+		title: 'Entries',
+		description: 'Dynamic content entries for collections.',
+		href: '/admin/entries',
+	},
+	{
+		id: 'taxonomies',
+		key: 'taxonomies',
+		title: 'Taxonomies',
+		description: 'WordPress-like categories/tags/custom.',
+		href: '/admin/taxonomies',
+	},
+	{
 		id: 'media',
 		key: 'media',
 		title: 'Media',
 		description: 'Upload and organize assets (folders + drag/drop).',
 		href: '/admin/media',
+	},
+	{
+		id: 'themes',
+		key: 'themes',
+		title: 'Themes',
+		description: 'Theme definitions (CSS variables) for public rendering.',
+		href: '/admin/themes',
 	},
 ] as const;
 
@@ -199,7 +231,11 @@ export default function AdminHome() {
 		templates: null,
 		components: null,
 		blocks: null,
+		collections: null,
+		entries: null,
+		taxonomies: null,
 		media: null,
+		themes: null,
 	});
 	const [loadingCounts, setLoadingCounts] = useState(true);
 	const [countsError, setCountsError] = useState<string | null>(null);
@@ -239,7 +275,7 @@ export default function AdminHome() {
 			setCountsError(null);
 
 			try {
-				const [meOut, pagesOut, templatesOut, componentsOut, blocksOut, mediaOut] =
+				const [meOut, pagesOut, templatesOut, componentsOut, blocksOut, collectionsOut, entriesOut, taxonomiesOut, mediaOut, themesOut] =
 					await Promise.all([
 						apiFetch<{ id: number; email: string }>('/api/auth/me', {
 							cache: 'no-store',
@@ -261,7 +297,23 @@ export default function AdminHome() {
 							cache: 'no-store',
 							nextPath: '/admin',
 						}),
+						apiFetch<ContentTypeListOut>('/api/admin/content-types?limit=1&offset=0', {
+							cache: 'no-store',
+							nextPath: '/admin',
+						}),
+						apiFetch<ContentEntryListOut>('/api/admin/entries?limit=1&offset=0', {
+							cache: 'no-store',
+							nextPath: '/admin',
+						}),
+						apiFetch<TaxonomyListOut>('/api/admin/taxonomies?limit=1&offset=0', {
+							cache: 'no-store',
+							nextPath: '/admin',
+						}),
 						apiFetch<MediaListOut>('/api/admin/media?limit=1&offset=0', {
+							cache: 'no-store',
+							nextPath: '/admin',
+						}),
+						apiFetch<ThemeListOut>('/api/admin/themes?limit=1&offset=0', {
 							cache: 'no-store',
 							nextPath: '/admin',
 						}),
@@ -275,7 +327,11 @@ export default function AdminHome() {
 					templates: templatesOut.total ?? 0,
 					components: componentsOut.total ?? 0,
 					blocks: blocksOut.total ?? 0,
+					collections: collectionsOut.total ?? 0,
+					entries: entriesOut.total ?? 0,
+					taxonomies: taxonomiesOut.total ?? 0,
 					media: mediaOut.total ?? 0,
+					themes: themesOut.total ?? 0,
 				});
 			} catch (e) {
 				if (canceled) return;
@@ -297,11 +353,11 @@ export default function AdminHome() {
 	}, [widgetOrder]);
 
 	async function logout() {
-		await fetch('/api/auth/logout', {
-			method: 'POST',
-			credentials: 'include',
-		});
-		window.location.href = '/auth/login';
+		try {
+			await apiFetch<{ ok: boolean }>('/api/auth/logout', { method: 'POST', nextPath: '/auth/login' });
+		} finally {
+			window.location.href = '/auth/login';
+		}
 	}
 
 	function onDragEnd(event: DragEndEvent) {
@@ -372,3 +428,4 @@ export default function AdminHome() {
 		</div>
 	);
 }
+
