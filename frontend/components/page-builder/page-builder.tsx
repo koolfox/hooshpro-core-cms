@@ -14,7 +14,7 @@ import {
 } from '@dnd-kit/core';
 import { useDraggable, useDroppable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { ArrowRight, Columns3, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Circle, Copy, EyeOff, ImagePlus, LayoutGrid, ListTree, Minus, Monitor, MoreHorizontal, MousePointer2, Plus, RectangleHorizontal, RotateCcw, SlidersHorizontal, Smartphone, Tablet, Trash2, Type, ZoomIn, ZoomOut } from 'lucide-react';
+import { ArrowRight, Columns3, ChevronDown, ChevronUp, ChevronsDown, ChevronsUp, Circle, Copy, EyeOff, ImagePlus, LayoutGrid, ListTree, Maximize2, Minimize2, Minus, Monitor, MoreHorizontal, MousePointer2, PanelLeftClose, PanelLeftOpen, PanelRightClose, PanelRightOpen, Plus, RectangleHorizontal, Redo2, RotateCcw, SlidersHorizontal, Smartphone, Tablet, Trash2, Type, Undo2, ZoomIn, ZoomOut } from 'lucide-react';
 
 import type {
 	BuilderBreakpoint,
@@ -29,6 +29,7 @@ import type {
 } from '@/lib/page-builder';
 import {
 	cloneNodesWithNewIds,
+	comparableJsonFromState,
 	createId,
 	emptyEditorValue,
 	isRecord,
@@ -80,6 +81,7 @@ const MIN_NODE_W = 40;
 const MIN_NODE_H = 32;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
+const HISTORY_LIMIT = 120;
 
 const GRID_CELL_PX = 5;
 const GRID_MAJOR_PX = GRID_CELL_PX * 10;
@@ -121,6 +123,22 @@ type BuilderTool =
 	| 'comment';
 
 type CanvasViewportMode = 'single' | 'frames';
+const BREAKPOINT_LABELS: Record<BuilderBreakpoint, string> = {
+	mobile: 'Mobile',
+	tablet: 'Tablet',
+	desktop: 'Desktop',
+};
+
+const TOOL_LABELS: Record<BuilderTool, string> = {
+	select: 'Select',
+	frame: 'Frame',
+	shape: 'Shape',
+	pen: 'Pen',
+	pencil: 'Pencil',
+	media: 'Media',
+	text: 'Text',
+	comment: 'Comment',
+};
 
 type DrawState = {
 	mode: 'frame' | 'shape';
@@ -1525,6 +1543,7 @@ function CanvasFramePreview({
 	width,
 	selectedIds,
 	lockedIds,
+	showGridOverlay,
 	className,
 }: {
 	nodes: PageNode[];
@@ -1533,20 +1552,23 @@ function CanvasFramePreview({
 	width: number;
 	selectedIds: Set<string>;
 	lockedIds: Set<string>;
+	showGridOverlay: boolean;
 	className?: string;
 }) {
 	return (
 		<div
 			className={cn('relative rounded-md bg-background', className)}
 			style={{ width, height }}>
-			<div
-				className='pointer-events-none absolute inset-0 z-0'
-				style={{
-					backgroundImage: GRID_BACKGROUND_IMAGE,
-					backgroundSize: GRID_BACKGROUND_SIZE,
-					backgroundPosition: GRID_BACKGROUND_POSITION,
-				}}
-			/>
+			{showGridOverlay ? (
+				<div
+					className='pointer-events-none absolute inset-0 z-0'
+					style={{
+						backgroundImage: GRID_BACKGROUND_IMAGE,
+						backgroundSize: GRID_BACKGROUND_SIZE,
+						backgroundPosition: GRID_BACKGROUND_POSITION,
+					}}
+				/>
+			) : null}
 			{nodes.map((n) => (
 				<PreviewNode
 					key={n.id}
@@ -1585,8 +1607,40 @@ export function PageBuilder({
 	const effectiveEditRootId =
 		typeof editRootId === 'string' && editRootId.trim() ? editRootId.trim() : null;
 	const valueRef = useRef<PageBuilderState>(value);
+	const [undoStack, setUndoStack] = useState<PageBuilderState[]>([]);
+	const [redoStack, setRedoStack] = useState<PageBuilderState[]>([]);
+	const applyingHistoryRef = useRef(false);
+	const lastValueSnapshotRef = useRef(comparableJsonFromState(value));
+	const previousValueRef = useRef<PageBuilderState>(value);
 	useEffect(() => {
 		valueRef.current = value;
+	}, [value]);
+
+	useEffect(() => {
+		const snapshot = comparableJsonFromState(value);
+
+		if (applyingHistoryRef.current) {
+			applyingHistoryRef.current = false;
+			previousValueRef.current = value;
+			lastValueSnapshotRef.current = snapshot;
+			return;
+		}
+
+		if (snapshot === lastValueSnapshotRef.current) {
+			previousValueRef.current = value;
+			return;
+		}
+
+		setUndoStack((prev) => {
+			const next = [...prev, previousValueRef.current];
+			if (next.length > HISTORY_LIMIT) {
+				next.splice(0, next.length - HISTORY_LIMIT);
+			}
+			return next;
+		});
+		setRedoStack([]);
+		previousValueRef.current = value;
+		lastValueSnapshotRef.current = snapshot;
 	}, [value]);
 
 	const viewportRef = useRef<HTMLDivElement | null>(null);
@@ -1610,6 +1664,7 @@ export function PageBuilder({
 	const [drawState, setDrawState] = useState<DrawState | null>(null);
 	const [marqueeState, setMarqueeState] = useState<MarqueeState | null>(null);
 	const [viewportMode, setViewportMode] = useState<CanvasViewportMode>('frames');
+	const [showGridOverlay, setShowGridOverlay] = useState(true);
 
 	const [blockPickerOpen, setBlockPickerOpen] = useState(false);
 	const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
@@ -1620,6 +1675,9 @@ export function PageBuilder({
 	const [insertOpen, setInsertOpen] = useState(false);
 	const [leftDockMode, setLeftDockMode] = useState<'outline' | 'insert'>('outline');
 	const [insertTab, setInsertTab] = useState<'blocks' | 'libraries'>('blocks');
+	const [showLeftDock, setShowLeftDock] = useState(true);
+	const [showRightDock, setShowRightDock] = useState(true);
+	const [focusMode, setFocusMode] = useState(false);
 	const [detachingMenu, setDetachingMenu] = useState(false);
 	const [detachMenuError, setDetachMenuError] = useState<string | null>(null);
 
@@ -1695,6 +1753,44 @@ export function PageBuilder({
 		[disabledFlag]
 	);
 
+	const canUndo = undoStack.length > 0;
+	const canRedo = redoStack.length > 0;
+
+	const undo = useCallback(() => {
+		if (disabledFlag) return;
+		if (!undoStack.length) return;
+		const previous = undoStack[undoStack.length - 1];
+		if (!previous) return;
+
+		setUndoStack((prev) => prev.slice(0, -1));
+		setRedoStack((prev) => {
+			const next = [valueRef.current, ...prev];
+			if (next.length > HISTORY_LIMIT) next.splice(HISTORY_LIMIT);
+			return next;
+		});
+		applyingHistoryRef.current = true;
+		onChange(previous);
+		setSelectedIds([]);
+	}, [disabledFlag, onChange, undoStack]);
+
+	const redo = useCallback(() => {
+		if (disabledFlag) return;
+		if (!redoStack.length) return;
+		const nextState = redoStack[0];
+		if (!nextState) return;
+
+		setRedoStack((prev) => prev.slice(1));
+		setUndoStack((prev) => {
+			const next = [...prev, valueRef.current];
+			if (next.length > HISTORY_LIMIT) {
+				next.splice(0, next.length - HISTORY_LIMIT);
+			}
+			return next;
+		});
+		applyingHistoryRef.current = true;
+		onChange(nextState);
+		setSelectedIds([]);
+	}, [disabledFlag, onChange, redoStack]);
 	const rootHeight = useMemo(() => {
 		const desktop = Math.max(value.canvas.minHeightPx, computeBottom(value.nodes, 'desktop') + 80);
 		const tablet = Math.max(value.canvas.minHeightPx, computeBottom(value.nodes, 'tablet') + 80);
@@ -2571,8 +2667,62 @@ export function PageBuilder({
 
 		function onKeyDown(e: KeyboardEvent) {
 			if (disabledFlag) return;
-			if (!selectedIds.length) return;
 			if (isTypingTarget(document.activeElement)) return;
+
+			const isMod = (navigator.platform || '').toLowerCase().includes('mac') ? e.metaKey : e.ctrlKey;
+			if (isMod && e.key.toLowerCase() === 'z') {
+				e.preventDefault();
+				if (e.shiftKey) {
+					redo();
+				} else {
+					undo();
+				}
+				return;
+			}
+			if (isMod && e.key.toLowerCase() === 'y') {
+				e.preventDefault();
+				redo();
+				return;
+			}
+
+			if (!isMod && e.key.toLowerCase() === 'g') {
+				e.preventDefault();
+				setShowGridOverlay((prev) => !prev);
+				return;
+			}
+
+			if (!isMod && e.key.toLowerCase() === 'i') {
+				e.preventDefault();
+				setInsertTab('blocks');
+				if (window.matchMedia('(min-width: 1024px)').matches) {
+					setFocusMode(false);
+					setShowLeftDock(true);
+					setLeftDockMode('insert');
+				} else {
+					setInsertOpen(true);
+				}
+				return;
+			}
+
+			if (!isMod && e.key.toLowerCase() === 'l') {
+				e.preventDefault();
+				if (window.matchMedia('(min-width: 1024px)').matches) {
+					setFocusMode(false);
+					setShowLeftDock(true);
+					setLeftDockMode('outline');
+				} else {
+					setOutlineOpen(true);
+				}
+				return;
+			}
+
+			if (!isMod && e.key === '\\') {
+				e.preventDefault();
+				setFocusMode((prev) => !prev);
+				return;
+			}
+
+			if (!selectedIds.length) return;
 
 			const snap = valueRef.current.canvas.snapPx;
 			const step = e.shiftKey ? snap * 10 : snap;
@@ -2589,7 +2739,6 @@ export function PageBuilder({
 				return;
 			}
 
-			const isMod = (navigator.platform || '').toLowerCase().includes('mac') ? e.metaKey : e.ctrlKey;
 			if (isMod && e.key.toLowerCase() === 'd') {
 				e.preventDefault();
 				duplicateSelected();
@@ -2630,7 +2779,7 @@ export function PageBuilder({
 
 		window.addEventListener('keydown', onKeyDown);
 		return () => window.removeEventListener('keydown', onKeyDown);
-	}, [disabledFlag, selectedIds, nudgeSelected, removeSelected, duplicateSelected, reorderZ]);
+	}, [disabledFlag, selectedIds, nudgeSelected, removeSelected, duplicateSelected, reorderZ, undo, redo]);
 
 	function addComponent(component: ComponentPickerItem) {
 		if (disabledFlag) return;
@@ -3654,6 +3803,17 @@ export function PageBuilder({
 					? 'cursor-copy'
 					: null;
 
+	const selectedCount = selectedIds.length;
+	const breakpointLabel = BREAKPOINT_LABELS[breakpoint];
+	const activeToolLabel =
+		tool === 'frame'
+			? `${TOOL_LABELS.frame} (${frameToolLayout})`
+			: tool === 'shape'
+				? `${TOOL_LABELS.shape} (${shapeToolKind})`
+				: TOOL_LABELS[tool];
+	const leftDockVisible = showLeftDock && !focusMode;
+	const rightDockVisible = showRightDock && !focusMode;
+
 	function toggleTool(next: BuilderTool) {
 		setTool((prev) => (prev === next ? 'select' : next));
 	}
@@ -3661,6 +3821,8 @@ export function PageBuilder({
 	const openInsertPanel = useCallback((tab: 'blocks' | 'libraries' = 'blocks') => {
 		setInsertTab(tab);
 		if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+			setFocusMode(false);
+			setShowLeftDock(true);
 			setLeftDockMode('insert');
 			return;
 		}
@@ -3669,6 +3831,8 @@ export function PageBuilder({
 
 	const openOutlinePanel = useCallback(() => {
 		if (typeof window !== 'undefined' && window.matchMedia('(min-width: 1024px)').matches) {
+			setFocusMode(false);
+			setShowLeftDock(true);
 			setLeftDockMode('outline');
 			return;
 		}
@@ -5713,44 +5877,109 @@ export function PageBuilder({
 			</div>
 			*/}
 
-			<div className='flex flex-1 min-h-0 min-w-0 overflow-hidden'>
-				<aside
-					className={cn(
-						'hidden lg:flex shrink-0 border-r bg-background/80',
-						leftDockMode === 'insert' ? 'w-[560px]' : 'w-[340px]'
-					)}>
-					<div className='flex h-full w-full'>
-						<div className='w-12 shrink-0 border-r bg-background/60 flex flex-col items-center py-2 gap-1'>
-							<Button
-								type='button'
-								variant={leftDockMode === 'insert' ? 'secondary' : 'ghost'}
-								size='icon'
-								onClick={() => setLeftDockMode('insert')}
-								disabled={disabledFlag}>
-								<Plus className='h-4 w-4' />
-								<span className='sr-only'>Insert</span>
-							</Button>
-							<Button
-								type='button'
-								variant={leftDockMode === 'outline' ? 'secondary' : 'ghost'}
-								size='icon'
-								onClick={() => setLeftDockMode('outline')}
-								disabled={disabledFlag}>
-								<ListTree className='h-4 w-4' />
-								<span className='sr-only'>Layers</span>
-							</Button>
-						</div>
-						<div className='flex-1 h-full overflow-hidden'>
-							{leftDockMode === 'insert' ? (
-								<div className='h-full'>{insertPanel}</div>
-							) : (
-								<div className='h-full w-full overflow-auto p-4'>{outlineTree}</div>
-							)}
-						</div>
+			<div className='shrink-0 border-b bg-background/85 backdrop-blur supports-[backdrop-filter]:bg-background/70'>
+				<div className='flex h-10 items-center justify-between gap-2 px-3'>
+					<div className='flex min-w-0 items-center gap-2'>
+						<span className='text-xs font-semibold tracking-wide text-foreground'>Canvas</span>
+						<span className='hidden sm:inline-flex rounded border px-2 py-0.5 text-[11px] text-muted-foreground'>Tool: {activeToolLabel}</span>
+						<span className='hidden md:inline-flex rounded border px-2 py-0.5 text-[11px] text-muted-foreground'>Mode: {viewportMode === 'frames' ? 'Frames' : 'Single'}</span>
 					</div>
-				</aside>
+					<div className='flex items-center gap-2 text-[11px] text-muted-foreground'>
+						<Button
+							type='button'
+							variant='ghost'
+							size='sm'
+							onClick={() => setShowGridOverlay((prev) => !prev)}
+							disabled={disabledFlag}
+							className='h-7 px-2'>
+							{showGridOverlay ? 'Hide grid' : 'Show grid'}
+						</Button>
+						<Button
+							type='button'
+							variant='ghost'
+							size='icon'
+							onClick={() => {
+								setFocusMode(false);
+								setShowLeftDock((prev) => !prev);
+							}}
+							disabled={disabledFlag}
+							className='hidden h-7 w-7 lg:inline-flex'
+							title={leftDockVisible ? 'Hide left panel' : 'Show left panel'}>
+							{leftDockVisible ? <PanelLeftClose className='h-4 w-4' /> : <PanelLeftOpen className='h-4 w-4' />}
+							<span className='sr-only'>{leftDockVisible ? 'Hide left panel' : 'Show left panel'}</span>
+						</Button>
+						<Button
+							type='button'
+							variant='ghost'
+							size='icon'
+							onClick={() => {
+								setFocusMode(false);
+								setShowRightDock((prev) => !prev);
+							}}
+							disabled={disabledFlag}
+							className='hidden h-7 w-7 xl:inline-flex'
+							title={rightDockVisible ? 'Hide inspector' : 'Show inspector'}>
+							{rightDockVisible ? <PanelRightClose className='h-4 w-4' /> : <PanelRightOpen className='h-4 w-4' />}
+							<span className='sr-only'>{rightDockVisible ? 'Hide inspector' : 'Show inspector'}</span>
+						</Button>
+						<Button
+							type='button'
+							variant={focusMode ? 'secondary' : 'ghost'}
+							size='icon'
+							onClick={() => setFocusMode((prev) => !prev)}
+							disabled={disabledFlag}
+							className='h-7 w-7'
+							title={focusMode ? 'Exit focus mode' : 'Enter focus mode'}>
+							{focusMode ? <Minimize2 className='h-4 w-4' /> : <Maximize2 className='h-4 w-4' />}
+							<span className='sr-only'>{focusMode ? 'Exit focus mode' : 'Enter focus mode'}</span>
+						</Button>
+						<span className='hidden md:inline'>{breakpointLabel}</span>
+						<span>{selectedCount} selected</span>
+						<span className='hidden xl:inline'>I Insert · L Layers · G Grid · \ Focus</span>
+					</div>
+				</div>
+			</div>
 
-				<section className={cn('flex-1 min-h-0 min-w-0 rounded-md border bg-background overflow-hidden', fullHeight ? null : 'h-full')}>
+			<div className='flex flex-1 min-h-0 min-w-0 overflow-hidden'>
+				{leftDockVisible ? (
+					<aside
+						className={cn(
+							'hidden lg:flex shrink-0 border-r bg-background/70 backdrop-blur',
+							leftDockMode === 'insert' ? 'w-[560px]' : 'w-[340px]'
+						)}>
+						<div className='flex h-full w-full'>
+							<div className='w-12 shrink-0 border-r bg-background/50 flex flex-col items-center py-2 gap-1'>
+								<Button
+									type='button'
+									variant={leftDockMode === 'insert' ? 'secondary' : 'ghost'}
+									size='icon'
+									onClick={() => setLeftDockMode('insert')}
+									disabled={disabledFlag}>
+									<Plus className='h-4 w-4' />
+									<span className='sr-only'>Insert</span>
+								</Button>
+								<Button
+									type='button'
+									variant={leftDockMode === 'outline' ? 'secondary' : 'ghost'}
+									size='icon'
+									onClick={() => setLeftDockMode('outline')}
+									disabled={disabledFlag}>
+									<ListTree className='h-4 w-4' />
+									<span className='sr-only'>Layers</span>
+								</Button>
+							</div>
+							<div className='flex-1 h-full overflow-hidden'>
+								{leftDockMode === 'insert' ? (
+									<div className='h-full'>{insertPanel}</div>
+								) : (
+									<div className='h-full w-full overflow-auto p-4'>{outlineTree}</div>
+								)}
+							</div>
+						</div>
+					</aside>
+				) : null}
+
+				<section className={cn('flex-1 min-h-0 min-w-0 rounded-md border bg-background/95 shadow-sm overflow-hidden', fullHeight ? null : 'h-full')}>
 				<div className='relative h-full w-full'>
 					<div
 						ref={viewportRef}
@@ -5839,15 +6068,17 @@ export function PageBuilder({
 																	onPointerMove={onCanvasPointerMove}
 																	onPointerUp={onCanvasPointerUp}
 																	onPointerCancel={onCanvasPointerUp}>
-																	{frameLabel}
-																	<div
-																		className='pointer-events-none absolute inset-0 z-0'
-																		style={{
-																			backgroundImage: GRID_BACKGROUND_IMAGE,
-																			backgroundSize: GRID_BACKGROUND_SIZE,
-																			backgroundPosition: GRID_BACKGROUND_POSITION,
-																		}}
-																	/>
+											{frameLabel}
+											{showGridOverlay ? (
+												<div
+													className='pointer-events-none absolute inset-0 z-0'
+													style={{
+														backgroundImage: GRID_BACKGROUND_IMAGE,
+														backgroundSize: GRID_BACKGROUND_SIZE,
+														backgroundPosition: GRID_BACKGROUND_POSITION,
+													}}
+												/>
+											) : null}
 
 																	{dragAssist && dragAssist.guideX !== null ? (
 																		<>
@@ -5944,7 +6175,8 @@ export function PageBuilder({
 																		width={frameWidth}
 																		selectedIds={selectedIdsSet}
 																		lockedIds={lockedIds}
-																		className={cn(frameShellClass, 'pointer-events-none')}
+												showGridOverlay={showGridOverlay}
+												className={cn(frameShellClass, 'pointer-events-none')}
 																	/>
 																	<button
 																		type='button'
@@ -5972,7 +6204,8 @@ export function PageBuilder({
 												onPointerDown={onCanvasPointerDown}
 												onPointerMove={onCanvasPointerMove}
 												onPointerUp={onCanvasPointerUp}
-												onPointerCancel={onCanvasPointerUp}>
+											onPointerCancel={onCanvasPointerUp}>
+											{showGridOverlay ? (
 												<div
 													className='pointer-events-none absolute inset-0 z-0'
 													style={{
@@ -5981,6 +6214,8 @@ export function PageBuilder({
 														backgroundPosition: GRID_BACKGROUND_POSITION,
 													}}
 												/>
+											) : null}
+										
 
 												{dragAssist && dragAssist.guideX !== null ? (
 													<>
@@ -6127,9 +6362,11 @@ export function PageBuilder({
 				</div>
 				</section>
 
-				<aside className='hidden xl:flex w-[360px] shrink-0 border-l bg-background/80'>
-					<div className='flex h-full flex-col'>{inspectorInner}</div>
-				</aside>
+				{rightDockVisible ? (
+					<aside className='hidden xl:flex w-[360px] shrink-0 border-l bg-background/80'>
+						<div className='flex h-full flex-col'>{inspectorInner}</div>
+					</aside>
+				) : null}
 			</div>
 
 			<div className='shrink-0 border-t bg-background/90 backdrop-blur supports-[backdrop-filter]:bg-background/70'>
@@ -6269,6 +6506,39 @@ export function PageBuilder({
 						disabled={disabledFlag}>
 						<Plus className='h-4 w-4' />
 						<span className='sr-only'>Insert</span>
+					</Button>
+					<Button
+						type='button'
+						variant={showGridOverlay ? 'secondary' : 'ghost'}
+						size='icon'
+						onClick={() => setShowGridOverlay((prev) => !prev)}
+						disabled={disabledFlag}
+						title={showGridOverlay ? 'Hide grid overlay' : 'Show grid overlay'}>
+						<LayoutGrid className='h-4 w-4' />
+						<span className='sr-only'>Toggle grid overlay</span>
+					</Button>
+
+					<Separator orientation='vertical' className='h-6' />
+
+					<Button
+						type='button'
+						variant='ghost'
+						size='icon'
+						onClick={undo}
+						disabled={disabledFlag || !canUndo}
+						title='Undo (Ctrl/Cmd+Z)'>
+						<Undo2 className='h-4 w-4' />
+						<span className='sr-only'>Undo</span>
+					</Button>
+					<Button
+						type='button'
+						variant='ghost'
+						size='icon'
+						onClick={redo}
+						disabled={disabledFlag || !canRedo}
+						title='Redo (Shift+Ctrl/Cmd+Z or Ctrl+Y)'>
+						<Redo2 className='h-4 w-4' />
+						<span className='sr-only'>Redo</span>
 					</Button>
 
 					<div className='ml-auto flex items-center gap-2'>

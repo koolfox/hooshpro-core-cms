@@ -156,6 +156,10 @@ export function PublicPageClient({
 	const [baselineTemplate, setBaselineTemplate] = useState<string>('');
 
 	const [saving, setSaving] = useState(false);
+	const [autosaving, setAutosaving] = useState(false);
+	const [autosaveEnabled, setAutosaveEnabled] = useState(true);
+	const [lastSavedAt, setLastSavedAt] = useState<Date | null>(null);
+	const [autosaveError, setAutosaveError] = useState<string | null>(null);
 	const [error, setError] = useState<string | null>(null);
 
 	const viewState = useMemo(() => parsePageBuilderState(page.blocks), [page.blocks]);
@@ -348,62 +352,104 @@ export function PublicPageClient({
 		return false;
 	}, [baselineBlocks, builder, page, title, seoTitle, seoDesc, status, templateDirty]);
 
-	async function save(nextStatus?: 'draft' | 'published') {
-		if (!isAdmin) return;
+	type SaveOptions = {
+		autosave?: boolean;
+	};
 
-		setSaving(true);
-		setError(null);
+	const save = useCallback(
+		async (nextStatus?: 'draft' | 'published', options?: SaveOptions) => {
+			if (!isAdmin) return;
 
-		const payload = {
-			title: title.trim(),
-			status: nextStatus ?? status,
-			seo_title: seoTitle.trim() ? seoTitle.trim() : null,
-			seo_description: seoDesc.trim() ? seoDesc.trim() : null,
-			blocks: serializePageBuilderState(builder),
-		};
+			const isAutosave = options?.autosave ?? false;
+			if (saving || autosaving) return;
 
-		try {
-			if (editMode && showChrome && chromeUnlocked && templateDraft && templateDirty && activeTemplate) {
-				const t = await apiFetch<PageTemplate>(`/api/admin/templates/${activeTemplate.id}`, {
-					method: 'PUT',
-					headers: { 'content-type': 'application/json' },
-					body: JSON.stringify({ definition: serializePageBuilderState(templateDraft) }),
+			if (isAutosave) {
+				setAutosaving(true);
+				setAutosaveError(null);
+			} else {
+				setSaving(true);
+				setError(null);
+				setAutosaveError(null);
+			}
+
+			const payload = {
+				title: title.trim(),
+				status: nextStatus ?? status,
+				seo_title: seoTitle.trim() ? seoTitle.trim() : null,
+				seo_description: seoDesc.trim() ? seoDesc.trim() : null,
+				blocks: serializePageBuilderState(builder),
+			};
+
+			try {
+				if (editMode && showChrome && chromeUnlocked && templateDraft && templateDirty && activeTemplate) {
+					const t = await apiFetch<PageTemplate>(`/api/admin/templates/${activeTemplate.id}`, {
+						method: 'PUT',
+						headers: { 'content-type': 'application/json' },
+						body: JSON.stringify({ definition: serializePageBuilderState(templateDraft) }),
+						cache: 'no-store',
+						nextPath: `/${page.slug}?edit=1`,
+					});
+					setActiveTemplate(t);
+					const nextTemplate = parsePageBuilderState(t.definition);
+					setTemplateDraft(nextTemplate);
+					setBaselineTemplate(comparableJsonFromState(nextTemplate));
+				}
+
+				const updated = await apiFetch<Page>(`/api/admin/pages/by-slug/${page.slug}`, {
 					cache: 'no-store',
 					nextPath: `/${page.slug}?edit=1`,
 				});
-				setActiveTemplate(t);
-				const nextTemplate = parsePageBuilderState(t.definition);
-				setTemplateDraft(nextTemplate);
-				setBaselineTemplate(comparableJsonFromState(nextTemplate));
+
+				const out = await apiFetch<Page>(`/api/admin/pages/${updated.id}`, {
+					method: 'PUT',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify(payload),
+					nextPath: `/${page.slug}?edit=1`,
+				});
+
+				const nextBuilder = parsePageBuilderState(out.blocks);
+
+				setPage(out);
+				setTitle(out.title);
+				setSeoTitle(out.seo_title ?? '');
+				setSeoDesc(out.seo_description ?? '');
+				setStatus(out.status);
+				setBuilder(nextBuilder);
+				setBaselineBlocks(comparableJsonFromState(nextBuilder));
+				setLastSavedAt(new Date());
+			} catch (e) {
+				const message = e instanceof Error ? e.message : String(e);
+				if (isAutosave) {
+					setAutosaveError(message);
+				} else {
+					setError(message);
+				}
+			} finally {
+				if (isAutosave) {
+					setAutosaving(false);
+				} else {
+					setSaving(false);
+				}
 			}
-
-			const updated = await apiFetch<Page>(`/api/admin/pages/by-slug/${page.slug}`, {
-				cache: 'no-store',
-				nextPath: `/${page.slug}?edit=1`,
-			});
-
-			const out = await apiFetch<Page>(`/api/admin/pages/${updated.id}`, {
-				method: 'PUT',
-				headers: { 'content-type': 'application/json' },
-				body: JSON.stringify(payload),
-				nextPath: `/${page.slug}?edit=1`,
-			});
-
-			const nextBuilder = parsePageBuilderState(out.blocks);
-
-			setPage(out);
-			setTitle(out.title);
-			setSeoTitle(out.seo_title ?? '');
-			setSeoDesc(out.seo_description ?? '');
-			setStatus(out.status);
-			setBuilder(nextBuilder);
-			setBaselineBlocks(comparableJsonFromState(nextBuilder));
-		} catch (e) {
-			setError(e instanceof Error ? e.message : String(e));
-		} finally {
-			setSaving(false);
-		}
-	}
+		},
+		[
+			isAdmin,
+			saving,
+			autosaving,
+			title,
+			status,
+			seoTitle,
+			seoDesc,
+			builder,
+			editMode,
+			showChrome,
+			chromeUnlocked,
+			templateDraft,
+			templateDirty,
+			activeTemplate,
+			page.slug,
+		]
+	);
 
 	async function toggleStatus() {
 		if (status === 'draft') {
@@ -538,6 +584,60 @@ export function PublicPageClient({
 
 	const rendererState = templateState && hasSlot(templateState) ? templateState : fallbackTemplateState;
 	const effectiveRendererState = chromeUnlocked && templateDraft ? templateDraft : rendererState;
+	const lastSavedLabel = useMemo(() => {
+		if (!lastSavedAt) return 'Not saved yet';
+		return `Last saved ${lastSavedAt.toLocaleTimeString([], {
+			hour: '2-digit',
+			minute: '2-digit',
+			second: '2-digit',
+		})}`;
+	}, [lastSavedAt]);
+
+	useEffect(() => {
+		if (!editMode || !isAdmin || !autosaveEnabled) return;
+		if (!dirty) return;
+		if (saving || autosaving) return;
+
+		const timerId = window.setTimeout(() => {
+			void save(undefined, { autosave: true });
+		}, 1400);
+
+		return () => {
+			window.clearTimeout(timerId);
+		};
+	}, [editMode, isAdmin, autosaveEnabled, dirty, saving, autosaving, save]);
+
+	useEffect(() => {
+		if (!editMode || !isAdmin) return;
+
+		function onKeyDown(e: KeyboardEvent) {
+			if (!(e.ctrlKey || e.metaKey)) return;
+			if (e.key.toLowerCase() !== 's') return;
+			e.preventDefault();
+			if (dirty && !saving && !autosaving) {
+				void save();
+			}
+		}
+
+		window.addEventListener('keydown', onKeyDown);
+		return () => {
+			window.removeEventListener('keydown', onKeyDown);
+		};
+	}, [editMode, isAdmin, dirty, saving, autosaving, save]);
+
+	useEffect(() => {
+		if (!editMode || !dirty) return;
+
+		function onBeforeUnload(e: BeforeUnloadEvent) {
+			e.preventDefault();
+			e.returnValue = '';
+		}
+
+		window.addEventListener('beforeunload', onBeforeUnload);
+		return () => {
+			window.removeEventListener('beforeunload', onBeforeUnload);
+		};
+	}, [editMode, dirty]);
 
 	useEffect(() => {
 		if (!editMode) {
@@ -733,13 +833,18 @@ export function PublicPageClient({
 		<div className='fixed bottom-4 left-1/2 z-50 -translate-x-1/2 flex flex-wrap items-center justify-center gap-2 rounded-full border bg-background/95 px-3 py-2 shadow-lg backdrop-blur supports-[backdrop-filter]:bg-background/80'>
 			<Badge variant={status === 'published' ? 'default' : 'secondary'}>{status}</Badge>
 			{dirty ? <Badge variant='outline'>Unsaved</Badge> : <Badge variant='secondary'>Saved</Badge>}
+			{autosaving ? <Badge variant='secondary'>Autosaving…</Badge> : null}
+			<Badge variant={autosaveEnabled ? 'secondary' : 'outline'}>
+				{autosaveEnabled ? 'Autosave on' : 'Autosave off'}
+			</Badge>
+			<span className='hidden lg:inline text-xs text-muted-foreground'>{lastSavedLabel}</span>
 			<span className='hidden md:inline text-xs text-muted-foreground'>/{page.slug}</span>
 
 			<Button
 				variant='outline'
 				size='sm'
 				onClick={() => setSettingsOpen(true)}
-				disabled={saving}>
+				disabled={saving || autosaving}>
 				Settings
 			</Button>
 
@@ -747,7 +852,7 @@ export function PublicPageClient({
 				variant='outline'
 				size='sm'
 				onClick={() => setShowChrome((prev) => !prev)}
-				disabled={saving}>
+				disabled={saving || autosaving}>
 				{showChrome ? 'Hide chrome' : 'Show chrome'}
 			</Button>
 
@@ -756,15 +861,23 @@ export function PublicPageClient({
 			<Button
 				variant='outline'
 				size='sm'
+				onClick={() => setAutosaveEnabled((prev) => !prev)}
+				disabled={saving || autosaving}>
+				{autosaveEnabled ? 'Disable autosave' : 'Enable autosave'}
+			</Button>
+
+			<Button
+				variant='outline'
+				size='sm'
 				onClick={toggleStatus}
-				disabled={saving}>
+				disabled={saving || autosaving}>
 				{status === 'published' ? 'Unpublish' : 'Publish'}
 			</Button>
 
 			<Button
 				size='sm'
 				onClick={() => save()}
-				disabled={saving || !dirty}>
+				disabled={saving || autosaving || !dirty}>
 				{saving ? 'Saving…' : 'Save'}
 			</Button>
 
@@ -772,7 +885,7 @@ export function PublicPageClient({
 				variant='outline'
 				size='sm'
 				onClick={exitEdit}
-				disabled={saving}>
+				disabled={saving || autosaving}>
 				Done
 			</Button>
 		</div>
@@ -889,12 +1002,12 @@ export function PublicPageClient({
 					<Button
 						variant='outline'
 						onClick={() => setSettingsOpen(false)}
-						disabled={saving}>
+						disabled={saving || autosaving}>
 						Close
 					</Button>
 					<Button
 						onClick={() => save()}
-						disabled={saving || !dirty}>
+						disabled={saving || autosaving || !dirty}>
 						{saving ? 'Saving…' : 'Save'}
 					</Button>
 				</DialogFooter>
@@ -940,6 +1053,9 @@ export function PublicPageClient({
 
 				{editToolbar}
 				{settingsDialog}
+				{autosaveError ? (
+					<p className='px-6 pb-2 text-sm text-amber-600'>Autosave failed: {autosaveError}</p>
+				) : null}
 				{error ? <p className='px-6 pb-6 text-sm text-red-600'>{error}</p> : null}
 			</main>
 		);

@@ -41,6 +41,7 @@ Quick check:
 ### Frontend Routes (from code)
 
 - Public pages: `/[slug]`
+- SEO metadata routes: `/robots.txt`, `/sitemap.xml`
 - Auth page: `/auth/login`
 - Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/collections`, `/admin/collections/[id]`, `/admin/entries`, `/admin/taxonomies`, `/admin/taxonomies/[id]`, `/admin/media`, `/admin/themes`, `/admin/settings`
 - Homepage: `/` (renders the page with slug from option `reading.front_page_slug`; default `home`; edit at `/?edit=1` when logged in)
@@ -73,6 +74,7 @@ Quick check:
     - GET    `/api/admin/pages/by-slug/{slug}` (resolve id for visual editing)
 
   - Public:
+    - GET `/api/public/pages` (published list; pagination for sitemap/feeds)
     - GET `/api/public/pages/{slug}` (published only)
 
 - Menus:
@@ -363,6 +365,12 @@ First-run seed (empty DB only):
 - [x] V5-A: Taxonomies (DB `taxonomies/terms/term_relationships` + `/admin/taxonomies`; entry term assignment API)
 - [x] V5-A: Themes (DB `themes` + `/admin/themes`; public resolver `/api/public/themes/active` merges overrides)
 - [x] Starter site seed (“Jeweler”): template + menus + pages + products collection + sample media
+- [x] Editor reliability pass: debounced autosave, `Ctrl/Cmd+S`, unsaved-changes unload guard, and last-saved/ autosave status badges
+- [x] Editor history controls: bounded undo/redo stack with shortcuts (`Ctrl/Cmd+Z`, `Shift+Ctrl/Cmd+Z`, `Ctrl+Y`) + toolbar actions
+- [x] Editor shell polish pass: top context strip (tool/mode/selection), grid visibility toggle, and refined dock/canvas visual styling
+- [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
+- [x] Backend builder contract validation: Pages/Templates/Blocks now validate persisted builder JSON (strict for v4 graph; compatibility checks for v1/v3)
+- [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
 
 ### In Progress
 
@@ -609,4 +617,3 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
-
