@@ -282,6 +282,7 @@ Blocks:
       - `data.props` supports Radix “responsive object” values; `asChild` is ignored for `frame` nodes (frames can host multiple children).
       - `data.clip: true` enables “Clip contents” (children are clipped to the frame bounds).
     - `shape` nodes are also containers (rect/ellipse/line/arrow/etc). This is the base “Figma primitives” unit: wrap shapes inside shapes and place `text` / `image` nodes inside any shape/frame.
+    - Backend validation parity: only `frame` and `shape` nodes are allowed to own positioned child `nodes` trees; other node types must stay leaf nodes.
     - Some `shadcn` components are treated as containers when metadata marks them `canWrapChildren`.
     - `shadcn` blocks can also include legacy `children: PageBlock[]` (non-positioned) for special cases like Accordion.
   - DnD + resize: dnd-kit with `snapPx=1` (1px snap) on drag/resize.
@@ -620,5 +621,7 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
+
 
 

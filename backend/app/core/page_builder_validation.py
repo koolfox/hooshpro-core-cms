@@ -25,6 +25,7 @@ ALLOWED_NODE_TYPES = {
     "shadcn",
     "unknown",
 }
+CONTAINER_NODE_TYPES = {"frame", "shape"}
 MAX_NODES = 2000
 MAX_DEPTH = 32
 MAX_ID_LENGTH = 120
@@ -163,8 +164,15 @@ def validate_page_builder_document(
             if "children" in node:
                 _as_list(node.get("children"), f"{node_path}.children")
 
-            children_raw = node.get("nodes", [])
-            children = _as_list(children_raw, f"{node_path}.nodes")
+            if "nodes" in node:
+                children = _as_list(node.get("nodes"), f"{node_path}.nodes")
+                if node_type not in CONTAINER_NODE_TYPES:
+                    allowed = sorted(CONTAINER_NODE_TYPES)
+                    raise PageBuilderValidationError(
+                        f"{node_path}.nodes is only allowed for {allowed}."
+                    )
+            else:
+                children = []
 
             node_count += 1
             if node_count > MAX_NODES:
