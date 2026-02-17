@@ -249,6 +249,72 @@ function parseContainerDropId(value: unknown): string | null {
 	return value.slice(CONTAINER_PREFIX.length);
 }
 
+function canContainChildren(node: PageNode | null | undefined): node is PageNode & { nodes: PageNode[] } {
+	return !!node && Array.isArray(node.nodes);
+}
+
+function countNodeOccurrences(nodes: PageNode[], nodeId: string): number {
+	let count = 0;
+	function walk(list: PageNode[]) {
+		for (const node of list) {
+			if (node.id === nodeId) count += 1;
+			if (Array.isArray(node.nodes)) walk(node.nodes);
+		}
+	}
+	walk(nodes);
+	return count;
+}
+
+function normalizeDropParentId(params: {
+	index: ReturnType<typeof buildIndex>;
+	nodeId: string;
+	candidateParentId: string | null;
+	originalParentId: string | null;
+	effectiveEditRootId: string | null;
+}): string | null {
+	const { index, nodeId, originalParentId, effectiveEditRootId } = params;
+	let parentId = params.candidateParentId;
+
+	if (parentId && (parentId === nodeId || isDescendant(index.parentById, parentId, nodeId))) {
+		parentId = originalParentId;
+	}
+
+	if (parentId && !canContainChildren(index.byId.get(parentId))) {
+		parentId = originalParentId;
+	}
+
+	const editRoot = effectiveEditRootId && index.byId.has(effectiveEditRootId) ? effectiveEditRootId : null;
+	if (editRoot) {
+		const withinEditRoot = (id: string | null): boolean => {
+			if (!id) return false;
+			return id === editRoot || isDescendant(index.parentById, id, editRoot);
+		};
+		if (!withinEditRoot(parentId)) {
+			parentId = withinEditRoot(originalParentId) ? originalParentId : editRoot;
+		}
+	}
+
+	if (parentId && !canContainChildren(index.byId.get(parentId))) {
+		return originalParentId && canContainChildren(index.byId.get(originalParentId))
+			? originalParentId
+			: null;
+	}
+
+	return parentId;
+}
+
+function uniqueParentCandidates(candidates: Array<string | null>): Array<string | null> {
+	const out: Array<string | null> = [];
+	const seen = new Set<string>();
+	for (const id of candidates) {
+		const key = id ?? '__root__';
+		if (seen.has(key)) continue;
+		seen.add(key);
+		out.push(id);
+	}
+	return out;
+}
+
 function snapTo(value: number, step: number): number {
 	const safe = Number.isFinite(step) && step > 0 ? step : 1;
 	return Math.round(value / safe) * safe;
@@ -2128,33 +2194,19 @@ export function PageBuilder({
 		dragDeltaRef.current = { x: deltaX, y: deltaY };
 
 		const overId = event.over?.id;
-		let nextParent: string | null = null;
-		if (!overId || overId === ROOT_DROPPABLE_ID) {
-			nextParent = null;
-		} else {
-			const container = parseContainerDropId(overId);
-			if (container) {
-				nextParent = container;
-			} else {
-				const overNode = parseNodeDragId(overId);
-				nextParent = overNode ? index.parentById.get(overNode) ?? null : null;
-			}
-		}
+		const overNodeId = parseNodeDragId(overId);
+		const rawNextParent =
+			!overId || overId === ROOT_DROPPABLE_ID
+				? null
+				: parseContainerDropId(overId) ?? (overNodeId ? index.parentById.get(overNodeId) ?? null : null);
 		const originalParent = index.parentById.get(id) ?? null;
-		if (nextParent && (nextParent === id || isDescendant(index.parentById, nextParent, id))) {
-			nextParent = originalParent;
-		}
-
-		const editRoot = effectiveEditRootId && index.byId.has(effectiveEditRootId) ? effectiveEditRootId : null;
-		if (editRoot) {
-			const withinEditRoot = (parentId: string | null): boolean => {
-				if (!parentId) return false;
-				return parentId === editRoot || isDescendant(index.parentById, parentId, editRoot);
-			};
-			if (!withinEditRoot(nextParent)) {
-				nextParent = withinEditRoot(originalParent) ? originalParent : editRoot;
-			}
-		}
+		const nextParent = normalizeDropParentId({
+			index,
+			nodeId: id,
+			candidateParentId: rawNextParent,
+			originalParentId: originalParent,
+			effectiveEditRootId,
+		});
 
 		setDragOverParentId(nextParent);
 
@@ -2203,117 +2255,144 @@ export function PageBuilder({
 		const overId = event.over?.id;
 		const rawTargetContainer = parseContainerDropId(overId) ?? null;
 		const targetIsRoot = overId === ROOT_DROPPABLE_ID || !overId;
-		let targetParentId = targetIsRoot ? null : rawTargetContainer ?? dragOverParentAtDrop ?? null;
-		if (targetParentId && (targetParentId === nodeId || isDescendant(idx.parentById, targetParentId, nodeId))) {
-			targetParentId = originalParentId;
-		}
-		if (targetParentId && !idx.byId.has(targetParentId)) {
-			targetParentId = originalParentId;
-		}
-
-		const editRoot = effectiveEditRootId && idx.byId.has(effectiveEditRootId) ? effectiveEditRootId : null;
-		if (editRoot) {
-			const withinEditRoot = (parentId: string | null): boolean => {
-				if (!parentId) return false;
-				return parentId === editRoot || isDescendant(idx.parentById, parentId, editRoot);
-			};
-			if (!withinEditRoot(targetParentId)) {
-				targetParentId = withinEditRoot(originalParentId) ? originalParentId : editRoot;
-			}
-		}
-
-		const targetGlobal = targetParentId ? idx.globalById.get(targetParentId) ?? { x: 0, y: 0 } : { x: 0, y: 0 };
+		const rawTargetParentId = targetIsRoot ? null : rawTargetContainer ?? dragOverParentAtDrop ?? null;
+		const normalizedTargetParentId = normalizeDropParentId({
+			index: idx,
+			nodeId,
+			candidateParentId: rawTargetParentId,
+			originalParentId,
+			effectiveEditRootId,
+		});
 
 		const snap = current.canvas.snapPx;
 		const computedRootHeight = Math.max(current.canvas.minHeightPx, computeBottom(current.nodes, breakpoint) + 80);
 
-		const assist = computeDragAssist({
-			index: idx,
-			nodeId,
-			delta: { x: deltaX, y: deltaY },
-			breakpoint,
-			canvasWidth: current.canvas.widths[breakpoint],
-			rootHeight: computedRootHeight,
-			scopeParentId: targetParentId,
-			thresholdPx: 6 / zoomValue,
-		});
-
-		const globalX = startGlobal.x + deltaX + (assist?.snapDx ?? 0);
-		const globalY = startGlobal.y + deltaY + (assist?.snapDy ?? 0);
-		const nextX = snapTo(globalX - targetGlobal.x, snap);
-		const nextY = snapTo(globalY - targetGlobal.y, snap);
-
 		const removedOut = removeNodeFromTree(current.nodes, nodeId);
 		if (!removedOut.removed) return;
 
-		const movedFrame = removedOut.removed.frames[breakpoint];
-		const parentWidth = targetParentId
-			? idx.byId.get(targetParentId)?.frames[breakpoint].w ?? current.canvas.widths[breakpoint]
-			: rootClientWidth ?? current.canvas.widths[breakpoint];
-		const parentHeight = targetParentId
-			? idx.byId.get(targetParentId)?.frames[breakpoint].h ?? current.canvas.minHeightPx
-			: Math.max(current.canvas.minHeightPx, computeBottom(removedOut.nodes, breakpoint) + 80);
-
-		const maxX = Math.max(0, parentWidth - movedFrame.w);
-		const clampedX = clamp(nextX, 0, maxX);
-		const allowOverflowY = !!editRoot && targetParentId === editRoot;
-		const clampedY = targetParentId && !allowOverflowY
-			? clamp(nextY, 0, Math.max(0, parentHeight - movedFrame.h))
-			: clamp(nextY, 0, Number.POSITIVE_INFINITY);
-
 		const afterRemovalIndex = buildIndex(removedOut.nodes, breakpoint);
-		const siblings = targetParentId
-			? afterRemovalIndex.byId.get(targetParentId)?.nodes ?? []
-			: removedOut.nodes;
-		const maxSiblingZ = siblings.reduce((max, n) => {
-			const zRaw = n.frames[breakpoint].z;
-			const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
-			return Math.max(max, z);
-		}, 1);
-		const nextZ = Math.max(
-			1,
-			Math.round(
-				Math.max(
-					typeof movedFrame.z === 'number' && Number.isFinite(movedFrame.z) ? movedFrame.z : 1,
-					maxSiblingZ + 1
+		const fallbackOriginalParentId =
+			originalParentId && afterRemovalIndex.byId.has(originalParentId) ? originalParentId : null;
+		const parentCandidates = uniqueParentCandidates([
+			normalizedTargetParentId,
+			fallbackOriginalParentId,
+			null,
+		]);
+
+		let committedNodes: PageNode[] | null = null;
+		let committedFrame: NodeFrame | null = null;
+		let committedTargetGlobal: { x: number; y: number } | null = null;
+
+		for (const parentCandidate of parentCandidates) {
+			const targetParentId = normalizeDropParentId({
+				index: afterRemovalIndex,
+				nodeId,
+				candidateParentId: parentCandidate,
+				originalParentId: fallbackOriginalParentId,
+				effectiveEditRootId,
+			});
+			if (targetParentId && !canContainChildren(afterRemovalIndex.byId.get(targetParentId))) continue;
+
+			const targetGlobal = targetParentId
+				? afterRemovalIndex.globalById.get(targetParentId) ?? { x: 0, y: 0 }
+				: { x: 0, y: 0 };
+
+			const assist = computeDragAssist({
+				index: idx,
+				nodeId,
+				delta: { x: deltaX, y: deltaY },
+				breakpoint,
+				canvasWidth: current.canvas.widths[breakpoint],
+				rootHeight: computedRootHeight,
+				scopeParentId: targetParentId,
+				thresholdPx: 6 / zoomValue,
+			});
+
+			const globalX = startGlobal.x + deltaX + (assist?.snapDx ?? 0);
+			const globalY = startGlobal.y + deltaY + (assist?.snapDy ?? 0);
+			const nextX = snapTo(globalX - targetGlobal.x, snap);
+			const nextY = snapTo(globalY - targetGlobal.y, snap);
+
+			const movedFrame = removedOut.removed.frames[breakpoint];
+			const parentWidth = targetParentId
+				? afterRemovalIndex.byId.get(targetParentId)?.frames[breakpoint].w ?? current.canvas.widths[breakpoint]
+				: rootClientWidth ?? current.canvas.widths[breakpoint];
+			const parentHeight = targetParentId
+				? afterRemovalIndex.byId.get(targetParentId)?.frames[breakpoint].h ?? current.canvas.minHeightPx
+				: Math.max(current.canvas.minHeightPx, computeBottom(removedOut.nodes, breakpoint) + 80);
+
+			const maxX = Math.max(0, parentWidth - movedFrame.w);
+			const clampedX = clamp(nextX, 0, maxX);
+			const editRoot =
+				effectiveEditRootId && afterRemovalIndex.byId.has(effectiveEditRootId)
+					? effectiveEditRootId
+					: null;
+			const allowOverflowY = !!editRoot && targetParentId === editRoot;
+			const clampedY =
+				targetParentId && !allowOverflowY
+					? clamp(nextY, 0, Math.max(0, parentHeight - movedFrame.h))
+					: clamp(nextY, 0, Number.POSITIVE_INFINITY);
+
+			const siblings = targetParentId
+				? afterRemovalIndex.byId.get(targetParentId)?.nodes ?? []
+				: removedOut.nodes;
+			const maxSiblingZ = siblings.reduce((max, n) => {
+				const zRaw = n.frames[breakpoint].z;
+				const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
+				return Math.max(max, z);
+			}, 1);
+			const nextZ = Math.max(
+				1,
+				Math.round(
+					Math.max(
+						typeof movedFrame.z === 'number' && Number.isFinite(movedFrame.z) ? movedFrame.z : 1,
+						maxSiblingZ + 1
+					)
 				)
-			)
-		);
+			);
 
-		const moved: PageNode = {
-			...removedOut.removed,
-			frames: {
-				...removedOut.removed.frames,
-				[breakpoint]: { ...removedOut.removed.frames[breakpoint], x: clampedX, y: clampedY, z: nextZ },
-			},
-		};
+			const moved: PageNode = {
+				...removedOut.removed,
+				frames: {
+					...removedOut.removed.frames,
+					[breakpoint]: { ...removedOut.removed.frames[breakpoint], x: clampedX, y: clampedY, z: nextZ },
+				},
+			};
 
-		let inserted = insertNodeIntoTree(removedOut.nodes, targetParentId, moved);
-		const insertedIndex = buildIndex(inserted, breakpoint);
-		if (!insertedIndex.byId.has(nodeId)) {
-			const fallbackParentId =
-				originalParentId && insertedIndex.byId.has(originalParentId) ? originalParentId : null;
-			inserted = insertNodeIntoTree(removedOut.nodes, fallbackParentId, moved);
-			if (!buildIndex(inserted, breakpoint).byId.has(nodeId)) inserted = [...removedOut.nodes, moved];
+			const candidateNodes = insertNodeIntoTree(removedOut.nodes, targetParentId, moved);
+			if (countNodeOccurrences(candidateNodes, nodeId) !== 1) continue;
+
+			const candidateIndex = buildIndex(candidateNodes, breakpoint);
+			if (!candidateIndex.byId.has(nodeId)) continue;
+			if ((candidateIndex.parentById.get(nodeId) ?? null) !== targetParentId) continue;
+
+			committedNodes = candidateNodes;
+			committedFrame = moved.frames[breakpoint];
+			committedTargetGlobal = targetGlobal;
+			break;
 		}
 
-		onChange({ ...current, nodes: inserted });
+		if (!committedNodes || !committedFrame || !committedTargetGlobal) {
+			return;
+		}
+
+		onChange({ ...current, nodes: committedNodes });
 
 		// If a drop lands outside the current viewport (common when dragging while panning/zoomed),
 		// auto-focus the moved node so it never feels like it "vanished".
 		const viewport = viewportRef.current;
 		if (viewport) {
-			const zoomValue = zoomRef.current || 1;
+			const zoomAtDrop = zoomRef.current || 1;
 			const offsetX = viewportMode === 'frames' ? frameBoard.activeOffsetX : 0;
-			const visibleX0 = (viewport.scrollLeft - RULER_SIZE_PX) / zoomValue - offsetX;
-			const visibleY0 = (viewport.scrollTop - RULER_SIZE_PX) / zoomValue;
-			const visibleX1 = visibleX0 + viewport.clientWidth / zoomValue;
-			const visibleY1 = visibleY0 + viewport.clientHeight / zoomValue;
+			const visibleX0 = (viewport.scrollLeft - RULER_SIZE_PX) / zoomAtDrop - offsetX;
+			const visibleY0 = (viewport.scrollTop - RULER_SIZE_PX) / zoomAtDrop;
+			const visibleX1 = visibleX0 + viewport.clientWidth / zoomAtDrop;
+			const visibleY1 = visibleY0 + viewport.clientHeight / zoomAtDrop;
 
-			const newGlobalX = targetGlobal.x + clampedX;
-			const newGlobalY = targetGlobal.y + clampedY;
-			const newGlobalX1 = newGlobalX + movedFrame.w;
-			const newGlobalY1 = newGlobalY + movedFrame.h;
+			const newGlobalX = committedTargetGlobal.x + committedFrame.x;
+			const newGlobalY = committedTargetGlobal.y + committedFrame.y;
+			const newGlobalX1 = newGlobalX + committedFrame.w;
+			const newGlobalY1 = newGlobalY + committedFrame.h;
 
 			const margin = 24;
 			const outOfView =
@@ -3695,11 +3774,14 @@ export function PageBuilder({
 
 	const dragAssist = useMemo(() => {
 		if (!draggingId || !dragDelta) return null;
-		const scope = dragOverParentId ?? (index.parentById.get(draggingId) ?? null);
-		const safeScope =
-			scope && (scope === draggingId || isDescendant(index.parentById, scope, draggingId))
-				? (index.parentById.get(draggingId) ?? null)
-				: scope;
+		const originalParentId = index.parentById.get(draggingId) ?? null;
+		const scopeParentId = normalizeDropParentId({
+			index,
+			nodeId: draggingId,
+			candidateParentId: dragOverParentId ?? originalParentId,
+			originalParentId,
+			effectiveEditRootId,
+		});
 		return computeDragAssist({
 			index,
 			nodeId: draggingId,
@@ -3707,10 +3789,10 @@ export function PageBuilder({
 			breakpoint,
 			canvasWidth: value.canvas.widths[breakpoint],
 			rootHeight,
-			scopeParentId: safeScope,
+			scopeParentId,
 			thresholdPx: 6 / zoomValue,
 		});
-	}, [draggingId, dragDelta, dragOverParentId, index, breakpoint, value.canvas.widths, rootHeight, zoomValue]);
+	}, [draggingId, dragDelta, dragOverParentId, index, breakpoint, value.canvas.widths, rootHeight, zoomValue, effectiveEditRootId]);
 
 	const dragPreviewDelta = useMemo(() => {
 		if (!draggingId || !dragDelta) return null;
@@ -3718,11 +3800,14 @@ export function PageBuilder({
 		const startGlobal = index.globalById.get(draggingId);
 		if (!node || !startGlobal) return null;
 
-		const scope = dragOverParentId ?? (index.parentById.get(draggingId) ?? null);
-		const scopeParentId =
-			scope && (scope === draggingId || isDescendant(index.parentById, scope, draggingId))
-				? (index.parentById.get(draggingId) ?? null)
-				: scope;
+		const originalParentId = index.parentById.get(draggingId) ?? null;
+		const scopeParentId = normalizeDropParentId({
+			index,
+			nodeId: draggingId,
+			candidateParentId: dragOverParentId ?? originalParentId,
+			originalParentId,
+			effectiveEditRootId,
+		});
 
 		const targetGlobal = scopeParentId ? index.globalById.get(scopeParentId) ?? { x: 0, y: 0 } : { x: 0, y: 0 };
 		const nodeFrame = node.frames[breakpoint];
@@ -3760,6 +3845,7 @@ export function PageBuilder({
 		value.canvas.widths,
 		rootClientWidth,
 		rootHeight,
+		effectiveEditRootId,
 	]);
 
 	const ShapeToolIcon =

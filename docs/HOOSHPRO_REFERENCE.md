@@ -286,6 +286,7 @@ Blocks:
     - `shadcn` blocks can also include legacy `children: PageBlock[]` (non-positioned) for special cases like Accordion.
   - DnD + resize: dnd-kit with `snapPx=1` (1px snap) on drag/resize.
   - Anti-lost: if a drag/drop lands outside the current viewport, the editor auto-focuses the moved node so it never “vanishes” off-screen.
+  - Transactional drop safety: move/drop commits only when the resulting tree is valid (parent is a real container, node exists exactly once); otherwise it auto-reverts.
   - Smart alignment: live guides + snapping to parent/sibling edges/centers (Figma-style) and keyboard nudge (arrows; Shift = 10×).
   - Locked editor decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real page + 1px snap + V6 is canonical.
   - Editor surface: admins edit **on the real page** (`/?edit=1`, `/[slug]?edit=1`) when session is valid; otherwise it renders as public view.
