@@ -17,10 +17,10 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
+import { formatUiError } from '@/lib/error-message';
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function toKebabCase(input: string): string {

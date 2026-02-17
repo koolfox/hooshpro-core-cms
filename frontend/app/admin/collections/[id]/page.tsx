@@ -5,6 +5,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'next/navigation';
 
 import type { ContentField, ContentType } from '@/lib/types';
+import { formatUiError } from '@/lib/error-message';
 import {
 	createAdminContentField,
 	deleteAdminContentField,
@@ -57,8 +58,7 @@ function parseId(value: unknown): number | null {
 }
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function slugify(input: string) {
@@ -435,5 +435,3 @@ export default function AdminCollectionDetailPage() {
 		</div>
 	);
 }
-
-

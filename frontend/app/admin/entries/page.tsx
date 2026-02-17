@@ -44,6 +44,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { formatUiError } from '@/lib/error-message';
 
 const LIMIT = 20;
 const EMPTY: ContentEntry[] = [];
@@ -92,8 +93,7 @@ function formatIso(iso: string) {
 }
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 export default function AdminEntriesPage() {
@@ -679,7 +679,3 @@ export default function AdminEntriesPage() {
 		</AdminListPage>
 	);
 }
-
-
-
-

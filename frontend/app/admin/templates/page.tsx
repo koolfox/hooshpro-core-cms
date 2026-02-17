@@ -28,6 +28,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { formatUiError } from '@/lib/error-message';
 import {
 	Select,
 	SelectContent,
@@ -58,8 +59,7 @@ const DEFAULT_SORT: TemplateSort = 'updated_at';
 const DEFAULT_DIR: SortDir = 'desc';
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function parsePageParam(value: string | null): number {
@@ -585,5 +585,3 @@ export default function AdminTemplatesScreen() {
 		</AdminListPage>
 	);
 }
-
-

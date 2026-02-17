@@ -14,6 +14,7 @@ import {
 	type PageNode,
 } from '@/lib/page-builder';
 import type { PageTemplate } from '@/lib/types';
+import { formatUiError } from '@/lib/error-message';
 
 import { ClientOnly } from '@/components/client-only';
 import { PageBuilder } from '@/components/page-builder/page-builder';
@@ -26,8 +27,7 @@ import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function parseId(value: unknown): number | null {

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { apiFetch } from '@/lib/http';
+import { formatUiError } from '@/lib/error-message';
 
 type Options = {
 	nextPath: string;
@@ -10,8 +11,7 @@ type Options = {
 };
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 export function useApiList<T>(url: string, opts: Options) {
@@ -61,4 +61,3 @@ export function useApiList<T>(url: string, opts: Options) {
 
 	return { data, loading, error, reload, setData };
 }
-

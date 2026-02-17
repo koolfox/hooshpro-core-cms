@@ -33,6 +33,7 @@ import { AdminListPage } from '@/components/admin/admin-list-page';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { formatUiError } from '@/lib/error-message';
 import type {
 	MediaAsset,
 	MediaFolder,
@@ -115,8 +116,7 @@ function parseDirParam(value: string | null): SortDir {
 }
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function prettyBytes(n: number) {
@@ -1701,5 +1701,3 @@ export default function MediaScreen() {
 		</AdminListPage>
 	);
 }
-
-

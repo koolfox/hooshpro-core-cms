@@ -42,6 +42,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { formatUiError } from '@/lib/error-message';
 
 import {
 	AlertDialog,
@@ -89,8 +90,7 @@ function parseDirParam(value: string | null): SortDir {
 }
 
 function toErrorMessage(error: unknown): string {
-	if (error instanceof Error) return error.message;
-	return String(error);
+	return formatUiError(error);
 }
 
 function formatIso(iso: string) {
@@ -1032,5 +1032,3 @@ export default function AdminComponentsScreen() {
 		</AdminListPage>
 	);
 }
-
-
