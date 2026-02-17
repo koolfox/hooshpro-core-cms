@@ -162,6 +162,12 @@ type MarqueeState = {
 	additive: boolean;
 };
 
+type DropNotice = {
+	kind: 'error' | 'info';
+	message: string;
+	stamp: number;
+};
+
 const FRAME_LAYOUT_PRESETS: Array<{
 	layout: FrameLayoutKind;
 	label: string;
@@ -1722,6 +1728,7 @@ export function PageBuilder({
 	const [draggingId, setDraggingId] = useState<string | null>(null);
 	const [dragDelta, setDragDelta] = useState<DragDelta | null>(null);
 	const [dragOverParentId, setDragOverParentId] = useState<string | null>(null);
+	const [dropNotice, setDropNotice] = useState<DropNotice | null>(null);
 	const [resizeState, setResizeState] = useState<ResizeState | null>(null);
 
 	const [tool, setTool] = useState<BuilderTool>('select');
@@ -1872,6 +1879,28 @@ export function PageBuilder({
 
 	const dragDeltaRafRef = useRef<number | null>(null);
 	const dragDeltaRef = useRef<DragDelta>({ x: 0, y: 0 });
+	const dropNoticeTimerRef = useRef<number | null>(null);
+	const pushDropNotice = useCallback((kind: DropNotice['kind'], message: string) => {
+		const stamp = Date.now();
+		setDropNotice({ kind, message, stamp });
+		if (dropNoticeTimerRef.current) {
+			window.clearTimeout(dropNoticeTimerRef.current);
+			dropNoticeTimerRef.current = null;
+		}
+		dropNoticeTimerRef.current = window.setTimeout(() => {
+			setDropNotice((prev) => (prev && prev.stamp === stamp ? null : prev));
+			dropNoticeTimerRef.current = null;
+		}, 2600);
+	}, []);
+
+	useEffect(() => {
+		return () => {
+			if (dropNoticeTimerRef.current) {
+				window.clearTimeout(dropNoticeTimerRef.current);
+				dropNoticeTimerRef.current = null;
+			}
+		};
+	}, []);
 
 	useEffect(() => {
 		const el = rootElRef.current;
@@ -2173,6 +2202,7 @@ export function PageBuilder({
 		if (!id) return;
 		if (!selectedIdsSet.has(id)) setSelectedIds([id]);
 		setDraggingId(id);
+		setDropNotice(null);
 		setDragDelta({ x: 0, y: 0 });
 		setDragOverParentId(index.parentById.get(id) ?? null);
 		dragDeltaRef.current = { x: 0, y: 0 };
@@ -2282,6 +2312,7 @@ export function PageBuilder({
 		let committedNodes: PageNode[] | null = null;
 		let committedFrame: NodeFrame | null = null;
 		let committedTargetGlobal: { x: number; y: number } | null = null;
+		let rejectedReason = 'Drop was reverted to protect layout integrity.';
 
 		for (const parentCandidate of parentCandidates) {
 			const targetParentId = normalizeDropParentId({
@@ -2291,7 +2322,10 @@ export function PageBuilder({
 				originalParentId: fallbackOriginalParentId,
 				effectiveEditRootId,
 			});
-			if (targetParentId && !canContainChildren(afterRemovalIndex.byId.get(targetParentId))) continue;
+			if (targetParentId && !canContainChildren(afterRemovalIndex.byId.get(targetParentId))) {
+				rejectedReason = 'Drop target cannot contain child nodes.';
+				continue;
+			}
 
 			const targetGlobal = targetParentId
 				? afterRemovalIndex.globalById.get(targetParentId) ?? { x: 0, y: 0 }
@@ -2360,11 +2394,20 @@ export function PageBuilder({
 			};
 
 			const candidateNodes = insertNodeIntoTree(removedOut.nodes, targetParentId, moved);
-			if (countNodeOccurrences(candidateNodes, nodeId) !== 1) continue;
+			if (countNodeOccurrences(candidateNodes, nodeId) !== 1) {
+				rejectedReason = 'Drop produced an invalid node tree; move was reverted.';
+				continue;
+			}
 
 			const candidateIndex = buildIndex(candidateNodes, breakpoint);
-			if (!candidateIndex.byId.has(nodeId)) continue;
-			if ((candidateIndex.parentById.get(nodeId) ?? null) !== targetParentId) continue;
+			if (!candidateIndex.byId.has(nodeId)) {
+				rejectedReason = 'Drop target became invalid; move was reverted.';
+				continue;
+			}
+			if ((candidateIndex.parentById.get(nodeId) ?? null) !== targetParentId) {
+				rejectedReason = 'Drop location is not allowed for this node.';
+				continue;
+			}
 
 			committedNodes = candidateNodes;
 			committedFrame = moved.frames[breakpoint];
@@ -2373,6 +2416,7 @@ export function PageBuilder({
 		}
 
 		if (!committedNodes || !committedFrame || !committedTargetGlobal) {
+			pushDropNotice('error', rejectedReason);
 			return;
 		}
 
@@ -2404,6 +2448,18 @@ export function PageBuilder({
 			if (outOfView) pendingFocusIdRef.current = nodeId;
 		}
 	}
+
+	const dropNoticeBadge = dropNotice ? (
+		<div
+			className={cn(
+				'pointer-events-none absolute right-3 top-3 z-[70] max-w-[min(70vw,30rem)] rounded-md border px-2.5 py-1.5 text-xs shadow backdrop-blur',
+				dropNotice.kind === 'error'
+					? 'border-destructive/40 bg-destructive/10 text-destructive'
+					: 'border-primary/40 bg-primary/10 text-primary'
+			)}>
+			{dropNotice.message}
+		</div>
+	) : null;
 
 	function startResize(nodeId: string, handle: ResizeHandle, e: React.PointerEvent) {
 		if (disabledFlag) return;
@@ -6394,6 +6450,8 @@ export function PageBuilder({
 							</DndContext>
 						</div>
 					</div>
+
+					{dropNoticeBadge}
 
 					<div
 						className='pointer-events-none absolute left-0 top-0 border-b border-r bg-background/95'

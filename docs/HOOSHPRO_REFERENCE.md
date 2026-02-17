@@ -287,6 +287,7 @@ Blocks:
   - DnD + resize: dnd-kit with `snapPx=1` (1px snap) on drag/resize.
   - Anti-lost: if a drag/drop lands outside the current viewport, the editor auto-focuses the moved node so it never “vanishes” off-screen.
   - Transactional drop safety: move/drop commits only when the resulting tree is valid (parent is a real container, node exists exactly once); otherwise it auto-reverts.
+  - Drop rejection feedback: when a drop is reverted, the canvas shows a short in-editor status badge with the reason.
   - Smart alignment: live guides + snapping to parent/sibling edges/centers (Figma-style) and keyboard nudge (arrows; Shift = 10×).
   - Locked editor decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real page + 1px snap + V6 is canonical.
   - Editor surface: admins edit **on the real page** (`/?edit=1`, `/[slug]?edit=1`) when session is valid; otherwise it renders as public view.
@@ -619,3 +620,5 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
+
