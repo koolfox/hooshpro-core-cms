@@ -56,6 +56,7 @@ Quick check:
 - Health: GET `/health`
 - Bootstrap: POST `/api/bootstrap/admin`
 - Auth:
+  - GET  `/api/auth/csrf`   -> issues/refreshes CSRF cookie + header
   - POST `/api/auth/login`  -> sets cookie
   - POST `/api/auth/logout` -> clears cookie
   - GET  `/api/auth/me`     -> validates session
@@ -210,7 +211,7 @@ Quick check:
 
 - Backend: every `/api/admin/*` and media endpoints require `get_current_user` (cookie or bearer token hash lookup with expiry).
 - CSRF: double-submit token (`csrftoken` cookie + `X-CSRF-Token` header) is enforced for unsafe methods on cookie-authenticated requests; bearer-token requests are exempt.
-- Auth routes: `/api/auth/login` sets both session + CSRF cookies, `/api/auth/me` backfills CSRF cookie for older sessions, `/api/auth/logout` clears both cookies.
+- Auth routes: `/api/auth/csrf` bootstraps/refreshes CSRF cookie + header, `/api/auth/login` sets both session + CSRF cookies, `/api/auth/me` backfills CSRF cookie for older sessions, `/api/auth/logout` clears both cookies.
 - Frontend: `frontend/proxy.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
 - Frontend API calls use `apiFetch()` which auto-sends `X-CSRF-Token` from `csrftoken` cookie on unsafe requests.
 - Login endpoint rate limiting is enabled (per-IP + per-email sliding window) and returns `429` with `Retry-After` when exceeded.
@@ -376,7 +377,7 @@ First-run seed (empty DB only):
 - [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
 - [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
-- [x] API observability/security hardening: standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
+- [x] API observability/security hardening: structured request logs + standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
 
 ### In Progress
 

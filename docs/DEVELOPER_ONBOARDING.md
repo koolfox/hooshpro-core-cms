@@ -91,6 +91,7 @@ Migrations:
   - `lib/http.ts`: `apiFetch()` wrapper (cookie + 401 redirect). Throws `ApiError` with `status`, `errorCode`, `traceId`, and `details`; message prefers backend JSON (`message`/`detail`) when present.
   - For unsafe methods (`POST`/`PUT`/`PATCH`/`DELETE`), it auto-sends `X-CSRF-Token` from the `csrftoken` cookie (required by backend CSRF middleware for cookie-session requests).
   - Backend errors include `x-trace-id` header + JSON `{ error_code, message, detail, trace_id?, details? }` for correlation.
+  - Frontend clients can bootstrap CSRF explicitly via `GET /api/auth/csrf` before first unsafe request.
   - `lib/types.ts`: frontend API types (keep aligned with backend outputs)
   - `lib/page-builder.ts`: page builder schema + parse/serialize
 - `hooks/use-api-list.ts`: generic list fetching hook (pagination/filter pages)

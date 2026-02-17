@@ -38,9 +38,9 @@ Current production-readiness snapshot after the service-first refactor and front
    - DONE: removed unused `backend/app/resource_engine/`.
 2. Security hardening:
    - DONE: login-rate limiting on `/api/auth/login` (per-IP + per-email sliding window; `429` + `Retry-After`).
-   - Add explicit CSRF token bootstrap/refresh endpoint documentation for frontend clients.
+   - DONE: explicit CSRF bootstrap endpoint added (`GET /api/auth/csrf`) and documented for frontend clients.
 3. Operational hardening:
-   - Add structured request logging + error correlation ids.
+   - DONE: structured request logging + `trace_id` correlation middleware in `backend/app/main.py`.
    - Add backup/restore docs for SQLite (or finalize Postgres target for production).
 
 ### Frontend
