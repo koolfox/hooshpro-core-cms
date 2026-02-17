@@ -107,4 +107,5 @@ Done when: a new developer can ship safely in one day.
   - Backend: standardized error payload `{ error_code, message, detail, trace_id?, details? }` + `x-trace-id` header in `backend/app/main.py`.
   - Frontend: `ApiError` now carries `errorCode`, `traceId`, and `details` from response body/headers in `frontend/lib/http.ts`.
 - Production-readiness gap closed: login endpoint rate limiting (per-IP + per-email sliding window) in `backend/app/routers/auth.py`.
-- Item 23 (QA gate) baseline added: GitHub Actions workflow `.github/workflows/ci.yml` runs backend/frontend checks and API smoke checks (`/health`, `/api/auth/csrf`).
+- Item 23 (QA gate) planning updated: CI workflow draft prepared locally; remote push requires Git token with `workflow` scope.
+
