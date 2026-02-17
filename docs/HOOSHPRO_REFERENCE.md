@@ -460,6 +460,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 ## 10.1) Developer Onboarding (must-read)
 
 - Onboarding guide (repo structure + how to add APIs/admin CRUD): `docs/DEVELOPER_ONBOARDING.md`
+- V6 execution contract + ordered backlog: `docs/EDITOR_V6_CONTRACT.md`
 
 ---
 

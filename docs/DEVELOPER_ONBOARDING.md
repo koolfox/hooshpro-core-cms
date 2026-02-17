@@ -4,6 +4,8 @@ This doc explains how the codebase is structured and how to add new backend APIs
 
 If you change routes, schema, or features, also update `docs/HOOSHPRO_REFERENCE.md`.
 
+V6 contract + ordered execution backlog: `docs/EDITOR_V6_CONTRACT.md`.
+
 ---
 
 ## Quick Start (dev)
