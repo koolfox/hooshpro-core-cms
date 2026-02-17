@@ -271,7 +271,7 @@ Blocks:
 
 - Legacy: `{ version: 1, blocks: [ { type:'hero' }, { type:'paragraph' } ] }`
 - TipTap V2 (legacy): `{ version: 2, blocks: [ { id, type:'tiptap', data:{ doc, html } }, ... ] }`
-- Page Builder V4 (current / HARDCUT): `{ version: 4, template:{ id, menu, footer }, canvas:{ snapPx, widths:{ mobile, tablet, desktop }, minHeightPx }, layout:{ nodes:[ PageNode ] } }`
+- Page Builder V6 (current / HARDCUT): `{ version: 6, template:{ id, menu, footer }, canvas:{ snapPx, widths:{ mobile, tablet, desktop }, minHeightPx }, layout:{ nodes:[ PageNode ] } }`
   - Hybrid canvas grid: nodes have `frames` (`x/y/w/h` in px + optional `z`); overlap is allowed.
   - Responsive is breakpoint-based: every node stores **3 frames** (`mobile/tablet/desktop`), Framer-like.
   - Nesting: any node may include `nodes: PageNode[]` (frames are relative to the parent node).
@@ -287,7 +287,7 @@ Blocks:
   - DnD + resize: dnd-kit with `snapPx=1` (1px snap) on drag/resize.
   - Anti-lost: if a drag/drop lands outside the current viewport, the editor auto-focuses the moved node so it never “vanishes” off-screen.
   - Smart alignment: live guides + snapping to parent/sibling edges/centers (Figma-style) and keyboard nudge (arrows; Shift = 10×).
-  - Locked editor decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real page + 1px snap + V4 is canonical.
+  - Locked editor decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real page + 1px snap + V6 is canonical.
   - Editor surface: admins edit **on the real page** (`/?edit=1`, `/[slug]?edit=1`) when session is valid; otherwise it renders as public view.
   - Editor UX: Figma-style layout (Insert/Layers left dock, Canvas center, Inspector right, bottom toolbar). Small screens: Layers uses a Sheet, Inspector uses a Popover; zoom/breakpoints are in the toolbar “View” menu.
   - Editor navigation: `Ctrl/Cmd + wheel` zoom to cursor; `Space + drag` pans the viewport; toolbar controls don’t zoom with the canvas.
@@ -300,7 +300,7 @@ Blocks:
   - Z-order: Inspector “Order” buttons + `Ctrl/Cmd + [` / `Ctrl/Cmd + ]` (add `Shift` for send-to-back/bring-to-front).
   - Next editor backlog (Figma-tier): copy/paste + undo/redo history + multi-drag (move selection as a group) + spacing guides.
   - Public rendering does not auto-inject a page title; if a visible title is needed it should be added as a component (e.g. `editor`/`shadcn/typography`). `pages.title` remains authoritative for admin lists + SEO metadata defaults.
-  - Parser auto-upgrades `version 1/2/3` content to V4 on load; serializer always outputs V4.
+  - Parser still upgrades legacy `version 1/2/3` content for compatibility; serializer now outputs V6.
   - Component/node types: `frame` (Radix Themes layout host), `shape` (container + optional `data.href`), `text` (data node; typography variants), `image` (supports `media_id`), `editor` (TipTap), `button`, `card`, `separator`, `collection-list` (dynamic entries grid), `shadcn` (`data.component` + `data.props`), plus template blocks `slot` and `menu` (`data.menu` + `data.kind: top|footer`).
     - `menu` blocks can optionally embed items: `data.items: [{ id, label, href }]` (preferred; public rendering uses embedded items without fetching); use “Convert menu to shapes + text” in Inspector for full primitives editing.
     - `button`/`card`/supported `shadcn/*` nodes can also be converted to primitives from the Inspector; the editor inserts common items as primitives by default so their internal layers are editable.
@@ -355,7 +355,7 @@ First-run seed (empty DB only):
 - [x] Theme toggle in admin header (system/light/dark)
 - [x] TipTap visual editing on public route (wiring complete; edit gated by session)
 - [x] Media manager MVP (images: upload/list/search/delete + folders/subfolders + drag/drop move + icons/details view)
-- [x] Page builder V4 canvas (nodes + frames) + drag/drop + resize (dnd-kit)
+- [x] Page builder V6 canvas serializer (nodes + frames) + drag/drop + resize (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
 - [x] Page templates foundation (DB + admin CRUD + page settings wiring)
 - [x] Menu rendering via template blocks (`menu` component supports embedded items; no dedicated admin menus/footers UI)
@@ -369,14 +369,14 @@ First-run seed (empty DB only):
 - [x] Editor history controls: bounded undo/redo stack with shortcuts (`Ctrl/Cmd+Z`, `Shift+Ctrl/Cmd+Z`, `Ctrl+Y`) + toolbar actions
 - [x] Editor shell polish pass: top context strip (tool/mode/selection), grid visibility toggle, and refined dock/canvas visual styling
 - [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
-- [x] Backend builder contract validation: Pages/Templates/Blocks now validate persisted builder JSON (strict for v4 graph; compatibility checks for v1/v3)
+- [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
 
 ### In Progress
 
 - [ ] Feature 02 – Pages MVP (CRUD admin + public render + SEO metadata)
   - Admin list/create/delete implemented with slug validation and filters.
-  - Public `/[slug]` renders the V4 canvas via `PageRenderer` and mounts `PublicPageClient`.
+  - Public `/[slug]` renders the V6 canvas via `PageRenderer` and mounts `PublicPageClient`.
   - Admin visual editing flow is wired to `/[slug]` with session gating.
 - [ ] Pages polishing (SEO metadata completeness + editor templates)
 
@@ -446,7 +446,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 ## 10) Current TODO (next 1–3 hours)
 
 - [ ] Verify `/[slug]?edit=1` flow end-to-end (admin gating + save)
-- [ ] Verify page builder drag/drop + nesting + resize (V4 canvas) + save
+- [ ] Verify page builder drag/drop + nesting + resize (V6 canvas) + save
 - [ ] Verify components list CRUD + component picker uses DB entries
 - [ ] Create a sample Block and verify “Insert block” works
 - [ ] Verify template/menu selection shows correct public top nav
@@ -493,7 +493,7 @@ Existing examples:
 
 ---
 
-## 13) Page Builder (V4 canvas)
+## 13) Page Builder (V6 canvas)
 
 - Schema + parsing/serialization: `frontend/lib/page-builder.ts`
 - Builder UI (canvas + dnd-kit): `frontend/components/page-builder/page-builder.tsx`

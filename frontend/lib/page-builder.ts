@@ -394,6 +394,8 @@ function parsePct(value: unknown, min: number, max: number): number | undefined 
 	return rounded;
 }
 
+export const PAGE_BUILDER_CANONICAL_VERSION = 6;
+
 const DEFAULT_CANVAS_WIDTHS: CanvasSettings['widths'] = {
 	mobile: 390,
 	tablet: 820,
@@ -888,7 +890,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 	}
 
 	// v4: new canvas layout
-	if (version === 4) {
+	if (version === 4 || version === PAGE_BUILDER_CANONICAL_VERSION) {
 		const layout = blocks['layout'];
 		const nodesRaw = isRecord(layout) && Array.isArray(layout['nodes']) ? (layout['nodes'] as unknown[]) : [];
 		const nodes: PageNode[] = [];
@@ -1160,7 +1162,7 @@ export function serializePageBuilderState(state: PageBuilderState) {
 	}
 
 	return {
-		version: 4,
+		version: PAGE_BUILDER_CANONICAL_VERSION,
 		template: state.template,
 		canvas: state.canvas,
 		layout: {

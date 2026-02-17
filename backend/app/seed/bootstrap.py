@@ -10,6 +10,7 @@ from typing import Any
 from sqlalchemy import inspect
 
 from app.config import settings
+from app.core.page_builder_validation import CANONICAL_EDITOR_VERSION
 from app.models import (
     Component,
     ContentField,
@@ -318,7 +319,7 @@ def seed_defaults(engine, SessionLocal) -> None:  # type: ignore
             tpl = db.query(PageTemplate).filter(PageTemplate.slug == "jeweler").first()
             if not tpl:
                 tpl_def = {
-                    "version": 4,
+                    "version": CANONICAL_EDITOR_VERSION,
                     "canvas": {"snapPx": 1, "widths": {"mobile": 390, "tablet": 820, "desktop": 1200}, "minHeightPx": 800},
                     "layout": {"nodes": []},
                 }
@@ -342,7 +343,7 @@ def seed_defaults(engine, SessionLocal) -> None:  # type: ignore
             hero_img_url = f"{settings.MEDIA_URL_PREFIX}/seed/jeweler/hero.svg"
 
             seed_home_blocks = {
-                "version": 4,
+                "version": CANONICAL_EDITOR_VERSION,
                 "template": {"id": "jeweler", "menu": "main", "footer": "footer"},
                 "canvas": seed_canvas,
                 "layout": {

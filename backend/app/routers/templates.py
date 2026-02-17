@@ -31,11 +31,15 @@ def admin_create_template(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
     try:
+        payload.normalized()
         return templates_service.create_template(db, payload)
     except templates_service.TemplateConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except templates_service.TemplateValidation as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/api/admin/templates/{template_id}", response_model=TemplateOut)
@@ -57,13 +61,17 @@ def admin_update_template(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
     try:
+        payload.normalized()
         return templates_service.update_template(db, template_id, payload)
     except templates_service.TemplateNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     except templates_service.TemplateConflict as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except templates_service.TemplateValidation as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/api/admin/templates/{template_id}")
@@ -75,7 +83,7 @@ def admin_delete_template(
     try:
         templates_service.delete_template(db, template_id)
     except templates_service.TemplateNotFound as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
     return {"ok": True}
 
 
@@ -88,4 +96,3 @@ def public_get_template(
     if not t:
         raise HTTPException(status_code=404, detail="Template not found")
     return t
-

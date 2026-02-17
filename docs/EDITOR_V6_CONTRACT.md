@@ -97,3 +97,7 @@ Done when: a new developer can ship safely in one day.
 ## Competitive Reality Check
 - Completing items 1-20 yields a strong self-hosted alternative (~90-95/100 experience fit).
 - Reaching true 99-100 parity requires items 21-24 plus consistent polish/QA discipline.
+## Data Storage Strategy (JSON + Markdown)
+- Canonical editor persistence stays as JSON graph (`shape/data -> block -> frame`) for deterministic layout/render.
+- Markdown is first-class for text payloads and long-form content fields, not for geometry/constraints.
+- Optional: store generated Markdown snapshots per revision for human diff/review, while renderer always consumes canonical JSON.

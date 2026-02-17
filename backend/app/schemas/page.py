@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
 from datetime import datetime
+from typing import Any, Optional
+
 from pydantic import BaseModel, Field
+
+from app.core.page_builder_validation import CANONICAL_EDITOR_VERSION
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -33,7 +36,8 @@ class PageCreate(BaseModel):
     seo_title: Optional[str] = Field(default=None, max_length=200)
     seo_description: Optional[str] = Field(default=None, max_length=500)
 
-    body: str = Field(default="")
+    # Deprecated in V6: body-only writes are no longer accepted.
+    body: Optional[str] = None
 
     blocks: Optional[dict[str, Any]] = None
 
@@ -51,6 +55,7 @@ class PageUpdate(BaseModel):
     seo_title: Optional[str] = Field(default=None, max_length=200)
     seo_description: Optional[str] = Field(default=None, max_length=500)
 
+    # Deprecated in V6: body-only writes are no longer accepted.
     body: Optional[str] = None
 
     blocks: Optional[dict[str, Any]] = None
@@ -72,7 +77,17 @@ class PageOut(BaseModel):
     seo_description: Optional[str] = None
 
     body: str = ""
-    blocks: dict[str, Any] = Field(default_factory=lambda: {"version": 1, "blocks": []})
+    blocks: dict[str, Any] = Field(
+        default_factory=lambda: {
+            "version": CANONICAL_EDITOR_VERSION,
+            "canvas": {
+                "snapPx": 1,
+                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+                "minHeightPx": 800,
+            },
+            "layout": {"nodes": []},
+        }
+    )
 
     published_at: Optional[datetime] = None
     created_at: datetime

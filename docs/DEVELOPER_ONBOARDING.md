@@ -111,8 +111,8 @@ We keep a local mirror of the raw shadcn/ui markdown docs so devs can read every
   - Frontend admin routes: `/admin/*`
   - Backend admin APIs: `/api/admin/*` (must require `get_current_user`)
   - Backend public APIs: `/api/public/*` (no auth)
-- **Page builder (V4) is the canonical content format (HARDCUT)**
-  - `version: 4`
+- **Page builder (V6) is the canonical content format (HARDCUT)**
+  - `version: 6`
   - `template` + `canvas` + `layout.nodes[]`
   - Nodes use per-breakpoint frames: `frames.{mobile|tablet|desktop}.{x,y,w,h,z?}` (px); overlap is allowed.
   - Nodes can be nested via `nodes[]` (frames are relative to the parent node).
@@ -127,8 +127,8 @@ We keep a local mirror of the raw shadcn/ui markdown docs so devs can read every
     - Layers reflect the real node hierarchy (`frame`/`shape`/`text`/`image`/etc); Inspector fields depend on the selected node type (geometry vs content).
   - Z-order: Inspector “Order” buttons + `Ctrl/Cmd + [` / `Ctrl/Cmd + ]` (add `Shift` for send-to-back/bring-to-front).
   - Hydration: wrap dnd-kit-heavy UI in `ClientOnly` (`frontend/components/client-only.tsx`) to avoid SSR hydration mismatches (Radix/dnd-kit ids).
-  - Locked decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real pages + 1px snap + V4 is canonical.
-  - Parser auto-upgrades `version 1/2/3` inputs to V4; serializer always outputs V4.
+  - Locked decisions (C B A 1PX HARDCUT): hybrid overlap + breakpoint frames + edit on real pages + 1px snap + V6 is canonical.
+  - Parser still accepts legacy `version 1/2/3` inputs for compatibility; serializer outputs V6.
   - Template-in-canvas editing: on public `?edit=1`, “Show chrome” composes the active template (menu + slot + footer) into the canvas, and the `slot` becomes a live frame containing the page nodes.
     - V5: template nodes are editable by default (no lock); Save also persists the active template definition when modified.
     - “Hide chrome” focuses on page-only editing (slot content only).
@@ -289,4 +289,3 @@ If you need the authoritative prop names + allowed enum values, refer to the pac
   - `/admin` works after login
   - `/api/admin/*` returns 401 without session cookie
   - `/?edit=1` works for admin and can save a page
-

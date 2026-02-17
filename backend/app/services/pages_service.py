@@ -2,15 +2,31 @@ from __future__ import annotations
 
 import json
 from datetime import datetime, timezone
+from html import escape as escape_html
 from typing import Iterable
 
 from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
-from app.core.page_builder_validation import validate_page_builder_document
+from app.core.page_builder_validation import (
+    CANONICAL_EDITOR_VERSION,
+    validate_page_builder_document,
+)
 from app.models import Page
 from app.schemas.page import PageCreate, PageUpdate, PageOut, PageListOut, validate_slug
+
+
+class PageConflictError(Exception):
+    pass
+
+
+class PageNotFoundError(Exception):
+    pass
+
+
+class PageValidationError(Exception):
+    pass
 
 
 # -------- helpers ------------------------------------------------------------
@@ -19,101 +35,90 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _empty_builder_document() -> dict:
+    return {
+        "version": CANONICAL_EDITOR_VERSION,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+
+
 def _safe_load_blocks(blocks_json: str | None) -> dict:
     if not blocks_json:
-        return {"version": 1, "blocks": []}
+        return _empty_builder_document()
+
     try:
-        return json.loads(blocks_json)
+        parsed = json.loads(blocks_json)
     except Exception:
-        return {"version": 1, "blocks": []}
+        return _empty_builder_document()
+
+    try:
+        return validate_page_builder_document(parsed, context="page.blocks")
+    except ValueError:
+        return _empty_builder_document()
 
 
 def _extract_body(blocks: dict) -> str:
-    """
-    Legacy body extractor:
-    - If blocks contain editor/tiptap html, return it.
-    - Supports v4 canvas and v3 grid layouts.
-    - Falls back to paragraph text.
-    """
+    """Best-effort body extraction from canonical editor nodes only."""
+    if not isinstance(blocks, dict):
+        return ""
+
     version = blocks.get("version")
+    if version not in (4, CANONICAL_EDITOR_VERSION):
+        return ""
 
-    if version == 4:
-        def walk_any(items: Iterable, out: list[str]) -> None:
-            for b in items:
-                if not isinstance(b, dict):
-                    continue
-                if b.get("type") in ("editor", "tiptap"):
-                    data = b.get("data") or {}
-                    html = data.get("html") or ""
-                    if html:
-                        out.append(str(html))
-                nested = b.get("nodes")
-                if isinstance(nested, list):
-                    walk_any(nested, out)
-                children = b.get("children")
-                if isinstance(children, list):
-                    walk_any(children, out)
+    layout = blocks.get("layout") if isinstance(blocks.get("layout"), dict) else {}
+    nodes = layout.get("nodes") if isinstance(layout.get("nodes"), list) else []
 
-        layout = blocks.get("layout") or {}
-        nodes = layout.get("nodes") or []
-        parts: list[str] = []
-        if isinstance(nodes, list):
-            walk_any(nodes, parts)
-        if parts:
-            return "".join(parts)
+    html_parts: list[str] = []
+    text_parts: list[str] = []
 
-    if version == 3:
-        def walk_block_list(items: Iterable, out: list[str]) -> None:
-            for b in items:
-                if not isinstance(b, dict):
-                    continue
-                if b.get("type") in ("editor", "tiptap"):
-                    data = b.get("data") or {}
-                    html = data.get("html") or ""
-                    if html:
-                        out.append(str(html))
-                children = b.get("children")
-                if isinstance(children, list):
-                    walk_block_list(children, out)
-
-        layout = blocks.get("layout") or {}
-        rows = layout.get("rows") or []
-        parts: list[str] = []
-        for r in rows:
-            if not isinstance(r, dict):
+    def walk(items: Iterable) -> None:
+        for b in items:
+            if not isinstance(b, dict):
                 continue
-            cols = r.get("columns") or []
-            for c in cols:
-                if not isinstance(c, dict):
-                    continue
-                c_blocks = c.get("blocks") or []
-                if isinstance(c_blocks, list):
-                    walk_block_list(c_blocks, parts)
-        if parts:
-            return "".join(parts)
 
-    for b in (blocks.get("blocks") or []):
-        if b.get("type") in ("editor", "tiptap"):
-            data = b.get("data") or {}
-            html = data.get("html") or ""
-            return str(html)
+            b_type = b.get("type")
+            data = b.get("data") if isinstance(b.get("data"), dict) else {}
 
-    for b in (blocks.get("blocks") or []):
-        if b.get("type") == "paragraph":
-            data = b.get("data") or {}
-            return str(data.get("text") or "")
+            if b_type in ("editor", "tiptap"):
+                html = data.get("html")
+                if isinstance(html, str) and html.strip():
+                    html_parts.append(html)
+
+            if b_type in ("text", "typography"):
+                text = data.get("text")
+                if isinstance(text, str) and text.strip():
+                    text_parts.append(text.strip())
+
+            nested = b.get("nodes")
+            if isinstance(nested, list):
+                walk(nested)
+
+            children = b.get("children")
+            if isinstance(children, list):
+                walk(children)
+
+    walk(nodes)
+
+    if html_parts:
+        return "".join(html_parts)
+
+    if text_parts:
+        return "".join(f"<p>{escape_html(t)}</p>" for t in text_parts)
 
     return ""
 
 
-def _build_blocks_legacy(title: str, body: str) -> dict:
-    return {
-        "version": 1,
-        "blocks": [
-            {"type": "hero", "data": {"headline": title, "subheadline": ""}},
-            {"type": "paragraph", "data": {"text": body or ""}},
-        ],
-    }
+def _validate_blocks_payload(blocks: dict, *, context: str) -> dict:
+    try:
+        return validate_page_builder_document(blocks, context=context)
+    except ValueError as exc:
+        raise PageValidationError(str(exc)) from exc
 
 
 def _to_out(p: Page) -> PageOut:
@@ -206,10 +211,12 @@ def get_page(db: OrmSession, page_id: int) -> PageOut | None:
 
 
 def create_page(db: OrmSession, payload: PageCreate) -> PageOut:
-    if not payload.blocks:
-        blocks = _build_blocks_legacy(payload.title, payload.body or "")
-    else:
-        blocks = validate_page_builder_document(payload.blocks, context="page.blocks")
+    if payload.blocks is None:
+        raise PageValidationError(
+            "page.blocks is required and must follow the canonical editor schema."
+        )
+
+    blocks = _validate_blocks_payload(payload.blocks, context="page.blocks")
 
     p = Page(
         title=payload.title,
@@ -227,7 +234,7 @@ def create_page(db: OrmSession, payload: PageCreate) -> PageOut:
     except IntegrityError as exc:
         db.rollback()
         if "UNIQUE constraint failed: pages.slug" in str(exc):
-            raise ValueError("Slug already exists") from exc
+            raise PageConflictError("Slug already exists") from exc
         raise
 
     db.refresh(p)
@@ -237,7 +244,7 @@ def create_page(db: OrmSession, payload: PageCreate) -> PageOut:
 def update_page(db: OrmSession, page_id: int, payload: PageUpdate) -> PageOut:
     p = db.query(Page).filter(Page.id == page_id).first()
     if not p:
-        raise LookupError("Page not found")
+        raise PageNotFoundError("Page not found")
 
     if payload.slug is not None:
         p.slug = validate_slug(payload.slug)
@@ -249,11 +256,14 @@ def update_page(db: OrmSession, page_id: int, payload: PageUpdate) -> PageOut:
         p.seo_title = payload.seo_title
     if payload.seo_description is not None:
         p.seo_description = payload.seo_description
+
     if payload.blocks is not None:
-        validated = validate_page_builder_document(payload.blocks, context="page.blocks")
+        validated = _validate_blocks_payload(payload.blocks, context="page.blocks")
         p.blocks_json = json.dumps(validated, ensure_ascii=False)
     elif payload.body is not None:
-        p.blocks_json = json.dumps(_build_blocks_legacy(p.title, payload.body), ensure_ascii=False)
+        raise PageValidationError(
+            "Legacy body updates are not supported. Send page.blocks instead."
+        )
 
     if payload.status == "published" and not p.published_at:
         p.published_at = _utcnow()
@@ -263,7 +273,7 @@ def update_page(db: OrmSession, page_id: int, payload: PageUpdate) -> PageOut:
     except IntegrityError as exc:
         db.rollback()
         if "UNIQUE constraint failed: pages.slug" in str(exc):
-            raise ValueError("Slug already exists") from exc
+            raise PageConflictError("Slug already exists") from exc
         raise
 
     db.refresh(p)

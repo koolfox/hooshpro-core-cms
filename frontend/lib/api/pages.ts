@@ -19,7 +19,6 @@ export type PageUpsertPayload = {
 	status?: PageStatus;
 	seo_title?: string | null;
 	seo_description?: string | null;
-	body?: string;
 	blocks?: Record<string, unknown>;
 };
 

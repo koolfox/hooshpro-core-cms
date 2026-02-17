@@ -56,11 +56,15 @@ def admin_create_page(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
     try:
+        payload.normalized()
         return pages_service.create_page(db, payload)
-    except ValueError:
-        raise HTTPException(status_code=409, detail="Slug already exists")
+    except pages_service.PageConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except pages_service.PageValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.put("/api/admin/pages/{page_id}", response_model=PageOut)
@@ -70,13 +74,17 @@ def admin_update_page(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
     try:
+        payload.normalized()
         return pages_service.update_page(db, page_id, payload)
-    except LookupError:
-        raise HTTPException(status_code=404, detail="Page not found")
-    except ValueError:
-        raise HTTPException(status_code=409, detail="Slug already exists")
+    except pages_service.PageNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except pages_service.PageConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except pages_service.PageValidationError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.delete("/api/admin/pages/{page_id}")
@@ -104,4 +112,3 @@ def public_get_page(slug: str, db: OrmSession = Depends(get_db)):
     if not p:
         raise HTTPException(status_code=404, detail="Page not found")
     return p
-

@@ -1,12 +1,16 @@
 from __future__ import annotations
 
 import json
+
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
-from sqlalchemy import func
 
-from app.core.page_builder_validation import validate_page_builder_document
+from app.core.page_builder_validation import (
+    CANONICAL_EDITOR_VERSION,
+    validate_page_builder_document,
+)
 from app.db_session import get_db
 from app.deps import get_current_user
 from app.models import BlockTemplate, User
@@ -21,6 +25,18 @@ from app.schemas.block import (
 router = APIRouter(tags=["blocks"])
 
 
+def _empty_definition() -> dict:
+    return {
+        "version": CANONICAL_EDITOR_VERSION,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+
+
 def _safe_load_json(text: str | None, fallback: dict) -> dict:
     if not text:
         return fallback
@@ -31,19 +47,15 @@ def _safe_load_json(text: str | None, fallback: dict) -> dict:
         return fallback
 
 
+def _validate_definition(definition: dict) -> dict:
+    try:
+        return validate_page_builder_document(definition, context="block.definition")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+
+
 def _to_out(b: BlockTemplate) -> BlockOut:
-    definition = _safe_load_json(
-        b.definition_json,
-        {
-            "version": 4,
-            "canvas": {
-                "snapPx": 1,
-                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-                "minHeightPx": 800,
-            },
-            "layout": {"nodes": []},
-        },
-    )
+    definition = _safe_load_json(b.definition_json, _empty_definition())
     return BlockOut(
         id=b.id,
         slug=b.slug,
@@ -115,19 +127,14 @@ def admin_create_block(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
-    slug = validate_block_slug(payload.slug)
+    try:
+        payload.normalized()
+        slug = validate_block_slug(payload.slug)
 
-    definition = payload.definition or {
-        "version": 4,
-        "canvas": {
-            "snapPx": 1,
-            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-            "minHeightPx": 800,
-        },
-        "layout": {"nodes": []},
-    }
-    validated = validate_page_builder_document(definition, context="block.definition")
+        definition = payload.definition or _empty_definition()
+        validated = _validate_definition(definition)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     b = BlockTemplate(
         slug=slug,
@@ -166,21 +173,27 @@ def admin_update_block(
     db: OrmSession = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
-    payload.normalized()
+    try:
+        payload.normalized()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     b = db.query(BlockTemplate).filter(BlockTemplate.id == block_id).first()
     if not b:
         raise HTTPException(status_code=404, detail="Block not found")
 
-    if payload.slug is not None:
-        b.slug = validate_block_slug(payload.slug)
-    if payload.title is not None:
-        b.title = payload.title.strip()
-    if payload.description is not None:
-        b.description = payload.description.strip() if payload.description else None
-    if payload.definition is not None:
-        validated = validate_page_builder_document(payload.definition, context="block.definition")
-        b.definition_json = json.dumps(validated, ensure_ascii=False)
+    try:
+        if payload.slug is not None:
+            b.slug = validate_block_slug(payload.slug)
+        if payload.title is not None:
+            b.title = payload.title.strip()
+        if payload.description is not None:
+            b.description = payload.description.strip() if payload.description else None
+        if payload.definition is not None:
+            validated = _validate_definition(payload.definition)
+            b.definition_json = json.dumps(validated, ensure_ascii=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     try:
         db.commit()
@@ -205,4 +218,3 @@ def admin_delete_block(
     db.delete(b)
     db.commit()
     return {"ok": True}
-

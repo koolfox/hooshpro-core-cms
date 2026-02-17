@@ -6,6 +6,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, Field
 
+from app.core.page_builder_validation import CANONICAL_EDITOR_VERSION
+
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
 
@@ -22,7 +24,7 @@ class BlockCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=500)
     definition: dict[str, Any] = Field(
         default_factory=lambda: {
-            "version": 4,
+            "version": CANONICAL_EDITOR_VERSION,
             "canvas": {
                 "snapPx": 1,
                 "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
@@ -56,7 +58,7 @@ class BlockOut(BaseModel):
     description: Optional[str] = None
     definition: dict[str, Any] = Field(
         default_factory=lambda: {
-            "version": 4,
+            "version": CANONICAL_EDITOR_VERSION,
             "canvas": {
                 "snapPx": 1,
                 "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},

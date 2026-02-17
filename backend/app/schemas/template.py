@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import re
-from typing import Any, Optional
 from datetime import datetime
+from typing import Any, Optional
 
 from pydantic import BaseModel, Field
+
+from app.core.page_builder_validation import CANONICAL_EDITOR_VERSION
 
 SLUG_RE = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
 
@@ -27,23 +29,25 @@ def validate_template_slug(slug: str) -> str:
     return s
 
 
+def _empty_definition() -> dict[str, Any]:
+    return {
+        "version": CANONICAL_EDITOR_VERSION,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+
+
 class TemplateCreate(BaseModel):
     title: str = Field(min_length=1, max_length=200)
     slug: str = Field(min_length=1, max_length=200)
     description: Optional[str] = Field(default=None, max_length=500)
     menu: str = Field(default="main", min_length=1, max_length=60)
     footer: str = Field(default="none", min_length=1, max_length=60)
-    definition: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "version": 4,
-            "canvas": {
-                "snapPx": 1,
-                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-                "minHeightPx": 800,
-            },
-            "layout": {"nodes": []},
-        }
-    )
+    definition: dict[str, Any] = Field(default_factory=_empty_definition)
 
     def normalized(self) -> "TemplateCreate":
         self.slug = validate_template_slug(self.slug)
@@ -77,17 +81,7 @@ class TemplateOut(BaseModel):
     description: Optional[str] = None
     menu: str
     footer: str
-    definition: dict[str, Any] = Field(
-        default_factory=lambda: {
-            "version": 4,
-            "canvas": {
-                "snapPx": 1,
-                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-                "minHeightPx": 800,
-            },
-            "layout": {"nodes": []},
-        }
-    )
+    definition: dict[str, Any] = Field(default_factory=_empty_definition)
     created_at: datetime
     updated_at: datetime
 

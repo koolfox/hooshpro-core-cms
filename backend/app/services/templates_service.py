@@ -6,7 +6,10 @@ from sqlalchemy import func
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session as OrmSession
 
-from app.core.page_builder_validation import validate_page_builder_document
+from app.core.page_builder_validation import (
+    CANONICAL_EDITOR_VERSION,
+    validate_page_builder_document,
+)
 from app.models import PageTemplate
 from app.schemas.template import (
     TemplateCreate,
@@ -25,13 +28,44 @@ class TemplateConflict(Exception):
     pass
 
 
+class TemplateValidation(Exception):
+    pass
+
+
+def _empty_definition() -> dict:
+    return {
+        "version": CANONICAL_EDITOR_VERSION,
+        "canvas": {
+            "snapPx": 1,
+            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
+            "minHeightPx": 800,
+        },
+        "layout": {"nodes": []},
+    }
+
+
+def _validate_definition(definition: dict, *, context: str) -> dict:
+    try:
+        return validate_page_builder_document(definition, context=context)
+    except ValueError as exc:
+        raise TemplateValidation(str(exc)) from exc
+
+
 def _safe_load_json(text: str | None, fallback: dict) -> dict:
     if not text:
         return fallback
+
     try:
         v = json.loads(text)
-        return v if isinstance(v, dict) else fallback
     except Exception:
+        return fallback
+
+    if not isinstance(v, dict):
+        return fallback
+
+    try:
+        return validate_page_builder_document(v, context="template.definition")
+    except ValueError:
         return fallback
 
 
@@ -88,22 +122,15 @@ def _default_template_definition(menu: str, footer: str) -> dict:
             }
         )
 
-    return {"version": 4, "canvas": canvas, "layout": {"nodes": nodes}}
+    return {
+        "version": CANONICAL_EDITOR_VERSION,
+        "canvas": canvas,
+        "layout": {"nodes": nodes},
+    }
 
 
 def _to_out(t: PageTemplate) -> TemplateOut:
-    definition = _safe_load_json(
-        t.definition_json,
-        {
-            "version": 4,
-            "canvas": {
-                "snapPx": 1,
-                "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-                "minHeightPx": 800,
-            },
-            "layout": {"nodes": []},
-        },
-    )
+    definition = _safe_load_json(t.definition_json, _empty_definition())
     return TemplateOut(
         id=t.id,
         slug=t.slug,
@@ -169,20 +196,14 @@ def list_templates(
 def create_template(db: OrmSession, payload: TemplateCreate) -> TemplateOut:
     slug = validate_template_slug(payload.slug)
 
-    definition = payload.definition or {
-        "version": 4,
-        "canvas": {
-            "snapPx": 1,
-            "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-            "minHeightPx": 800,
-        },
-        "layout": {"nodes": []},
-    }
-    definition = validate_page_builder_document(definition, context="template.definition")
+    definition = payload.definition or _empty_definition()
+    definition = _validate_definition(definition, context="template.definition")
+
     nodes = definition.get("layout", {}).get("nodes") if isinstance(definition, dict) else None
     if not isinstance(nodes, list) or len(nodes) == 0:
         definition = _default_template_definition(payload.menu, payload.footer)
-    definition = validate_page_builder_document(definition, context="template.definition")
+
+    definition = _validate_definition(definition, context="template.definition")
 
     t = PageTemplate(
         slug=slug,
@@ -225,7 +246,7 @@ def update_template(db: OrmSession, template_id: int, payload: TemplateUpdate) -
     if payload.footer is not None:
         t.footer = payload.footer.strip()
     if payload.definition is not None:
-        validated = validate_page_builder_document(payload.definition, context="template.definition")
+        validated = _validate_definition(payload.definition, context="template.definition")
         t.definition_json = json.dumps(validated, ensure_ascii=False)
 
     try:
