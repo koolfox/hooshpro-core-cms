@@ -27,6 +27,10 @@ class Settings:
     BOOTSTRAP_SETUP_KEY: str = os.getenv("HOOSHPRO_SETUP_KEY", "dev-setup-key-123")
     BOOTSTRAP_ALLOW_HOSTS: tuple[str, ...] = ("127.0.0.1", "localhost", "::1")
 
+    LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_WINDOW_SECONDS", "300"))
+    LOGIN_RATE_LIMIT_MAX_PER_IP: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_MAX_PER_IP", "20"))
+    LOGIN_RATE_LIMIT_MAX_PER_EMAIL: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_MAX_PER_EMAIL", "8"))
+
     MEDIA_DIR: str = os.getenv("HOOSHPRO_MEDIA_DIR", str(DEFAULT_MEDIA_DIR))
     MAX_UPLOAD_BYTES: int = int(os.getenv("HOOSHPRO_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))  # 10MB
     MEDIA_URL_PREFIX: str = "/media"

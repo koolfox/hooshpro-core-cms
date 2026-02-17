@@ -6,6 +6,7 @@ from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session as OrmSession
 
 from app.config import settings
+from app.core.rate_limit import SlidingWindowRateLimiter
 from app.csrf import CSRF_HEADER, new_csrf_token, set_csrf_cookie
 from app.db_session import get_db
 from app.deps import get_current_user
@@ -13,6 +14,16 @@ from app.models import User, UserSession
 from app.security import hash_session_token, new_session_token, verify_password
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
+
+
+login_ip_limiter = SlidingWindowRateLimiter(
+    limit=settings.LOGIN_RATE_LIMIT_MAX_PER_IP,
+    window_seconds=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+)
+login_email_limiter = SlidingWindowRateLimiter(
+    limit=settings.LOGIN_RATE_LIMIT_MAX_PER_EMAIL,
+    window_seconds=settings.LOGIN_RATE_LIMIT_WINDOW_SECONDS,
+)
 
 
 class LoginIn(BaseModel):
@@ -23,6 +34,44 @@ class LoginIn(BaseModel):
 class MeOut(BaseModel):
     id: int
     email: EmailStr
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        candidate = forwarded_for.split(",", maxsplit=1)[0].strip()
+        if candidate:
+            return candidate
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
+def _enforce_login_rate_limit(request: Request, email: str) -> tuple[str, str]:
+    ip_key = _client_ip(request)
+    email_key = email.lower()
+
+    limited_ip, retry_ip = login_ip_limiter.is_limited(ip_key)
+    limited_email, retry_email = login_email_limiter.is_limited(email_key)
+    if not limited_ip and not limited_email:
+        return ip_key, email_key
+
+    retry_after = max(retry_ip, retry_email, 1)
+    raise HTTPException(
+        status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+        detail="Too many login attempts. Please try again later.",
+        headers={"Retry-After": str(retry_after)},
+    )
+
+
+def _record_login_failure(ip_key: str, email_key: str) -> None:
+    login_ip_limiter.hit(ip_key)
+    login_email_limiter.hit(email_key)
+
+
+def _clear_login_failures(ip_key: str, email_key: str) -> None:
+    login_ip_limiter.reset(ip_key)
+    login_email_limiter.reset(email_key)
 
 
 def set_session_cookie(response: Response, token: str):
@@ -52,12 +101,17 @@ def create_session(db: OrmSession, user_id: int) -> str:
 
 
 @router.post("/login", response_model=MeOut)
-def login(payload: LoginIn, response: Response, db: OrmSession = Depends(get_db)):
+def login(payload: LoginIn, request: Request, response: Response, db: OrmSession = Depends(get_db)):
     email = payload.email.strip().lower()
+    ip_key, email_key = _enforce_login_rate_limit(request, email)
+
     user = db.query(User).filter(User.email == email).first()
 
     if not user or not verify_password(user.password_hash, payload.password):
+        _record_login_failure(ip_key, email_key)
         raise HTTPException(status_code=401, detail="Invalid credentials")
+
+    _clear_login_failures(ip_key, email_key)
 
     raw = create_session(db, user.id)
     set_session_cookie(response, raw)
