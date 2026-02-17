@@ -36,6 +36,10 @@ class MeOut(BaseModel):
     email: EmailStr
 
 
+class CsrfOut(BaseModel):
+    csrf_token: str
+
+
 def _client_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
@@ -74,6 +78,13 @@ def _clear_login_failures(ip_key: str, email_key: str) -> None:
     login_email_limiter.reset(email_key)
 
 
+def _set_new_csrf(response: Response) -> str:
+    csrf_token = new_csrf_token()
+    set_csrf_cookie(response, csrf_token)
+    response.headers[CSRF_HEADER] = csrf_token
+    return csrf_token
+
+
 def set_session_cookie(response: Response, token: str):
     response.set_cookie(
         key=settings.COOKIE_NAME,
@@ -100,6 +111,11 @@ def create_session(db: OrmSession, user_id: int) -> str:
     return raw
 
 
+@router.get("/csrf", response_model=CsrfOut)
+def csrf(response: Response):
+    return CsrfOut(csrf_token=_set_new_csrf(response))
+
+
 @router.post("/login", response_model=MeOut)
 def login(payload: LoginIn, request: Request, response: Response, db: OrmSession = Depends(get_db)):
     email = payload.email.strip().lower()
@@ -116,9 +132,7 @@ def login(payload: LoginIn, request: Request, response: Response, db: OrmSession
     raw = create_session(db, user.id)
     set_session_cookie(response, raw)
 
-    csrf_token = new_csrf_token()
-    set_csrf_cookie(response, csrf_token)
-    response.headers[CSRF_HEADER] = csrf_token
+    _set_new_csrf(response)
 
     return MeOut(id=user.id, email=user.email)
 
@@ -139,9 +153,7 @@ def logout(response: Response, request: Request, db: OrmSession = Depends(get_db
 def me(request: Request, response: Response, user: User = Depends(get_current_user)):
     # Ensure long-lived sessions created before CSRF rollout receive a token cookie.
     if not request.cookies.get("csrftoken"):
-        csrf_token = new_csrf_token()
-        set_csrf_cookie(response, csrf_token)
-        response.headers[CSRF_HEADER] = csrf_token
+        _set_new_csrf(response)
     return MeOut(id=user.id, email=user.email)
 
 

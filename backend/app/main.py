@@ -1,13 +1,15 @@
+import json
+import logging
 import sys
+from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 if sys.version_info < (3, 10):  # pragma: no cover
     raise RuntimeError(
         f"HooshPro backend requires Python 3.10+ (current: {sys.version.split()[0]}).\n"
         "Use the backend venv: `cd backend; .\\.venv\\Scripts\\activate; python -m uvicorn app.main:app --reload`."
     )
-
-from pathlib import Path
-from uuid import uuid4
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
@@ -17,20 +19,20 @@ from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.config import settings
-from app.db import init_db
 from app.csrf import CSRFMiddleware
+from app.db import init_db
 from app.routers import (
     auth,
-    bootstrap,
-    pages,
-    media,
-    components,
     blocks,
-    templates,
-    menus,
+    bootstrap,
     collections,
+    components,
+    media,
+    menus,
     options,
+    pages,
     taxonomies,
+    templates,
     themes,
 )
 
@@ -59,6 +61,23 @@ Path(settings.MEDIA_DIR).mkdir(parents=True, exist_ok=True)
 app.mount(settings.MEDIA_URL_PREFIX, StaticFiles(directory=settings.MEDIA_DIR), name="media")
 
 
+_logger = logging.getLogger("hooshpro.api")
+if not _logger.handlers:
+    logging.basicConfig(level=logging.INFO, format="%(message)s")
+_logger.setLevel(logging.INFO)
+
+
+def _client_ip(request: Request) -> str:
+    forwarded_for = request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        candidate = forwarded_for.split(",", maxsplit=1)[0].strip()
+        if candidate:
+            return candidate
+    if request.client and request.client.host:
+        return request.client.host
+    return "unknown"
+
+
 @app.middleware("http")
 async def add_trace_id(request: Request, call_next):
     incoming = request.headers.get("x-trace-id") or request.headers.get("x-request-id")
@@ -73,6 +92,43 @@ async def add_trace_id(request: Request, call_next):
 def _trace_id(request: Request) -> str | None:
     value = getattr(request.state, "trace_id", None)
     return value if isinstance(value, str) and value else None
+
+
+@app.middleware("http")
+async def request_log(request: Request, call_next):
+    started = perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((perf_counter() - started) * 1000, 2)
+        payload: dict[str, object] = {
+            "event": "http.request",
+            "method": request.method,
+            "path": request.url.path,
+            "status": 500,
+            "duration_ms": duration_ms,
+            "trace_id": _trace_id(request),
+            "client_ip": _client_ip(request),
+        }
+        if request.url.query:
+            payload["query"] = request.url.query
+        _logger.exception(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+        raise
+
+    duration_ms = round((perf_counter() - started) * 1000, 2)
+    payload = {
+        "event": "http.request",
+        "method": request.method,
+        "path": request.url.path,
+        "status": int(response.status_code),
+        "duration_ms": duration_ms,
+        "trace_id": _trace_id(request),
+        "client_ip": _client_ip(request),
+    }
+    if request.url.query:
+        payload["query"] = request.url.query
+    _logger.info(json.dumps(payload, ensure_ascii=True, sort_keys=True))
+    return response
 
 
 def _trace_headers(request: Request) -> dict[str, str]:
@@ -184,4 +240,3 @@ app.include_router(collections.router)
 app.include_router(options.router)
 app.include_router(taxonomies.router)
 app.include_router(themes.router)
-
