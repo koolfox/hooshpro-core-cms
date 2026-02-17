@@ -3,6 +3,7 @@ import logging
 import sys
 from pathlib import Path
 from time import perf_counter
+from urllib.parse import parse_qsl, urlencode
 from uuid import uuid4
 
 if sys.version_info < (3, 10):  # pragma: no cover
@@ -22,6 +23,7 @@ from app.config import settings
 from app.csrf import CSRFMiddleware
 from app.db import init_db
 from app.routers import (
+    admin,
     auth,
     blocks,
     bootstrap,
@@ -67,6 +69,54 @@ if not _logger.handlers:
 _logger.setLevel(logging.INFO)
 
 
+
+_SENSITIVE_QUERY_KEYS = {
+    "token",
+    "access_token",
+    "refresh_token",
+    "password",
+    "secret",
+    "api_key",
+    "key",
+    "code",
+    "state",
+    "csrf",
+    "csrftoken",
+    "session",
+    "auth",
+    "authorization",
+    "cookie",
+}
+
+
+def _should_redact_query_key(key: str) -> bool:
+    normalized = key.strip().lower()
+    if not normalized:
+        return False
+    if normalized in _SENSITIVE_QUERY_KEYS:
+        return True
+    return any(
+        marker in normalized
+        for marker in ("token", "password", "secret", "session", "auth", "csrf", "cookie", "key")
+    )
+
+
+def _safe_query_string(raw_query: str) -> str:
+    try:
+        pairs = parse_qsl(raw_query, keep_blank_values=True, strict_parsing=False)
+    except ValueError:
+        return "[unparseable]"
+
+    sanitized: list[tuple[str, str]] = []
+    for key, value in pairs:
+        if _should_redact_query_key(key):
+            sanitized.append((key, "[redacted]"))
+            continue
+        clipped = value if len(value) <= 256 else f"{value[:256]}..."
+        sanitized.append((key, clipped))
+
+    return urlencode(sanitized, doseq=True)
+
 def _client_ip(request: Request) -> str:
     forwarded_for = request.headers.get("x-forwarded-for")
     if forwarded_for:
@@ -111,7 +161,7 @@ async def request_log(request: Request, call_next):
             "client_ip": _client_ip(request),
         }
         if request.url.query:
-            payload["query"] = request.url.query
+            payload["query"] = _safe_query_string(request.url.query)
         _logger.exception(json.dumps(payload, ensure_ascii=True, sort_keys=True))
         raise
 
@@ -126,7 +176,7 @@ async def request_log(request: Request, call_next):
         "client_ip": _client_ip(request),
     }
     if request.url.query:
-        payload["query"] = request.url.query
+        payload["query"] = _safe_query_string(request.url.query)
     _logger.info(json.dumps(payload, ensure_ascii=True, sort_keys=True))
     return response
 
@@ -228,6 +278,7 @@ def health():
     return {"status": "ok"}
 
 
+app.include_router(admin.router)
 app.include_router(bootstrap.router)
 app.include_router(auth.router)
 app.include_router(pages.router)
