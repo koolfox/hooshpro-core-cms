@@ -50,6 +50,9 @@ Backend (optional overrides):
 - `HOOSHPRO_MEDIA_DIR` (uploads dir; default `backend/media`)
 - `HOOSHPRO_COOKIE_SECURE` (`1` in prod/HTTPS)
 - `HOOSHPRO_COOKIE_SAMESITE` (`lax` | `strict` | `none`)
+- `HOOSHPRO_LOGIN_RATE_WINDOW_SECONDS` (default `300`)
+- `HOOSHPRO_LOGIN_RATE_MAX_PER_IP` (default `20`)
+- `HOOSHPRO_LOGIN_RATE_MAX_PER_EMAIL` (default `8`)
 
 ---
 
@@ -85,8 +88,9 @@ Migrations:
   - `components/page-builder/*`: page builder (dnd-kit drag/drop + resize + inspector + renderer)
   - `components/ui/*`: shadcn/ui primitives
 - `lib/`:
-  - `lib/http.ts`: `apiFetch()` wrapper (cookie + 401 redirect). Throws `ApiError` with `status` and prefers JSON `{ "detail": "..." }` messages when present.
+  - `lib/http.ts`: `apiFetch()` wrapper (cookie + 401 redirect). Throws `ApiError` with `status`, `errorCode`, `traceId`, and `details`; message prefers backend JSON (`message`/`detail`) when present.
   - For unsafe methods (`POST`/`PUT`/`PATCH`/`DELETE`), it auto-sends `X-CSRF-Token` from the `csrftoken` cookie (required by backend CSRF middleware for cookie-session requests).
+  - Backend errors include `x-trace-id` header + JSON `{ error_code, message, detail, trace_id?, details? }` for correlation.
   - `lib/types.ts`: frontend API types (keep aligned with backend outputs)
   - `lib/page-builder.ts`: page builder schema + parse/serialize
 - `hooks/use-api-list.ts`: generic list fetching hook (pagination/filter pages)

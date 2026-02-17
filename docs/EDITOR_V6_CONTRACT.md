@@ -101,3 +101,9 @@ Done when: a new developer can ship safely in one day.
 - Canonical editor persistence stays as JSON graph (`shape/data -> block -> frame`) for deterministic layout/render.
 - Markdown is first-class for text payloads and long-form content fields, not for geometry/constraints.
 - Optional: store generated Markdown snapshots per revision for human diff/review, while renderer always consumes canonical JSON.
+
+## Progress Snapshot (2026-02-17)
+- Item 22 (deterministic error contract + trace telemetry): implemented baseline.
+  - Backend: standardized error payload `{ error_code, message, detail, trace_id?, details? }` + `x-trace-id` header in `backend/app/main.py`.
+  - Frontend: `ApiError` now carries `errorCode`, `traceId`, and `details` from response body/headers in `frontend/lib/http.ts`.
+- Production-readiness gap closed: login endpoint rate limiting (per-IP + per-email sliding window) in `backend/app/routers/auth.py`.

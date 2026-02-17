@@ -37,7 +37,7 @@ Current production-readiness snapshot after the service-first refactor and front
 1. Legacy cleanup:
    - DONE: removed unused `backend/app/resource_engine/`.
 2. Security hardening:
-   - Add login-rate limiting.
+   - DONE: login-rate limiting on `/api/auth/login` (per-IP + per-email sliding window; `429` + `Retry-After`).
    - Add explicit CSRF token bootstrap/refresh endpoint documentation for frontend clients.
 3. Operational hardening:
    - Add structured request logging + error correlation ids.
@@ -65,4 +65,3 @@ MVP is release-ready when all are true:
 - Admin CRUD for pages/media/templates/menus/themes/options/taxonomies/collections works end-to-end.
 - Public render works for `/`, `/[slug]`, theme resolution, and menu/footer template composition.
 - Security baseline in place: session auth, CSRF, admin-route enforcement.
-

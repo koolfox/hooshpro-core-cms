@@ -2,15 +2,36 @@ type ApiFetchOptions = RequestInit & {
 	nextPath?: string;
 };
 
+type ApiErrorPayload = {
+	error_code?: unknown;
+	message?: unknown;
+	detail?: unknown;
+	trace_id?: unknown;
+	details?: unknown;
+};
+
 export class ApiError extends Error {
 	status: number;
 	bodyText: string;
+	errorCode?: string;
+	traceId?: string;
+	details?: unknown;
 
-	constructor(status: number, message: string, bodyText: string) {
-		super(message);
+	constructor(args: {
+		status: number;
+		message: string;
+		bodyText: string;
+		errorCode?: string;
+		traceId?: string;
+		details?: unknown;
+	}) {
+		super(args.message);
 		this.name = 'ApiError';
-		this.status = status;
-		this.bodyText = bodyText;
+		this.status = args.status;
+		this.bodyText = args.bodyText;
+		this.errorCode = args.errorCode;
+		this.traceId = args.traceId;
+		this.details = args.details;
 	}
 }
 
@@ -23,6 +44,38 @@ function toLogin(nextPath?: string) {
 	const url = `/auth/login?next=${encodeURIComponent(next)}`;
 	if (isBrowser()) window.location.href = url;
 	return url;
+}
+
+function parseApiErrorBody(bodyText: string): {
+	message?: string;
+	errorCode?: string;
+	traceId?: string;
+	details?: unknown;
+} {
+	if (!bodyText) return {};
+	try {
+		const parsed = JSON.parse(bodyText) as ApiErrorPayload;
+		if (!parsed || typeof parsed !== 'object') return {};
+
+		const message =
+			typeof parsed.message === 'string'
+				? parsed.message
+				: typeof parsed.detail === 'string'
+					? parsed.detail
+					: undefined;
+		const errorCode =
+			typeof parsed.error_code === 'string' ? parsed.error_code : undefined;
+		const traceId =
+			typeof parsed.trace_id === 'string' ? parsed.trace_id : undefined;
+		return {
+			message,
+			errorCode,
+			traceId,
+			details: parsed.details,
+		};
+	} catch {
+		return {};
+	}
 }
 
 export async function apiFetch<T>(
@@ -47,26 +100,28 @@ export async function apiFetch<T>(
 	if (res.status === 401) {
 		toLogin(opts.nextPath);
 		const text = await res.text().catch(() => '');
-		throw new ApiError(401, 'Unauthorized', text);
+		const parsed = parseApiErrorBody(text);
+		throw new ApiError({
+			status: 401,
+			message: parsed.message ?? 'Unauthorized',
+			bodyText: text,
+			errorCode: parsed.errorCode,
+			traceId: parsed.traceId ?? res.headers.get('x-trace-id') ?? undefined,
+			details: parsed.details,
+		});
 	}
 
 	if (!res.ok) {
 		const text = await res.text().catch(() => '');
-		let message = text || `Request failed (${res.status})`;
-		try {
-			const parsed = JSON.parse(text) as unknown;
-			if (
-				parsed &&
-				typeof parsed === 'object' &&
-				'detail' in parsed &&
-				typeof (parsed as { detail?: unknown }).detail === 'string'
-			) {
-				message = (parsed as { detail: string }).detail;
-			}
-		} catch {
-			// ignore parse errors
-		}
-		throw new ApiError(res.status, message, text);
+		const parsed = parseApiErrorBody(text);
+		throw new ApiError({
+			status: res.status,
+			message: parsed.message ?? (text || `Request failed (${res.status})`),
+			bodyText: text,
+			errorCode: parsed.errorCode,
+			traceId: parsed.traceId ?? res.headers.get('x-trace-id') ?? undefined,
+			details: parsed.details,
+		});
 	}
 
 	const ct = res.headers.get('content-type') ?? '';

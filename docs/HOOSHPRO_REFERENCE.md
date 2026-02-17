@@ -213,6 +213,8 @@ Quick check:
 - Auth routes: `/api/auth/login` sets both session + CSRF cookies, `/api/auth/me` backfills CSRF cookie for older sessions, `/api/auth/logout` clears both cookies.
 - Frontend: `frontend/proxy.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
 - Frontend API calls use `apiFetch()` which auto-sends `X-CSRF-Token` from `csrftoken` cookie on unsafe requests.
+- Login endpoint rate limiting is enabled (per-IP + per-email sliding window) and returns `429` with `Retry-After` when exceeded.
+- API error contract is standardized: `{ error_code, message, detail, trace_id?, details? }` and `x-trace-id` response header for correlation.
 - Admin edit mode on public pages is gated server-side; `/[slug]?edit=1` only enables edit UI for valid sessions.
 
 ---
@@ -374,6 +376,7 @@ First-run seed (empty DB only):
 - [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
 - [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
+- [x] API observability/security hardening: standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
 
 ### In Progress
 
@@ -621,7 +624,3 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
-
-
-
-
