@@ -65,3 +65,4 @@ MVP is release-ready when all are true:
 - Admin CRUD for pages/media/templates/menus/themes/options/taxonomies/collections works end-to-end.
 - Public render works for `/`, `/[slug]`, theme resolution, and menu/footer template composition.
 - Security baseline in place: session auth, CSRF, admin-route enforcement.
+

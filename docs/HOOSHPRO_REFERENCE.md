@@ -214,6 +214,7 @@ Quick check:
 - Auth routes: `/api/auth/csrf` bootstraps/refreshes CSRF cookie + header, `/api/auth/login` sets both session + CSRF cookies, `/api/auth/me` backfills CSRF cookie for older sessions, `/api/auth/logout` clears both cookies.
 - Frontend: `frontend/proxy.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
 - Frontend API calls use `apiFetch()` which auto-sends `X-CSRF-Token` from `csrftoken` cookie on unsafe requests.
+- Frontend `apiFetch()` now auto-bootstraps CSRF via `GET /api/auth/csrf` on first unsafe call and retries once on CSRF `403`.
 - Login endpoint rate limiting is enabled (per-IP + per-email sliding window) and returns `429` with `Retry-After` when exceeded.
 - API error contract is standardized: `{ error_code, message, detail, trace_id?, details? }` and `x-trace-id` response header for correlation.
 - Admin edit mode on public pages is gated server-side; `/[slug]?edit=1` only enables edit UI for valid sessions.
@@ -459,6 +460,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 - [ ] Verify template/menu selection shows correct public top nav
 - [ ] Verify proxy/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
+- [ ] Run API smoke script: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000`
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
 - [ ] Create a sample Collection + Entries and render with `collection-list`
 
@@ -625,3 +627,5 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
+

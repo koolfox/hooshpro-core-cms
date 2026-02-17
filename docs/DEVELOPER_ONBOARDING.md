@@ -287,6 +287,7 @@ If you need the authoritative prop names + allowed enum values, refer to the pac
 ## Verification Checklist (before merging)
 
 - Backend: `python -m compileall backend/app`
+- API smoke: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000`
 - Frontend: `npm run lint` and `npm run build` (in `frontend/`)
 - Smoke tests:
   - `/auth/login` works
@@ -294,3 +295,4 @@ If you need the authoritative prop names + allowed enum values, refer to the pac
   - `/admin` works after login
   - `/api/admin/*` returns 401 without session cookie
   - `/?edit=1` works for admin and can save a page
+

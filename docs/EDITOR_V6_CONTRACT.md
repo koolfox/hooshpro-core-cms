@@ -108,4 +108,7 @@ Done when: a new developer can ship safely in one day.
   - Frontend: `ApiError` now carries `errorCode`, `traceId`, and `details` from response body/headers in `frontend/lib/http.ts`.
 - Production-readiness gap closed: login endpoint rate limiting (per-IP + per-email sliding window) in `backend/app/routers/auth.py`.
 - Item 23 (QA gate) planning updated: CI workflow draft prepared locally; remote push requires Git token with `workflow` scope.
+- Added executable smoke entrypoint: `backend/scripts/smoke_api.py` (`/health`, `/api/auth/csrf`, admin unauth gate).
+
+
 
