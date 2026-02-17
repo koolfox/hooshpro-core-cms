@@ -93,6 +93,7 @@ Migrations:
   - Backend errors include `x-trace-id` header + JSON `{ error_code, message, detail, trace_id?, details? }` for correlation.
   - Frontend clients can bootstrap CSRF explicitly via `GET /api/auth/csrf` before first unsafe request.
   - `lib/types.ts`: frontend API types (keep aligned with backend outputs)
+  - `lib/error-message.ts`: shared UI error formatter (includes backend `error_code` + `trace_id` tags from `ApiError`)
   - `lib/page-builder.ts`: page builder schema + parse/serialize
 - `hooks/use-api-list.ts`: generic list fetching hook (pagination/filter pages)
 
@@ -288,6 +289,7 @@ If you need the authoritative prop names + allowed enum values, refer to the pac
 
 - Backend: `python -m compileall backend/app`
 - API smoke: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000`
+- MVP smoke: `python backend/scripts/smoke_mvp.py --base-url http://127.0.0.1:8000`
 - Frontend: `npm run lint` and `npm run build` (in `frontend/`)
 - Smoke tests:
   - `/auth/login` works
@@ -295,4 +297,3 @@ If you need the authoritative prop names + allowed enum values, refer to the pac
   - `/admin` works after login
   - `/api/admin/*` returns 401 without session cookie
   - `/?edit=1` works for admin and can save a page
-

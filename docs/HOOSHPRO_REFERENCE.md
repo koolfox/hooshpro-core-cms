@@ -25,9 +25,9 @@ A simple, professional blog/site builder with admin login + page editor + public
 
 ## 2) Current Branch (ALWAYS update)
 
-- Branch: `main`
+- Branch: `main-pushable`
 - Feature: `V5 Platform/BaaS Backbone (WordPress-like modules)`
-- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live)
+- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added)
 
 Quick check:
 
@@ -378,7 +378,7 @@ First-run seed (empty DB only):
 - [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
 - [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
-- [x] API observability/security hardening: structured request logs + standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
+- [x] API observability/security hardening: structured request logs + query redaction + standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
 
 ### In Progress
 
@@ -460,7 +460,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 - [ ] Verify template/menu selection shows correct public top nav
 - [ ] Verify proxy/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
-- [ ] Run API smoke script: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000`
+- [ ] Run API smoke scripts: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000` and `python backend/scripts/smoke_mvp.py --base-url http://127.0.0.1:8000`
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
 - [ ] Create a sample Collection + Entries and render with `collection-list`
 
@@ -627,5 +627,3 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
-
-
