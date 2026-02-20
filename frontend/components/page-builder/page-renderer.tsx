@@ -6,6 +6,7 @@ import Image from 'next/image';
 import { Box, Container, Flex, Grid, Section, Theme } from '@radix-ui/themes';
 
 import type { BuilderBreakpoint, PageBlock, PageBuilderState, PageNode } from '@/lib/page-builder';
+import { resolveNodeStyle } from '@/lib/node-style';
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import { apiFetch } from '@/lib/http';
 import { cn } from '@/lib/utils';
@@ -34,7 +35,11 @@ function computeStateHeight(state: PageBuilderState, breakpoint: BuilderBreakpoi
 	return Math.max(state.canvas.minHeightPx, base);
 }
 
-function renderFrameHost(node: Extract<PageNode, { type: 'frame' }>, children: React.ReactNode) {
+function renderFrameHost(
+	node: Extract<PageNode, { type: 'frame' }>,
+	children: React.ReactNode,
+	inspectorStyle?: CSSProperties
+) {
 	const className = (node.data.className || '').trim();
 	const mergedClassName = className ? `relative w-full h-full ${className}` : 'relative w-full h-full';
 
@@ -43,7 +48,17 @@ function renderFrameHost(node: Extract<PageNode, { type: 'frame' }>, children: R
 			? (node.data.props as Record<string, unknown>)
 			: {};
 
-	const rest = { ...props, className: mergedClassName } as Record<string, unknown> & { children?: unknown };
+	const baseStyle =
+		typeof props.style === 'object' && props.style
+			? (props.style as CSSProperties)
+			: undefined;
+	const mergedStyle = inspectorStyle ? { ...(baseStyle ?? {}), ...inspectorStyle } : baseStyle;
+
+	const rest = {
+		...props,
+		className: mergedClassName,
+		style: mergedStyle,
+	} as Record<string, unknown> & { children?: unknown };
 	delete rest.children;
 	delete rest.asChild;
 
@@ -63,7 +78,7 @@ function renderFrameHost(node: Extract<PageNode, { type: 'frame' }>, children: R
 	return (
 		<div
 			className={mergedClassName}
-			style={{ boxSizing: 'border-box' }}>
+			style={{ boxSizing: 'border-box', ...(mergedStyle ?? {}) }}>
 			{children}
 		</div>
 	);
@@ -313,7 +328,6 @@ export function renderBlockPreview(block: PageBlock, opts?: RenderOpts) {
 
 	function labelForAccordionItem(b: PageBlock): string {
 		if (b.type === 'unknown') return b.data.originalType;
-		if (b.type === 'shadcn') return `shadcn/${b.data.component || 'component'}`;
 		if (b.type === 'button') return b.data.label || 'Button';
 		if (b.type === 'card') return b.data.title || 'Card';
 		if (b.type === 'image') return b.data.alt?.trim() ? b.data.alt.trim() : 'Image';
@@ -566,100 +580,23 @@ export function renderBlockPreview(block: PageBlock, opts?: RenderOpts) {
 		);
 	}
 
-	if (block.type === 'shadcn') {
-		const componentId = (block.data.component || '').trim().toLowerCase();
-		const children = Array.isArray(block.children) ? block.children : null;
-
-		if (children && children.length > 0) {
-			if (componentId === 'accordion') {
-				const props = typeof block.data.props === 'object' && block.data.props ? block.data.props : {};
-				const typeRaw = typeof (props as Record<string, unknown>)['type'] === 'string'
-					? String((props as Record<string, unknown>)['type']).trim().toLowerCase()
-					: '';
-				const type = typeRaw === 'multiple' ? 'multiple' : 'single';
-
-				const className =
-					typeof (props as Record<string, unknown>)['className'] === 'string'
-						? String((props as Record<string, unknown>)['className'])
-						: '';
-
-				const defaultValueRaw = (props as Record<string, unknown>)['defaultValue'];
-				if (type === 'multiple') {
-					const defaultValue =
-						Array.isArray(defaultValueRaw) && defaultValueRaw.every((v) => typeof v === 'string')
-							? (defaultValueRaw as string[])
-							: [children[0]!.id];
-
-					return (
-						<Accordion
-							type='multiple'
-							defaultValue={defaultValue}
-							className={className || 'w-full'}>
-							{children.map((child) => (
-								<AccordionItem
-									key={child.id}
-									value={child.id}>
-									<AccordionTrigger>{labelForAccordionItem(child)}</AccordionTrigger>
-									<AccordionContent>
-										<div className='space-y-4'>{renderBlockPreview(child, opts)}</div>
-									</AccordionContent>
-								</AccordionItem>
-							))}
-						</Accordion>
-					);
-				}
-
-				const collapsible =
-					typeof (props as Record<string, unknown>)['collapsible'] === 'boolean'
-						? Boolean((props as Record<string, unknown>)['collapsible'])
-						: true;
-				const defaultValue =
-					typeof defaultValueRaw === 'string' ? defaultValueRaw : children[0]!.id;
-
-				return (
-					<Accordion
-						type='single'
-						collapsible={collapsible}
-						defaultValue={defaultValue}
-						className={className || 'w-full'}>
-						{children.map((child) => (
-							<AccordionItem
-								key={child.id}
-								value={child.id}>
-								<AccordionTrigger>{labelForAccordionItem(child)}</AccordionTrigger>
-									<AccordionContent>
-										<div className='space-y-4'>{renderBlockPreview(child, opts)}</div>
-									</AccordionContent>
-								</AccordionItem>
-							))}
-						</Accordion>
-				);
-			}
-
-			const rendered = children.map((child) => <div key={child.id}>{renderBlockPreview(child, opts)}</div>);
-
-			if (componentId === 'card') {
-				return (
-					<Card>
-						<CardContent>
-							<div className='space-y-4'>{rendered}</div>
-						</CardContent>
-					</Card>
-				);
-			}
-
-			return <div className='space-y-4'>{rendered}</div>;
-		}
-
-		const data = { component: block.data.component, ...(block.data.props ?? {}) };
-		return <ComponentPreview component={{ type: 'shadcn', data }} />;
+	if (block.type === 'unknown') {
+		return (
+			<div className='rounded-lg border p-3 text-sm text-muted-foreground'>
+				Unknown component: <code>{block.data.originalType}</code>
+			</div>
+		);
 	}
 
-	return (
-		<div className='rounded-lg border p-3 text-sm text-muted-foreground'>
-			Unknown component: <code>{block.data.originalType}</code>
-		</div>
-	);
+	if (block.type === 'shadcn') {
+		return (
+			<div className='rounded-lg border p-3 text-sm text-muted-foreground'>
+				Legacy component: <code>{block.data.component || 'shadcn'}</code>
+			</div>
+		);
+	}
+
+	return null;
 }
 
 export function PageRenderer({ state, collectionsByNodeId }: { state: PageBuilderState; collectionsByNodeId?: Record<string, PublicContentEntryListOut> }) {
@@ -681,16 +618,18 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 		zIndex: z,
 	};
 
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, 'default') as CSSProperties;
+
 	const childNodes = Array.isArray(node.nodes) ? node.nodes : null;
 
 	if (node.type === 'frame') {
-		const children = childNodes ? childNodes.map((c) => renderNode(c, breakpoint, opts)) : null;
+		const children = childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null;
 		return (
 			<div
 				key={node.id}
 				style={nodeStyle}
 				className={node.data.clip ? 'overflow-hidden' : 'overflow-visible'}>
-				{renderFrameHost(node, children)}
+				{renderFrameHost(node, children, resolvedVisualStyle)}
 			</div>
 		);
 	}
@@ -705,8 +644,8 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 				style={nodeStyle}
 				className='overflow-visible'>
 				<Link href={href} className='relative block h-full w-full'>
-					{content ? <div className='absolute inset-0'>{content}</div> : null}
-					{childNodes ? childNodes.map((c) => renderNode(c, breakpoint, opts)) : null}
+					{content ? <div className='absolute inset-0' style={resolvedVisualStyle}>{content}</div> : null}
+					{childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null}
 				</Link>
 			</div>
 		);
@@ -718,8 +657,8 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 			style={nodeStyle}
 			className='overflow-visible'>
 			<div className='relative w-full h-full'>
-				{content ? <div className='absolute inset-0'>{content}</div> : null}
-				{childNodes ? childNodes.map((c) => renderNode(c, breakpoint, opts)) : null}
+				{content ? <div className='absolute inset-0' style={resolvedVisualStyle}>{content}</div> : null}
+				{childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null}
 			</div>
 		</div>
 	);
@@ -812,3 +751,8 @@ export function PageRendererWithSlot({
 		</Theme>
 	);
 }
+
+
+
+
+

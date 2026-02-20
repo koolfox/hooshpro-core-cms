@@ -20,10 +20,17 @@ import {
 	Type as TypeIcon,
 } from 'lucide-react';
 
-import type { BuilderBreakpoint, NodeMeta, PageBuilderState, PageNode } from '@/lib/page-builder';
+import type { BuilderBreakpoint, NodeMeta, PageBlock, PageBuilderState, PageNode } from '@/lib/page-builder';
 import { cn } from '@/lib/utils';
 
 type PanelTab = 'layers' | 'assets';
+
+export type OutlineSubItemRef = { kind: 'menu-item'; index: number };
+
+export type OutlineSubSelection = {
+	nodeId: string;
+	item: OutlineSubItemRef;
+};
 
 function nodeLabel(node: PageNode): string {
 	const named = node.meta?.name?.trim();
@@ -45,7 +52,6 @@ function nodeLabel(node: PageNode): string {
 	}
 	if (node.type === 'slot') return node.data.name?.trim() ? `Slot/${node.data.name.trim()}` : 'Slot';
 	if (node.type === 'collection-list') return node.data.type_slug?.trim() ? `Collection/${node.data.type_slug.trim()}` : 'Collection list';
-	if (node.type === 'shadcn') return `shadcn/${node.data.component || 'component'}`;
 	if (node.type === 'frame') {
 		const label = node.data.label?.trim() ? node.data.label.trim() : '';
 		const layout = node.data.layout?.trim() ? node.data.layout.trim() : '';
@@ -53,6 +59,40 @@ function nodeLabel(node: PageNode): string {
 		return label ? `frame/${label}` : 'frame';
 	}
 	return node.type;
+}
+
+function menuItemsForNode(node: PageNode): Array<{ id: string; label: string; href: string }> {
+	if (node.type !== 'menu' || !Array.isArray(node.data.items)) return [];
+	return node.data.items;
+}
+
+function blockLabel(block: PageBlock): string {
+	const named = block.meta?.name?.trim();
+	if (named) return named;
+
+	if (block.type === 'unknown') return block.data.originalType;
+	if (block.type === 'editor') return 'Editor';
+	if (block.type === 'text') {
+		const t = (block.data.text || '').trim();
+		if (!t) return 'Text';
+		return t.length > 24 ? `Text/${t.slice(0, 24)}...` : `Text/${t}`;
+	}
+	if (block.type === 'image') return block.data.alt?.trim() ? `Image/${block.data.alt.trim()}` : 'Image';
+	if (block.type === 'shape') return block.data.kind ? `Shape/${block.data.kind}` : 'Shape';
+	if (block.type === 'menu') {
+		const menu = block.data.menu?.trim() ? block.data.menu.trim() : 'main';
+		const kind = block.data.kind === 'footer' ? 'footer' : 'top';
+		return `Menu/${kind}:${menu}`;
+	}
+	if (block.type === 'slot') return block.data.name?.trim() ? `Slot/${block.data.name.trim()}` : 'Slot';
+	if (block.type === 'collection-list') return block.data.type_slug?.trim() ? `Collection/${block.data.type_slug.trim()}` : 'Collection list';
+	if (block.type === 'frame') {
+		const label = block.data.label?.trim() ? block.data.label.trim() : '';
+		const layout = block.data.layout?.trim() ? block.data.layout.trim() : '';
+		if (layout) return label ? `${layout}/${label}` : `layout/${layout}`;
+		return label ? `frame/${label}` : 'frame';
+	}
+	return block.type;
 }
 
 function nodeZ(node: PageNode, breakpoint: BuilderBreakpoint): number {
@@ -88,11 +128,47 @@ function countNodes(nodes: PageNode[]): number {
 	let total = 0;
 	for (const n of nodes) {
 		total += 1;
+		total += menuItemsForNode(n).length;
 		if (Array.isArray(n.nodes)) total += countNodes(n.nodes);
 	}
 	return total;
 }
 
+function LayerSubItemRow({
+	parentNode,
+	depth,
+	selected,
+	refId,
+	label,
+	iconType,
+	onSelectSubItem,
+}: {
+	parentNode: PageNode;
+	depth: number;
+	selected: boolean;
+	refId: OutlineSubItemRef;
+	label: string;
+	iconType: PageNode['type'];
+	onSelectSubItem?: (nodeId: string, item: OutlineSubItemRef, e: ReactMouseEvent<HTMLButtonElement>) => void;
+}) {
+	const layerId = `${parentNode.id}::${refId.kind}:${refId.index}`;
+
+	return (
+		<button
+			type='button'
+			data-layer-id={layerId}
+			className={cn(
+				'flex w-full items-center gap-1 rounded-md px-2 py-1 text-left text-xs',
+				selected ? 'bg-muted/60 text-foreground' : 'text-muted-foreground hover:bg-muted/40 hover:text-foreground'
+			)}
+			style={{ paddingLeft: depth * 12 + 38 }}
+			onClick={(e) => onSelectSubItem?.(parentNode.id, refId, e)}
+			title={label}>
+			<NodeTypeIcon type={iconType} primary={selected} />
+			<span className='min-w-0 flex-1 truncate'>{label}</span>
+		</button>
+	);
+}
 function LayerRow({
 	node,
 	breakpoint,
@@ -263,11 +339,13 @@ function LayerTree({
 	depth,
 	query,
 	selectedIds,
+	selectedSubItem,
 	primaryId,
 	lockedIds,
 	renamingId,
 	renameValue,
 	onSelect,
+	onSelectSubItem,
 	onInspect,
 	onToggleHidden,
 	onToggleCollapsed,
@@ -281,11 +359,13 @@ function LayerTree({
 	depth: number;
 	query: string;
 	selectedIds: Set<string>;
+	selectedSubItem: OutlineSubSelection | null;
 	primaryId: string | null;
 	lockedIds: Set<string>;
 	renamingId: string | null;
 	renameValue: string;
 	onSelect?: (id: string, e: ReactMouseEvent<HTMLButtonElement>) => void;
+	onSelectSubItem?: (nodeId: string, item: OutlineSubItemRef, e: ReactMouseEvent<HTMLButtonElement>) => void;
 	onInspect?: (id: string) => void;
 	onToggleHidden?: (id: string) => void;
 	onToggleCollapsed?: (id: string) => void;
@@ -307,7 +387,16 @@ function LayerTree({
 		const visible = new Set<string>();
 		const visit = (node: PageNode): boolean => {
 			const label = nodeLabel(node).toLowerCase();
-			const selfMatch = label.includes(q) || node.type.toLowerCase().includes(q) || node.id.toLowerCase().includes(q);
+			const menuMatches = menuItemsForNode(node).some((item) => {
+				const l = item.label.trim().toLowerCase();
+				const h = item.href.trim().toLowerCase();
+				return l.includes(q) || h.includes(q);
+			});
+			const selfMatch =
+				label.includes(q) ||
+				node.type.toLowerCase().includes(q) ||
+				node.id.toLowerCase().includes(q) ||
+				menuMatches;
 			const children = Array.isArray(node.nodes) ? node.nodes : [];
 			let childMatch = false;
 			for (const child of children) {
@@ -329,9 +418,13 @@ function LayerTree({
 			<div className='space-y-1'>
 				{filtered.map((n) => {
 					const nested = Array.isArray(n.nodes) ? n.nodes : [];
+					const menuItems = menuItemsForNode(n);
+					const hasSubItems = menuItems.length > 0;
 					const hasNested = nested.length > 0;
 					const collapsed = n.meta?.collapsed === true;
-					const showChildren = hasNested && (!collapsed || !!q);
+					const showNested = hasNested && (!collapsed || !!q);
+					const showSubItems = hasSubItems && (!collapsed || !!q);
+					const showChildren = showNested || showSubItems;
 
 					return (
 						<div key={n.id}>
@@ -343,7 +436,7 @@ function LayerTree({
 								primary={primaryId === n.id}
 								templateLocked={lockedIds.has(n.id)}
 								collapsed={collapsed}
-								canCollapse={hasNested}
+								canCollapse={hasNested || hasSubItems}
 								renaming={renamingId === n.id}
 								renameValue={renameValue}
 								onSelect={onSelect}
@@ -356,26 +449,55 @@ function LayerTree({
 								onToggleCollapsed={onToggleCollapsed}
 							/>
 							{showChildren ? (
-								<div className='ml-4 border-l pl-2'>
-									<LayerTree
-										nodes={nested}
-										breakpoint={breakpoint}
-										depth={depth + 1}
-										query={query}
-										selectedIds={selectedIds}
-										primaryId={primaryId}
-										lockedIds={lockedIds}
-										renamingId={renamingId}
-										renameValue={renameValue}
-										onSelect={onSelect}
-										onInspect={onInspect}
-										onToggleHidden={onToggleHidden}
-										onToggleCollapsed={onToggleCollapsed}
-										onRenameStart={onRenameStart}
-										onRenameValueChange={onRenameValueChange}
-										onRenameCommit={onRenameCommit}
-										onRenameCancel={onRenameCancel}
-									/>
+								<div className='ml-4 border-l pl-2 space-y-1'>
+									{showSubItems ? (
+										<>
+											{menuItems.map((item, idx) => {
+												const itemLabel = item.label.trim() || `Item ${idx + 1}`;
+												const suffix = item.href?.trim() ? ` (${item.href.trim()})` : '';
+												const selected =
+													selectedSubItem?.nodeId === n.id &&
+													selectedSubItem?.item?.kind === 'menu-item' &&
+													selectedSubItem?.item?.index === idx;
+												return (
+													<LayerSubItemRow
+														key={`${n.id}::menu-item:${idx}`}
+														parentNode={n}
+														depth={depth + 1}
+														selected={selected}
+														refId={{ kind: 'menu-item', index: idx }}
+														label={`Item/${itemLabel}${suffix}`}
+														iconType='menu'
+														onSelectSubItem={onSelectSubItem}
+													/>
+												);
+											})}
+
+										</>
+									) : null}
+									{showNested ? (
+										<LayerTree
+											nodes={nested}
+											breakpoint={breakpoint}
+											depth={depth + 1}
+											query={query}
+											selectedIds={selectedIds}
+											selectedSubItem={selectedSubItem}
+											primaryId={primaryId}
+											lockedIds={lockedIds}
+											renamingId={renamingId}
+											renameValue={renameValue}
+											onSelect={onSelect}
+											onSelectSubItem={onSelectSubItem}
+											onInspect={onInspect}
+											onToggleHidden={onToggleHidden}
+											onToggleCollapsed={onToggleCollapsed}
+											onRenameStart={onRenameStart}
+											onRenameValueChange={onRenameValueChange}
+											onRenameCommit={onRenameCommit}
+											onRenameCancel={onRenameCancel}
+										/>
+									) : null}
 								</div>
 							) : null}
 						</div>
@@ -391,8 +513,10 @@ export function PageBuilderOutline({
 	breakpoint = 'desktop',
 	selectedId = null,
 	selectedIds,
+	selectedSubItem = null,
 	lockedIds,
 	onSelect,
+	onSelectSubItem,
 	onInspect,
 	onReorder,
 	onPatchMeta,
@@ -404,8 +528,10 @@ export function PageBuilderOutline({
 	breakpoint?: BuilderBreakpoint;
 	selectedId?: string | null;
 	selectedIds?: Set<string>;
+	selectedSubItem?: OutlineSubSelection | null;
 	lockedIds?: Set<string>;
 	onSelect?: (id: string, e: ReactMouseEvent<HTMLButtonElement>) => void;
+	onSelectSubItem?: (nodeId: string, item: OutlineSubItemRef, e: ReactMouseEvent<HTMLButtonElement>) => void;
 	onInspect?: (id: string) => void;
 	onReorder?: (activeId: string, overId: string) => void;
 	onPatchMeta?: (id: string, patch: Partial<NodeMeta>) => void;
@@ -487,6 +613,16 @@ export function PageBuilderOutline({
 		target.scrollIntoView({ block: 'nearest' });
 	}, [selectedId]);
 
+	useEffect(() => {
+		if (!selectedSubItem) return;
+		const root = rootRef.current;
+		if (!root) return;
+		const layerId = `${selectedSubItem.nodeId}::${selectedSubItem.item.kind}:${selectedSubItem.item.index}`;
+		const target = root.querySelector<HTMLElement>(`[data-layer-id="${layerId}"]`);
+		if (!target) return;
+		target.scrollIntoView({ block: 'nearest' });
+	}, [selectedSubItem]);
+
 	return (
 		<div ref={rootRef} className={cn('space-y-3', className)}>
 			<div className='space-y-1'>
@@ -545,27 +681,37 @@ export function PageBuilderOutline({
 					</div>
 				</div>
 			) : state.nodes.length ? (
-				<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+				<div className='space-y-2'>
+					<div className='flex items-center gap-2 rounded-md border bg-muted/20 px-2 py-1 text-xs text-muted-foreground'>
+						<LayoutGrid className='h-3.5 w-3.5' />
+						<span className='truncate'>
+							Page root{state.template.id ? ' · template/' + state.template.id : ''}
+						</span>
+					</div>
+					<DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
 						<LayerTree
-						nodes={state.nodes}
-						breakpoint={breakpoint}
-						depth={0}
-						query={query}
-						selectedIds={selectedSet}
-						primaryId={selectedId ?? null}
-						lockedIds={lockedSet}
-						renamingId={renamingId}
-						renameValue={renameValue}
-						onSelect={onSelect}
-						onInspect={onInspect}
-						onToggleHidden={toggleHidden}
-						onToggleCollapsed={toggleCollapsed}
-						onRenameStart={startRename}
-						onRenameValueChange={setRenameValue}
+							nodes={state.nodes}
+							breakpoint={breakpoint}
+							depth={0}
+							query={query}
+							selectedIds={selectedSet}
+							selectedSubItem={selectedSubItem}
+							primaryId={selectedId ?? null}
+							lockedIds={lockedSet}
+							renamingId={renamingId}
+							renameValue={renameValue}
+							onSelect={onSelect}
+							onSelectSubItem={onSelectSubItem}
+							onInspect={onInspect}
+							onToggleHidden={toggleHidden}
+							onToggleCollapsed={toggleCollapsed}
+							onRenameStart={startRename}
+							onRenameValueChange={setRenameValue}
 							onRenameCommit={commitRename}
 							onRenameCancel={cancelRename}
 						/>
-				</DndContext>
+					</DndContext>
+				</div>
 			) : (
 				<p className='text-xs text-muted-foreground italic'>Empty</p>
 			)}

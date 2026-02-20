@@ -17,7 +17,7 @@ A simple, professional blog/site builder with admin login + page editor + public
 - ORM: SQLAlchemy (Declarative)
 - DB: SQLite (single file)
 - Frontend: Next.js (TypeScript, App Router)
-- UI: Tailwind + shadcn/ui (+ Radix under the hood)
+- UI: Tailwind + DaisyUI (with Radix primitives for headless behaviors like dialogs/selects)
 - Layout primitives (editor/backbone): Radix Themes (`@radix-ui/themes`)
 - Auth: Cookie-based session (HttpOnly)
 
@@ -150,6 +150,10 @@ Quick check:
     - GET `/api/public/themes/active` (resolves active theme from options + merges `appearance.theme_vars` overrides)
     - GET `/api/public/themes/{slug}`
 
+- Realtime editor channel (admin session required):
+  - WS `/api/ws/editor/{resource_type}/{resource_id}` (`resource_type` in `pages|templates|blocks|components`)
+  - Auth: same session token contract as HTTP APIs (cookie `hooshpro_session`, query `token`, or bearer header)
+
 - Taxonomies:
   - Admin taxonomies:
     - GET    `/api/admin/taxonomies` (pagination + q + sorting via `sort`/`dir`)
@@ -210,6 +214,7 @@ Quick check:
 ### Security gates (current)
 
 - Backend: every `/api/admin/*` and media endpoints require `get_current_user` (cookie or bearer token hash lookup with expiry).
+- Realtime WS `/api/ws/editor/*` uses the same session contract (cookie/bearer/query token hash lookup with expiry) and rejects unauthorized connections.
 - CSRF: double-submit token (`csrftoken` cookie + `X-CSRF-Token` header) is enforced for unsafe methods on cookie-authenticated requests; bearer-token requests are exempt.
 - Auth routes: `/api/auth/csrf` bootstraps/refreshes CSRF cookie + header, `/api/auth/login` sets both session + CSRF cookies, `/api/auth/me` backfills CSRF cookie for older sessions, `/api/auth/logout` clears both cookies.
 - Frontend: `frontend/proxy.ts` blocks `/admin/*` if cookie missing or `/api/auth/me` fails; redirects to `/auth/login?next=...`.
@@ -299,6 +304,8 @@ Blocks:
   - Editor UX: Figma-style layout (Insert/Layers left dock, Canvas center, Inspector right, bottom toolbar). Small screens: Layers uses a Sheet, Inspector uses a Popover; zoom/breakpoints are in the toolbar “View” menu.
   - Editor navigation: `Ctrl/Cmd + wheel` zoom to cursor; `Space + drag` pans the viewport; toolbar controls don’t zoom with the canvas.
   - Selection: click selects, `Shift` adds, `Ctrl/Cmd` toggles, and drag on empty canvas marquee-selects.
+  - Inspector CSS controls (new): node-level style overrides are now first-class (`node.style`) with breakpoint-aware editing (desktop/tablet/mobile), slider inputs (radius/opacity), and direct fields for width/height/spacing/layout/colors/typography/shadow plus advanced JSON for custom keys.
+  - Render parity: public `PageRenderer` now applies the same resolved `node.style` map as editor canvas (frame host + non-frame content), so saved output matches in-editor visuals more closely.
   - Layers panel: Layers/Assets tabs + search + rename + hide + collapse; drag-reorder updates `z` within siblings; selecting a layer scrolls it into view and opens the Inspector on small screens.
     - Layers reflect the real node hierarchy (`frame`/`shape`/`text`/`image`/etc). Inspector fields depend on the selected node type (geometry vs content).
   - Insert panel:
@@ -348,7 +355,7 @@ First-run seed (empty DB only):
 ### Frontend
 
 - `cd frontend`
-- `npm run dev`
+- `npm run dev` (default: http://127.0.0.1:4000)
 
 ---
 
@@ -375,6 +382,9 @@ First-run seed (empty DB only):
 - [x] Editor reliability pass: debounced autosave, `Ctrl/Cmd+S`, unsaved-changes unload guard, and last-saved/ autosave status badges
 - [x] Editor history controls: bounded undo/redo stack with shortcuts (`Ctrl/Cmd+Z`, `Shift+Ctrl/Cmd+Z`, `Ctrl+Y`) + toolbar actions
 - [x] Editor shell polish pass: top context strip (tool/mode/selection), grid visibility toggle, and refined dock/canvas visual styling
+- [x] Layout manager sub-item editing: menu embedded links and nested shadcn children are visible/selectable from Layers and jump to inspector controls
+- [x] Primitive materialization pass: menu/button/card/shadcn nodes are auto-converted to editable primitive shape+data trees in editor mode (keeps IDs stable and prevents non-editable locked composites)
+- [x] Design-system pivot: DaisyUI is wired as the active UI layer; core primitives in `components/ui/*` now use Daisy classes (button/input/select/dialog/dropdown/sheet/popover/card/badge/table/etc.)
 - [x] Editor focus/panel controls: left/right dock visibility toggles, focus mode, and keyboard shortcuts (`I` insert, `L` layers, `G` grid, `\` focus)
 - [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
@@ -507,6 +517,8 @@ Existing examples:
 - Schema + parsing/serialization: `frontend/lib/page-builder.ts`
 - Builder UI (canvas + dnd-kit): `frontend/components/page-builder/page-builder.tsx`
 - Outline (tree view + selection): `frontend/components/page-builder/page-outline.tsx` (left panel on desktop; Sheet on small screens; click selects + scrolls + opens Inspector; supports collapse/hide/rename and z-order reordering)
+- Layers now surface sub-items for menu embedded links and nested shadcn children; selecting those opens/focuses the exact inspector controls.
+- Non-primitive graph nodes (menu, button, card, shadcn) are automatically materialized to primitive trees on load in editor mode so every visible piece is directly selectable/editable.
 - Component picker modal (DB-backed): `frontend/components/page-builder/block-picker-dialog.tsx` (two-step: pick → configure → insert; configure can “Save as preset”)
 - Component data/props editor (used by admin + picker): `frontend/components/components/component-data-editor.tsx`
 - shadcn quick-props specs (powers “Quick settings”): `frontend/lib/shadcn-specs.ts` (start here to make a shadcn component feel “Figma-like”)
@@ -627,3 +639,7 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
+
+
+
