@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import math
+import re
 from collections.abc import Mapping
 from typing import Any
 
@@ -30,6 +31,104 @@ MAX_NODES = 2000
 MAX_DEPTH = 32
 MAX_ID_LENGTH = 120
 MAX_COORD = 1_000_000
+MAX_STYLE_ITEMS = 200
+MAX_STYLE_VALUE_LEN = 240
+
+STYLE_TOP_LEVEL_KEYS = {"base", "breakpoints", "states", "stateBreakpoints", "advanced"}
+STYLE_BREAKPOINT_KEYS = {"mobile", "tablet"}
+STYLE_STATE_KEYS = {"hover", "active", "focus"}
+STYLE_KEY_RE = re.compile(r"^[a-zA-Z][a-zA-Z0-9-]*$")
+STYLE_VALUE_DENY_PATTERNS = (
+    re.compile(r"javascript\s*:", re.IGNORECASE),
+    re.compile(r"expression\s*\(", re.IGNORECASE),
+    re.compile(r"@import\b", re.IGNORECASE),
+    re.compile(r"</?script\b", re.IGNORECASE),
+    re.compile(r"url\s*\(\s*['\"]?\s*javascript\s*:", re.IGNORECASE),
+)
+
+NODE_STYLE_ALLOWED_KEYS = {
+    "display",
+    "width",
+    "height",
+    "minWidth",
+    "maxWidth",
+    "minHeight",
+    "maxHeight",
+    "margin",
+    "marginTop",
+    "marginRight",
+    "marginBottom",
+    "marginLeft",
+    "padding",
+    "paddingTop",
+    "paddingRight",
+    "paddingBottom",
+    "paddingLeft",
+    "gap",
+    "rowGap",
+    "columnGap",
+    "flexDirection",
+    "flexWrap",
+    "justifyContent",
+    "alignItems",
+    "alignContent",
+    "gridTemplateColumns",
+    "gridTemplateRows",
+    "gridAutoFlow",
+    "placeItems",
+    "placeContent",
+    "background",
+    "backgroundColor",
+    "backgroundImage",
+    "backgroundPosition",
+    "backgroundSize",
+    "backgroundRepeat",
+    "border",
+    "borderWidth",
+    "borderStyle",
+    "borderColor",
+    "borderTopWidth",
+    "borderRightWidth",
+    "borderBottomWidth",
+    "borderLeftWidth",
+    "borderTopColor",
+    "borderRightColor",
+    "borderBottomColor",
+    "borderLeftColor",
+    "borderRadius",
+    "borderTopLeftRadius",
+    "borderTopRightRadius",
+    "borderBottomRightRadius",
+    "borderBottomLeftRadius",
+    "boxShadow",
+    "opacity",
+    "color",
+    "fontFamily",
+    "fontSize",
+    "fontWeight",
+    "lineHeight",
+    "letterSpacing",
+    "textAlign",
+    "textTransform",
+    "textDecoration",
+    "whiteSpace",
+    "wordBreak",
+    "overflow",
+    "overflowX",
+    "overflowY",
+    "transform",
+    "transformOrigin",
+    "filter",
+    "backdropFilter",
+    "transition",
+    "transitionProperty",
+    "transitionDuration",
+    "transitionTimingFunction",
+    "transitionDelay",
+    "cursor",
+    "pointerEvents",
+    "userSelect",
+}
 
 
 class PageBuilderValidationError(ValueError):
@@ -55,6 +154,114 @@ def _as_number(value: Any, path: str) -> float:
     if not math.isfinite(n):
         raise PageBuilderValidationError(f"{path} must be finite.")
     return n
+
+
+def _as_style_value(value: Any, path: str) -> str:
+    if isinstance(value, str):
+        out = value.strip()
+    elif isinstance(value, (int, float)):
+        n = float(value)
+        if not math.isfinite(n):
+            raise PageBuilderValidationError(f"{path} must be finite.")
+        out = str(value)
+    else:
+        raise PageBuilderValidationError(f"{path} must be a string or number.")
+
+    if not out:
+        raise PageBuilderValidationError(f"{path} must not be empty.")
+    if len(out) > MAX_STYLE_VALUE_LEN:
+        raise PageBuilderValidationError(
+            f"{path} exceeds max length {MAX_STYLE_VALUE_LEN}."
+        )
+    for pat in STYLE_VALUE_DENY_PATTERNS:
+        if pat.search(out):
+            raise PageBuilderValidationError(f"{path} contains an unsafe value.")
+    return out
+
+
+def _validate_style_map(raw: Any, path: str, *, allow_custom_keys: bool) -> None:
+    style_map = _as_dict(raw, path)
+    if len(style_map) > MAX_STYLE_ITEMS:
+        raise PageBuilderValidationError(
+            f"{path} exceeds max style items {MAX_STYLE_ITEMS}."
+        )
+
+    for key_raw, value_raw in style_map.items():
+        if not isinstance(key_raw, str) or not key_raw.strip():
+            raise PageBuilderValidationError(f"{path} has an invalid style key.")
+
+        key = key_raw.strip()
+        if allow_custom_keys:
+            if not STYLE_KEY_RE.match(key):
+                raise PageBuilderValidationError(
+                    f"{path}.{key} is not a valid CSS property key."
+                )
+        elif key not in NODE_STYLE_ALLOWED_KEYS:
+            raise PageBuilderValidationError(
+                f"{path}.{key} is not an allowed style property."
+            )
+
+        _as_style_value(value_raw, f"{path}.{key}")
+
+
+def _validate_node_style(raw: Any, path: str) -> None:
+    style = _as_dict(raw, path)
+
+    for top_key in style.keys():
+        if top_key not in STYLE_TOP_LEVEL_KEYS:
+            raise PageBuilderValidationError(
+                f"{path}.{top_key} is not a supported style section."
+            )
+
+    if "base" in style:
+        _validate_style_map(style.get("base"), f"{path}.base", allow_custom_keys=False)
+
+    if "breakpoints" in style:
+        bp = _as_dict(style.get("breakpoints"), f"{path}.breakpoints")
+        for bp_key, bp_map in bp.items():
+            if bp_key not in STYLE_BREAKPOINT_KEYS:
+                raise PageBuilderValidationError(
+                    f"{path}.breakpoints.{bp_key} is not supported."
+                )
+            _validate_style_map(
+                bp_map, f"{path}.breakpoints.{bp_key}", allow_custom_keys=False
+            )
+
+    if "states" in style:
+        states = _as_dict(style.get("states"), f"{path}.states")
+        for state_key, state_map in states.items():
+            if state_key not in STYLE_STATE_KEYS:
+                raise PageBuilderValidationError(
+                    f"{path}.states.{state_key} is not supported."
+                )
+            _validate_style_map(
+                state_map, f"{path}.states.{state_key}", allow_custom_keys=False
+            )
+
+    if "stateBreakpoints" in style:
+        sb = _as_dict(style.get("stateBreakpoints"), f"{path}.stateBreakpoints")
+        for state_key, state_bp_raw in sb.items():
+            if state_key not in STYLE_STATE_KEYS:
+                raise PageBuilderValidationError(
+                    f"{path}.stateBreakpoints.{state_key} is not supported."
+                )
+
+            state_bp = _as_dict(state_bp_raw, f"{path}.stateBreakpoints.{state_key}")
+            for bp_key, bp_map in state_bp.items():
+                if bp_key not in STYLE_BREAKPOINT_KEYS:
+                    raise PageBuilderValidationError(
+                        f"{path}.stateBreakpoints.{state_key}.{bp_key} is not supported."
+                    )
+                _validate_style_map(
+                    bp_map,
+                    f"{path}.stateBreakpoints.{state_key}.{bp_key}",
+                    allow_custom_keys=False,
+                )
+
+    if "advanced" in style:
+        _validate_style_map(
+            style.get("advanced"), f"{path}.advanced", allow_custom_keys=True
+        )
 
 
 def _validate_frame(frame: Mapping[str, Any], path: str) -> None:
@@ -160,6 +367,9 @@ def validate_page_builder_document(
 
             if "meta" in node:
                 _as_dict(node.get("meta"), f"{node_path}.meta")
+
+            if "style" in node:
+                _validate_node_style(node.get("style"), f"{node_path}.style")
 
             if "children" in node:
                 _as_list(node.get("children"), f"{node_path}.children")
