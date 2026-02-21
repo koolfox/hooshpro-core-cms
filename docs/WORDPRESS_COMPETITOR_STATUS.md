@@ -12,7 +12,7 @@ Branch: `main-pushable`
 ### Schema Stability
 - Canonical editor/content schema: `Partial`
 - Strict backend validation for saved docs: `Partial`
-- Deterministic migration tooling for each schema change: `Missing`
+- Deterministic migration tooling for each schema change: `Partial` (V3/V4->V6 migration script added for pages/templates/blocks)
 
 ### Publishing Workflow
 - Draft/Published/Scheduled: `Partial` (`draft|published` exists; scheduled missing)
@@ -108,3 +108,8 @@ Branch: `main-pushable`
 
 ## Immediate Implementation Chunk (Now In Progress)
 - Inspector: added desktop action to sync current style state to both tablet/mobile breakpoints in one click.
+
+## New Script
+- Dry-run: `cd backend && $env:PYTHONPATH='.'; .\.venv\Scripts\python scripts/migrate_editor_docs_to_v6.py`
+- Apply: `cd backend && $env:PYTHONPATH='.'; .\.venv\Scripts\python scripts/migrate_editor_docs_to_v6.py --write`
+

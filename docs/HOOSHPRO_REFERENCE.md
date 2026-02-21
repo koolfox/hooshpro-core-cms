@@ -478,6 +478,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 - [ ] Verify proxy/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
 - [ ] Run API smoke scripts: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000` and `python backend/scripts/smoke_mvp.py --base-url http://127.0.0.1:8000`
+- [ ] Run editor schema migration dry-run: `cd backend && $env:PYTHONPATH='.'; .\.venv\Scripts\python scripts/migrate_editor_docs_to_v6.py`
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
 - [ ] Create a sample Collection + Entries and render with `collection-list`
 - [ ] Verify style preset flow end-to-end (save/apply/detach + persistence on reload) and unit controls (`auto|px|%|rem|vw|vh`) on width/height/anchors
