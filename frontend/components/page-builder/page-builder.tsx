@@ -4896,7 +4896,7 @@ function beginPickMedia(nodeId: string) {
 				</div>
 			</div>
 
-			<div ref={inspectorBodyRef} className='flex-1 overflow-auto p-4 space-y-4'>
+			<div ref={inspectorBodyRef} className='flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4'>
 				{selectedNode ? (
 					<>
 						<div className='grid grid-cols-2 gap-3'>
@@ -4995,7 +4995,7 @@ function beginPickMedia(nodeId: string) {
 							<div className='space-y-2'>
 								<div className='flex items-center justify-between gap-2'>
 									<Label>Visual style ({styleScope})</Label>
-									<div className='flex items-center gap-2'>
+									<div className='flex items-center gap-2 flex-wrap justify-end'>
 										<div className='w-[130px]'>
 											<Select value={styleState} onValueChange={(v) => setStyleState(v as NodeStyleInteractionState)} disabled={disabledFlag}>
 												<SelectTrigger>
@@ -5057,9 +5057,9 @@ function beginPickMedia(nodeId: string) {
 											Save
 										</Button>
 									</div>
-									<div className='flex items-center gap-2'>
+									<div className='flex items-center gap-2 min-w-0'>
 										<Select value={selectedPresetId || 'none'} onValueChange={(v) => selectStylePreset(v === 'none' ? '' : v)} disabled={disabledFlag || stylePresets.length === 0}>
-											<SelectTrigger className='min-w-[180px]'>
+											<SelectTrigger className='w-full max-w-[220px] min-w-0'>
 												<SelectValue placeholder='Select preset' />
 											</SelectTrigger>
 											<SelectContent>
