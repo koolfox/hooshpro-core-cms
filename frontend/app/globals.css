@@ -1,6 +1,8 @@
 @import "tailwindcss";
 @import "tw-animate-css";
-
+@plugin "daisyui" {
+  themes: light --default, dark --prefersdark, corporate, luxury, autumn;
+}
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -593,3 +595,5 @@
     @apply bg-background text-foreground;
   }
 }
+
+
