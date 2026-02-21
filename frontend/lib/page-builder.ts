@@ -1,4 +1,6 @@
 import type { JSONContent } from '@tiptap/core';
+import type { NodeStyle } from './node-style';
+import { sanitizeNodeStyle } from './node-style';
 
 export type EditorValue = { doc: JSONContent; html: string };
 
@@ -91,6 +93,8 @@ export type PageNode = PageBlock & {
 	frames: NodeFrames;
 	/** Layout children (positioned inside this node). */
 	nodes?: PageNode[];
+	/** Optional style overrides (breakpoint/state-aware). */
+	style?: NodeStyle;
 };
 
 export type EditorBlock = {
@@ -242,21 +246,18 @@ export type ShapeBlock = {
 	};
 };
 
+
 export type ShadcnBlock = {
 	id: string;
 	meta?: NodeMeta;
+	/** @deprecated Legacy-only. Persisted schema is shape/data-native (non-shadcn). */
 	type: 'shadcn';
 	data: {
 		component: string;
 		props?: Record<string, unknown>;
 	};
-	/**
-	 * Optional nested children for "structural" shadcn components (e.g. Card).
-	 * If present (even as an empty array), the block is treated as a container.
-	 */
 	children?: PageBlock[];
 };
-
 export type UnknownBlock = {
 	id: string;
 	meta?: NodeMeta;
@@ -392,6 +393,101 @@ function parsePct(value: unknown, min: number, max: number): number | undefined 
 	const clamped = Math.max(min, Math.min(max, n));
 	const rounded = Math.round(clamped * 100) / 100;
 	return rounded;
+}
+
+function normalizeLegacyShadcnComponent(value: unknown): string {
+	if (typeof value !== 'string') return '';
+	return value.trim().toLowerCase();
+}
+
+function parseLegacyShadcnBlock(raw: Record<string, unknown>, id: string, meta: NodeMeta | undefined): PageBlock {
+	const data = isRecord(raw['data']) ? (raw['data'] as Record<string, unknown>) : {};
+	const component = normalizeLegacyShadcnComponent(data['component']);
+
+	let props: Record<string, unknown> = {};
+	if (isRecord(data['props'])) {
+		props = data['props'] as Record<string, unknown>;
+	} else {
+		for (const [k, v] of Object.entries(data)) {
+			if (k === 'component' || k === 'props') continue;
+			props[k] = v;
+		}
+	}
+
+	const hasLegacyChildren = Array.isArray(raw['children']) && raw['children'].length > 0;
+	const name = meta?.name?.trim();
+
+	if (hasLegacyChildren) {
+		return {
+			id,
+			meta: name ? meta : { ...(meta ?? {}), name: component ? `Component/${component}` : 'Component' },
+			type: 'frame',
+			data: {
+				label: component ? `Component/${component}` : 'Component',
+				layout: 'box',
+				className: 'border border-dashed border-border/70 bg-background/20',
+				paddingPx: 12,
+				props: {},
+			},
+		};
+	}
+
+	if (component === 'button') {
+		const label = typeof props['label'] === 'string' ? props['label'] : 'Button';
+		const href = typeof props['href'] === 'string' ? props['href'] : undefined;
+		const variantRaw = typeof props['variant'] === 'string' ? props['variant'].trim().toLowerCase() : '';
+		const variant =
+			variantRaw === 'default' ||
+			variantRaw === 'secondary' ||
+			variantRaw === 'outline' ||
+			variantRaw === 'destructive' ||
+			variantRaw === 'ghost' ||
+			variantRaw === 'link'
+				? (variantRaw as ButtonBlock['data']['variant'])
+				: undefined;
+		return { id, meta, type: 'button', data: { label, href, variant } };
+	}
+
+	if (component === 'card') {
+		const title = typeof props['title'] === 'string' ? props['title'] : 'Card title';
+		const body = typeof props['body'] === 'string' ? props['body'] : 'Card body';
+		return { id, meta, type: 'card', data: { title, body } };
+	}
+
+	if (component === 'separator') {
+		return { id, meta, type: 'separator', data: {} };
+	}
+
+	if (component === 'typography') {
+		const text = typeof props['text'] === 'string' ? props['text'] : 'Text';
+		return { id, meta, type: 'text', data: { text, variant: 'p' } };
+	}
+
+	if (component === 'badge') {
+		return {
+			id,
+			meta: name ? meta : { ...(meta ?? {}), name: 'Badge' },
+			type: 'shape',
+			data: {
+				kind: 'rect',
+				fill: 'hsl(var(--secondary))',
+				radiusPx: 999,
+			},
+		};
+	}
+
+	return {
+		id,
+		meta: name ? meta : { ...(meta ?? {}), name: component ? `Component/${component}` : 'Component' },
+		type: 'frame',
+		data: {
+			label: component ? `Component/${component}` : 'Component',
+			layout: 'box',
+			className: 'border border-dashed border-border/70 bg-background/20',
+			paddingPx: 12,
+			props: {},
+		},
+	};
 }
 
 export const PAGE_BUILDER_CANONICAL_VERSION = 6;
@@ -797,42 +893,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 		}
 
 		if (type === 'shadcn') {
-			const component =
-				isRecord(data) && typeof data['component'] === 'string' ? data['component'] : '';
-			let props: Record<string, unknown> | undefined;
-			if (isRecord(data) && isRecord(data['props'])) {
-				props = data['props'] as Record<string, unknown>;
-			} else if (isRecord(data)) {
-				const rest: Record<string, unknown> = {};
-				for (const [k, v] of Object.entries(data)) {
-					if (k === 'component') continue;
-					rest[k] = v;
-				}
-				if (Object.keys(rest).length > 0) props = rest;
-			}
-
-			let children: PageBlock[] | undefined;
-			if (Array.isArray(raw['children'])) {
-				const parsed: PageBlock[] = [];
-				for (const [childIndex, childRaw] of raw['children'].entries()) {
-					const child = parseBlockNode(
-						childRaw,
-						stableId('blk', ...path, childIndex),
-						[...path, childIndex]
-					);
-					if (child) parsed.push(child);
-				}
-				children = parsed;
-			}
-
-			const out: ShadcnBlock = {
-				id,
-				meta,
-				type: 'shadcn',
-				data: props ? { component, props } : { component },
-			};
-			if (children) out.children = children;
-			return out;
+			return parseLegacyShadcnBlock(raw, id, meta);
 		}
 
 		return {
@@ -850,6 +911,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 		if (!block) return null;
 
 		const frames = parseFrames(raw['frames'], defaultFrames(320, 200));
+		const rawType = typeof raw['type'] === 'string' ? raw['type'].trim().toLowerCase() : '';
 
 		let nodes: PageNode[] | undefined;
 		if (Array.isArray(raw['nodes'])) {
@@ -865,13 +927,53 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 			nodes = parsed;
 		}
 
+		if ((!nodes || nodes.length === 0) && rawType === 'shadcn' && Array.isArray(raw['children'])) {
+			const migratedChildren: PageNode[] = [];
+			let cursorY = 12;
+			const gap = 12;
+			const innerWidths = {
+				mobile: Math.max(60, frames.mobile.w - 24),
+				tablet: Math.max(60, frames.tablet.w - 24),
+				desktop: Math.max(60, frames.desktop.w - 24),
+			} satisfies Record<BuilderBreakpoint, number>;
+
+			for (const [childIndex, childRaw] of raw['children'].entries()) {
+				const child = parseNode(
+					childRaw,
+					stableId('node', ...path, 'children', childIndex),
+					[...path, 'children', childIndex]
+				);
+				if (!child) continue;
+
+				const childRecord = isRecord(childRaw) ? (childRaw as Record<string, unknown>) : null;
+				const hasChildFrames = !!childRecord && isRecord(childRecord['frames']);
+				if (!hasChildFrames) {
+					const estH = Math.max(48, estimateNodeHeight(child));
+					child.frames = {
+						mobile: { x: 12, y: cursorY, w: innerWidths.mobile, h: estH },
+						tablet: { x: 12, y: cursorY, w: innerWidths.tablet, h: estH },
+						desktop: { x: 12, y: cursorY, w: innerWidths.desktop, h: estH },
+					};
+				}
+
+				migratedChildren.push(child);
+				const childH = hasChildFrames ? Math.max(48, child.frames.desktop.h) : Math.max(48, estimateNodeHeight(child));
+				cursorY += childH + gap;
+			}
+
+			if (migratedChildren.length > 0) nodes = migratedChildren;
+		}
+
 		// Containers must always have a `nodes` array, even when empty, so they can
 		// accept drops in the editor (Figma-style frames/shapes).
 		const shouldDefaultToContainer =
 			block.type === 'frame' || block.type === 'shape';
 		if (!nodes && shouldDefaultToContainer) nodes = [];
 
-		return nodes ? { ...block, frames, nodes } : { ...block, frames };
+		const style = sanitizeNodeStyle(raw['style']);
+		const parsedNode = (nodes ? { ...block, frames, nodes } : { ...block, frames }) as PageNode;
+		if (style) parsedNode.style = style;
+		return parsedNode;
 	}
 
 	function estimateNodeHeight(block: PageBlock): number {
@@ -885,7 +987,6 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 		if (block.type === 'slot') return 320;
 		if (block.type === 'frame') return 360;
 		if (block.type === 'collection-list') return 420;
-		if (block.type === 'shadcn') return 220;
 		return 200;
 	}
 
@@ -1145,9 +1246,6 @@ export function serializePageBuilderState(state: PageBuilderState) {
 			if (Object.keys(metaOut).length) out['meta'] = metaOut;
 		}
 
-		if (b.type === 'shadcn' && Array.isArray(b.children)) {
-			out['children'] = b.children.map(serializeBlock);
-		}
 
 		return out;
 	}
@@ -1155,6 +1253,7 @@ export function serializePageBuilderState(state: PageBuilderState) {
 	function serializeNode(n: PageNode): Record<string, unknown> {
 		const out = serializeBlock(n);
 		out['frames'] = n.frames;
+		if (n.style) out['style'] = n.style;
 		if (Array.isArray(n.nodes)) {
 			out['nodes'] = n.nodes.map(serializeNode);
 		}
@@ -1204,17 +1303,6 @@ export function cloneNodesWithNewIds(nodes: PageNode[]): PageNode[] {
 			} satisfies UnknownBlock;
 		}
 
-		if (block.type === 'shadcn') {
-			const cloned: ShadcnBlock = {
-				id: createId('blk'),
-				type: 'shadcn',
-				data: deepClone(block.data),
-			};
-			if (Array.isArray(block.children)) {
-				cloned.children = block.children.map(cloneBlockWithNewIds);
-			}
-			return cloned;
-		}
 
 		return {
 			id: createId('blk'),
@@ -1229,6 +1317,7 @@ export function cloneNodesWithNewIds(nodes: PageNode[]): PageNode[] {
 			...(clonedBlock as PageNode),
 			frames: deepClone(node.frames),
 		};
+		if (node.style) cloned.style = deepClone(node.style);
 		if (Array.isArray(node.nodes)) {
 			cloned.nodes = node.nodes.map(cloneNodeWithNewIds);
 		}
@@ -1237,3 +1326,9 @@ export function cloneNodesWithNewIds(nodes: PageNode[]): PageNode[] {
 
 	return nodes.map(cloneNodeWithNewIds);
 }
+
+
+
+
+
+

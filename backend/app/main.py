@@ -36,11 +36,21 @@ from app.routers import (
     taxonomies,
     templates,
     themes,
+    ws_editor,
 )
 
 app = FastAPI(title=settings.APP_NAME)
 
-origins = ["http://127.0.0.1:3000", "http://localhost:3000"]
+origins = [
+    "http://127.0.0.1:3000",
+    "http://localhost:3000",
+    "http://127.0.0.1:4000",
+    "http://localhost:4000",
+    "http://127.0.0.1:5173",
+    "http://localhost:5173",
+    "http://127.0.0.1:5180",
+    "http://localhost:5180",
+]
 
 app.add_middleware(
     CORSMiddleware,
@@ -291,3 +301,5 @@ app.include_router(collections.router)
 app.include_router(options.router)
 app.include_router(taxonomies.router)
 app.include_router(themes.router)
+app.include_router(ws_editor.router)
+

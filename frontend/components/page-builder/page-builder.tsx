@@ -38,6 +38,7 @@ import {
 import type { BlockTemplate, ComponentDef, MediaAsset } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { shadcnComponentMeta } from '@/lib/shadcn-meta';
+import { hasNodeStyleOverride, resolveNodeStyle, sanitizeNodeStyle, type NodeStyle, type NodeStyleBreakpoint, type NodeStyleInteractionState } from '@/lib/node-style';
 
 import { EditorBlock } from '@/components/editor-block';
 import { ComponentDataEditor } from '@/components/components/component-data-editor';
@@ -57,7 +58,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { BlockPickerDialog, type ComponentPickerItem } from './block-picker-dialog';
 import { BlockTemplateBrowser } from './block-template-browser';
 import { BlockTemplatePickerDialog } from './block-template-picker-dialog';
-import { PageBuilderOutline } from './page-outline';
+import { PageBuilderOutline, type OutlineSubSelection } from './page-outline';
 import { renderBlockPreview } from './page-renderer';
 
 type ResizeHandle = 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw';
@@ -82,6 +83,8 @@ const MIN_NODE_H = 32;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const HISTORY_LIMIT = 120;
+const STYLE_PRESET_STORAGE_KEY = 'hooshpro_style_presets_v1';
+const STYLE_LENGTH_UNITS = ['px', '%', 'rem', 'vw', 'vh'] as const;
 
 const GRID_CELL_PX = 5;
 const GRID_MAJOR_PX = GRID_CELL_PX * 10;
@@ -168,6 +171,12 @@ type DropNotice = {
 	stamp: number;
 };
 
+type StylePreset = {
+	id: string;
+	name: string;
+	style: NodeStyle;
+};
+
 const FRAME_LAYOUT_PRESETS: Array<{
 	layout: FrameLayoutKind;
 	label: string;
@@ -218,12 +227,43 @@ function clampZoom(value: number): number {
 	return Math.round(clamped * 100) / 100;
 }
 
-function renderFrameLayoutHost(node: Extract<PageNode, { type: 'frame' }>, children: ReactNode) {
+function nestedBlockLabel(block: PageBlock): string {
+	const named = block.meta?.name?.trim();
+	if (named) return named;
+
+	if (block.type === 'unknown') return block.data.originalType;
+	if (block.type === 'editor') return 'Editor';
+	if (block.type === 'text') {
+		const txt = (block.data.text || '').trim();
+		if (!txt) return 'Text';
+		return txt.length > 32 ? `${txt.slice(0, 32)}...` : txt;
+	}
+	if (block.type === 'image') return block.data.alt?.trim() || 'Image';
+	if (block.type === 'shape') return block.data.kind ? `Shape/${block.data.kind}` : 'Shape';
+	if (block.type === 'button') return block.data.label?.trim() || 'Button';
+	if (block.type === 'card') return block.data.title?.trim() || 'Card';
+	if (block.type === 'menu') return block.data.menu?.trim() ? `Menu/${block.data.menu.trim()}` : 'Menu';
+	if (block.type === 'slot') return block.data.name?.trim() ? `Slot/${block.data.name.trim()}` : 'Slot';
+	if (block.type === 'collection-list') return block.data.type_slug?.trim() ? `Collection/${block.data.type_slug.trim()}` : 'Collection';
+	if (block.type === 'shadcn') return block.data.component?.trim() ? `shadcn/${block.data.component.trim()}` : 'shadcn';
+	if (block.type === 'frame') return block.data.label?.trim() ? `Frame/${block.data.label.trim()}` : 'Frame';
+	return block.type;
+}
+
+function renderFrameLayoutHost(
+	node: Extract<PageNode, { type: 'frame' }>,
+	children: ReactNode,
+	inspectorStyle?: CSSProperties
+) {
 	const className = (node.data.className || '').trim();
 	const mergedClassName = className ? `relative w-full h-full ${className}` : 'relative w-full h-full';
 
 	const props = isRecord(node.data.props) ? (node.data.props as Record<string, unknown>) : {};
-	const rest = { ...props, className: mergedClassName } as Record<string, unknown> & { children?: unknown };
+	const baseStyle = isRecord(props.style) ? (props.style as CSSProperties) : undefined;
+	const mergedStyle = inspectorStyle ? { ...(baseStyle ?? {}), ...inspectorStyle } : baseStyle;
+	const rest = { ...props, className: mergedClassName, style: mergedStyle } as Record<string, unknown> & {
+		children?: unknown;
+	};
 	delete rest.children;
 	delete rest.asChild;
 
@@ -1127,6 +1167,345 @@ function shadcnToPrimitiveTree(node: Extract<PageNode, { type: 'shadcn' }>): Pag
 	return null;
 }
 
+type MenuPrimitiveItem = { label: string; href: string };
+
+function normalizeMenuPrimitiveItems(items: unknown): MenuPrimitiveItem[] {
+	if (!Array.isArray(items)) return [];
+	const out: MenuPrimitiveItem[] = [];
+	for (const item of items) {
+		if (!isRecord(item)) continue;
+		const label = typeof item['label'] === 'string' ? item['label'].trim() : '';
+		const href = typeof item['href'] === 'string' ? item['href'].trim() : '';
+		if (!label || !href) continue;
+		out.push({ label, href });
+	}
+	return out;
+}
+
+async function loadMenuPrimitiveItems(node: Extract<PageNode, { type: 'menu' }>): Promise<MenuPrimitiveItem[]> {
+	const embedded = normalizeMenuPrimitiveItems(node.data.items);
+	if (embedded.length > 0) return embedded;
+
+	const slug = (node.data.menu || 'main').trim() || 'main';
+	try {
+		const res = await fetch(`/api/public/menus/${encodeURIComponent(slug)}`, { cache: 'no-store' });
+		if (!res.ok) throw new Error(`Menu fetch failed (${res.status})`);
+		const json = (await res.json()) as unknown;
+		if (!isRecord(json)) throw new Error('Invalid menu payload');
+		const items = normalizeMenuPrimitiveItems(json['items']);
+		if (items.length > 0) return items;
+	} catch {
+		// Fallback to a single editable link so the menu can still be materialized.
+	}
+
+	return [{ label: 'Home', href: '/' }];
+}
+
+function menuToPrimitiveTree(node: Extract<PageNode, { type: 'menu' }>, items: MenuPrimitiveItem[]): PageNode {
+	const kind = node.data.kind === 'footer' ? 'footer' : 'top';
+	const parentFrames = {
+		mobile: { ...node.frames.mobile },
+		tablet: { ...node.frames.tablet },
+		desktop: { ...node.frames.desktop },
+	};
+
+	const pad = 16;
+	const gap = 12;
+	const itemH = 36;
+	const itemW = 132;
+	const logoH = 44;
+	const logoW = 160;
+
+	function computeLayout(bp: BuilderBreakpoint) {
+		const parentW = Math.max(1, parentFrames[bp].w);
+		const parentH = Math.max(1, parentFrames[bp].h);
+
+		const totalLinksW = items.length * itemW + Math.max(0, items.length - 1) * gap;
+		const canRow = kind === 'top' && pad * 3 + logoW + gap + totalLinksW <= parentW;
+
+		if (canRow) {
+			const logo = {
+				x: pad,
+				y: Math.round((parentH - logoH) / 2),
+				w: Math.min(logoW, Math.max(80, parentW - pad * 2)),
+				h: logoH,
+			};
+			const links = {
+				x: Math.max(pad, Math.round(parentW - pad - totalLinksW)),
+				y: Math.round((parentH - itemH) / 2),
+				w: totalLinksW,
+				h: itemH,
+				mode: 'row' as const,
+			};
+			return { logo, links, requiredH: parentH };
+		}
+
+		const contentW = Math.max(60, parentW - pad * 2);
+		const logo = {
+			x: pad,
+			y: pad,
+			w: contentW,
+			h: logoH,
+		};
+		const linksH = items.length * itemH + Math.max(0, items.length - 1) * gap;
+		const links = {
+			x: pad,
+			y: pad + logoH + gap,
+			w: contentW,
+			h: linksH,
+			mode: 'stack' as const,
+		};
+		const requiredH = Math.max(parentH, links.y + links.h + pad);
+		return { logo, links, requiredH };
+	}
+
+	const layout = {
+		mobile: computeLayout('mobile'),
+		tablet: computeLayout('tablet'),
+		desktop: computeLayout('desktop'),
+	} as const;
+
+	for (const bp of ['mobile', 'tablet', 'desktop'] as const) {
+		parentFrames[bp] = { ...parentFrames[bp], h: Math.max(parentFrames[bp].h, layout[bp].requiredH) };
+	}
+
+	const logoText: PageNode = {
+		id: createId('node'),
+		type: 'text',
+		meta: { name: 'Logo label' },
+		data: {
+			text: 'Logo',
+			variant: 'small',
+			className: 'h-full w-full flex items-center px-2 font-semibold tracking-[0.22em] uppercase',
+		},
+		frames: {
+			mobile: { x: 0, y: 0, w: layout.mobile.logo.w, h: layout.mobile.logo.h },
+			tablet: { x: 0, y: 0, w: layout.tablet.logo.w, h: layout.tablet.logo.h },
+			desktop: { x: 0, y: 0, w: layout.desktop.logo.w, h: layout.desktop.logo.h },
+		},
+	};
+
+	const logoShape: PageNode = {
+		id: createId('node'),
+		type: 'shape',
+		meta: { name: 'Logo' },
+		data: {
+			kind: 'rect',
+			stroke: 'hsl(var(--border))',
+			strokeWidth: 1,
+			radiusPx: 10,
+		},
+		frames: {
+			mobile: { ...layout.mobile.logo },
+			tablet: { ...layout.tablet.logo },
+			desktop: { ...layout.desktop.logo },
+		},
+		nodes: [logoText],
+	};
+
+	const linkNodes: PageNode[] = items.map((item, idx) => {
+		const frames = {
+			mobile:
+				layout.mobile.links.mode === 'row'
+					? { x: idx * (itemW + gap), y: 0, w: itemW, h: itemH }
+					: { x: 0, y: idx * (itemH + gap), w: layout.mobile.links.w, h: itemH },
+			tablet:
+				layout.tablet.links.mode === 'row'
+					? { x: idx * (itemW + gap), y: 0, w: itemW, h: itemH }
+					: { x: 0, y: idx * (itemH + gap), w: layout.tablet.links.w, h: itemH },
+			desktop:
+				layout.desktop.links.mode === 'row'
+					? { x: idx * (itemW + gap), y: 0, w: itemW, h: itemH }
+					: { x: 0, y: idx * (itemH + gap), w: layout.desktop.links.w, h: itemH },
+		} satisfies Record<BuilderBreakpoint, NodeFrame>;
+
+		const labelNode: PageNode = {
+			id: createId('node'),
+			type: 'text',
+			meta: { name: 'Label' },
+			data: {
+				text: item.label,
+				variant: 'small',
+				className: 'h-full w-full flex items-center justify-center text-xs font-medium tracking-[0.22em] uppercase',
+			},
+			frames: {
+				mobile: { x: 0, y: 0, w: frames.mobile.w, h: frames.mobile.h },
+				tablet: { x: 0, y: 0, w: frames.tablet.w, h: frames.tablet.h },
+				desktop: { x: 0, y: 0, w: frames.desktop.w, h: frames.desktop.h },
+			},
+		};
+
+		return {
+			id: createId('node'),
+			type: 'shape',
+			meta: { name: `Link/${item.label}` },
+			data: {
+				kind: 'rect',
+				stroke: 'hsl(var(--border))',
+				strokeWidth: 1,
+				radiusPx: 10,
+				href: item.href,
+			},
+			frames,
+			nodes: [labelNode],
+		};
+	});
+
+	const linksGroup: PageNode = {
+		id: createId('node'),
+		type: 'shape',
+		meta: { name: 'Links' },
+		data: {
+			kind: 'rect',
+			stroke: 'hsl(var(--border))',
+			strokeWidth: 1,
+			radiusPx: 14,
+		},
+		frames: {
+			mobile: { x: layout.mobile.links.x, y: layout.mobile.links.y, w: layout.mobile.links.w, h: layout.mobile.links.h },
+			tablet: { x: layout.tablet.links.x, y: layout.tablet.links.y, w: layout.tablet.links.w, h: layout.tablet.links.h },
+			desktop: { x: layout.desktop.links.x, y: layout.desktop.links.y, w: layout.desktop.links.w, h: layout.desktop.links.h },
+		},
+		nodes: linkNodes,
+	};
+
+	const meta = node.meta ?? {};
+	const nextMeta = meta.name?.trim() ? meta : { ...meta, name: kind === 'footer' ? 'Footer menu' : 'Top menu' };
+
+	return {
+		id: node.id,
+		type: 'frame',
+		meta: nextMeta,
+		data: {
+			label: kind === 'footer' ? 'Footer menu' : 'Top menu',
+			layout: 'box',
+			className: kind === 'footer' ? 'bg-background border-t border-border' : 'bg-background border-b border-border',
+			paddingPx: 0,
+			props: {},
+		},
+		frames: parentFrames,
+		nodes: [logoShape, linksGroup],
+	};
+}
+
+function shadcnChildrenToCanvasNodes(node: Extract<PageNode, { type: 'shadcn' }>, state: PageBuilderState): PageNode[] {
+	if (!Array.isArray(node.children) || node.children.length === 0) return [];
+
+	const pad = 16;
+	const gap = 12;
+	const widths = {
+		mobile: Math.max(80, node.frames.mobile.w - pad * 2),
+		tablet: Math.max(80, node.frames.tablet.w - pad * 2),
+		desktop: Math.max(80, node.frames.desktop.w - pad * 2),
+	} satisfies Record<BuilderBreakpoint, number>;
+
+	let y = pad;
+	const children: PageNode[] = [];
+
+	for (const child of node.children) {
+		const seed = createNodeFromBlock(child, state, y, widths);
+		let out = seed;
+		if (seed.type === 'button') out = buttonToPrimitiveTree(seed);
+		if (seed.type === 'card') out = cardToPrimitiveTree(seed);
+		if (seed.type === 'shadcn') {
+			const converted = shadcnToPrimitiveTree(seed);
+			if (converted) out = converted;
+		}
+		children.push(out);
+		y += Math.max(MIN_NODE_H, out.frames.desktop.h) + gap;
+	}
+
+	return children;
+}
+
+async function materializeNodeToPrimitives(node: PageNode, state: PageBuilderState): Promise<PageNode> {
+	let working = node;
+
+	if (Array.isArray(working.nodes) && working.nodes.length > 0) {
+		const convertedChildren = await Promise.all(working.nodes.map((child: PageNode) => materializeNodeToPrimitives(child, state)));
+		working = { ...working, nodes: convertedChildren };
+	}
+
+	if (working.type === 'button') return buttonToPrimitiveTree(working);
+	if (working.type === 'card') return cardToPrimitiveTree(working);
+
+	if (working.type === 'menu') {
+		const items = await loadMenuPrimitiveItems(working);
+		return menuToPrimitiveTree(working, items);
+	}
+
+	if (working.type === 'shadcn') {
+		const converted = shadcnToPrimitiveTree(working);
+		if (converted) return converted;
+
+		const subNodes = shadcnChildrenToCanvasNodes(working, state);
+		if (subNodes.length > 0) {
+			const componentName = (working.data.component || '').trim() || 'shadcn';
+			const meta = working.meta ?? {};
+			const nextMeta = meta.name?.trim() ? meta : { ...meta, name: `Component/${componentName}` };
+			return {
+				id: working.id,
+				type: 'frame',
+				meta: nextMeta,
+				data: {
+					label: `Component/${componentName}`,
+					layout: 'box',
+					className: 'border border-dashed border-border/70 bg-background/20',
+					paddingPx: 12,
+					props: {},
+				},
+				frames: working.frames,
+				nodes: subNodes,
+			};
+		}
+
+		const labelNode: PageNode = {
+			id: createId('node'),
+			type: 'text',
+			meta: { name: 'Label' },
+			data: {
+				text: `Component/${(working.data.component || 'shadcn').trim() || 'shadcn'}`,
+				variant: 'small',
+				className: 'h-full w-full flex items-center justify-center text-xs text-muted-foreground',
+			},
+			frames: {
+				mobile: { x: 0, y: 0, w: working.frames.mobile.w, h: working.frames.mobile.h },
+				tablet: { x: 0, y: 0, w: working.frames.tablet.w, h: working.frames.tablet.h },
+				desktop: { x: 0, y: 0, w: working.frames.desktop.w, h: working.frames.desktop.h },
+			},
+		};
+
+		return {
+			id: working.id,
+			type: 'shape',
+			meta: working.meta,
+			data: {
+				kind: 'rect',
+				stroke: 'hsl(var(--border))',
+				strokeWidth: 1,
+				radiusPx: 10,
+			},
+			frames: working.frames,
+			nodes: [labelNode],
+		};
+	}
+
+	return working;
+}
+
+async function materializeTreeToPrimitives(nodes: PageNode[], state: PageBuilderState): Promise<PageNode[]> {
+	return Promise.all(nodes.map((node) => materializeNodeToPrimitives(node, state)));
+}
+
+function hasMaterializableNodes(nodes: PageNode[]): boolean {
+	for (const node of nodes) {
+		if (node.type === 'menu' || node.type === 'button' || node.type === 'card' || node.type === 'shadcn') {
+			return true;
+		}
+		if (Array.isArray(node.nodes) && hasMaterializableNodes(node.nodes)) return true;
+	}
+	return false;
+}
 function ResizeHandleButton({
 	handle,
 	onPointerDown,
@@ -1246,16 +1625,9 @@ function CanvasNode({
 	const frameLayout = isFrame ? node.data.layout : undefined;
 	const frameProps = isFrame && isRecord(node.data.props) ? (node.data.props as Record<string, unknown>) : null;
 	const clipContents = isFrame && node.data.clip === true;
-	const showOverflowWhileDragging = !!draggingId;
-	const containerOverflowClass = showOverflowWhileDragging
-		? 'overflow-visible'
-		: canContain
-			? 'overflow-visible'
-		: isFrame
-			? clipContents
-				? 'overflow-hidden'
-				: 'overflow-visible'
-			: 'overflow-hidden';
+	const containerOverflowClass = isFrame && clipContents ? 'overflow-hidden' : 'overflow-visible';
+	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 
 	let containerHint: ReactNode = null;
 	if (isFrame && frameLayout === 'container') {
@@ -1332,7 +1704,7 @@ function CanvasNode({
 	}
 
 	const childNodes = canContain
-		? node.nodes!.map((child) => (
+		? node.nodes!.map((child: PageNode) => (
 				<CanvasNode
 					key={child.id}
 					node={child}
@@ -1354,48 +1726,26 @@ function CanvasNode({
 			))
 		: null;
 
+	const showChrome = isSelected;
+
 	const nodeContent = hidden ? (
 		<div className='flex h-full w-full items-center justify-center gap-2 text-xs text-muted-foreground'>
 			<EyeOff className='h-4 w-4' />
 			Hidden
 		</div>
 	) : isFrame && canContain ? (
-		renderFrameLayoutHost(node, (
-			<>
-				{node.nodes?.length === 0 ? (
-					<Empty
-						className='h-full w-full border-0 bg-transparent md:p-8'
-						aria-hidden='true'>
-						<EmptyHeader>
-							<EmptyMedia variant='icon'>
-								<LayoutGrid />
-							</EmptyMedia>
-							<EmptyTitle>
-								{node.data.label?.trim()
-									? node.data.label.trim()
-									: node.data.layout
-										? `Empty ${node.data.layout}`
-										: 'Empty row'}
-							</EmptyTitle>
-							<EmptyDescription>
-								Drop components here, or select the row and click “Component”.
-							</EmptyDescription>
-						</EmptyHeader>
-					</Empty>
-				) : null}
-				{childNodes}
-			</>
-		))
+			renderFrameLayoutHost(node, <>{childNodes}</>, resolvedVisualStyle)
 	) : (
 		<>
 			<div
 				className={cn(
-					'absolute inset-0 overflow-auto',
+					'absolute inset-0 overflow-visible',
 					interactionsEnabled &&
 						(node.type !== 'editor' || !isPrimarySelected) &&
 						'pointer-events-none'
-				)}>
-				{node.type === 'editor' ? (
+				)}
+				style={resolvedVisualStyle}>
+				{node.type === 'editor' && isPrimarySelected ? (
 					<EditorBlock
 						value={node.data}
 						onChange={(v) => onUpdateNode(node.id, (n) => ({ ...n, type: 'editor', data: v }))}
@@ -1415,10 +1765,16 @@ function CanvasNode({
 			ref={setNodeRef}
 			style={style}
 			{...attributes}
+			onPointerEnter={() => setInteractionState((prev) => (prev === 'active' ? prev : 'hover'))}
+			onPointerLeave={() => setInteractionState('default')}
+			onPointerUp={() => setInteractionState('hover')}
+			onFocusCapture={() => setInteractionState('focus')}
+			onBlurCapture={() => setInteractionState('default')}
 			onPointerDown={(e) => {
 				if (!interactionsEnabled) return;
 				e.stopPropagation();
 				onSelect(node.id, e);
+				setInteractionState('active');
 
 				if (disabled || locked) return;
 				if (isTypingTarget(e.target as Element | null)) return;
@@ -1431,10 +1787,8 @@ function CanvasNode({
 				ref={setDroppableRef}
 				style={containerStyle}
 				className={cn(
-					'relative h-full w-full rounded-md border',
+					'relative h-full w-full',
 					containerOverflowClass,
-					isFrame ? 'border-dashed bg-background/40 shadow-none' : 'bg-background/70 shadow-sm',
-					canContain && 'bg-muted/10',
 					isOver && draggingId && draggingId !== node.id && 'ring-2 ring-primary',
 					isDragging && 'ring-2 ring-ring'
 				)}>
@@ -1447,16 +1801,23 @@ function CanvasNode({
 									? `menu/${node.data.kind || 'top'}:${node.data.menu}`
 									: node.type === 'slot'
 										? `slot/${node.data.name || 'page'}`
-										: node.type === 'shadcn'
-											? `shadcn/${node.data.component || 'component'}`
 											: node.type}
 						</span>
 					</div>
 				) : null}
 
-				{containerHint}
+				{isPrimarySelected ? containerHint : null}
 
 				<div className='absolute inset-0'>{nodeContent}</div>
+
+				{showChrome ? (
+					<div
+						className={cn(
+							'pointer-events-none absolute inset-0 rounded-md border border-ring/60',
+							isFrame && 'border-dashed'
+						)}
+					/>
+				) : null}
 
 				{isPrimarySelected && interactionsEnabled && !disabled && !locked ? (
 					<>
@@ -1560,11 +1921,13 @@ function PreviewNode({
 		zIndex,
 	};
 
+	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 	const canContain = Array.isArray(node.nodes);
 	const isFrame = node.type === 'frame';
 
 	const childNodes = canContain
-		? node.nodes!.map((child) => (
+		? node.nodes!.map((child: PageNode) => (
 				<PreviewNode
 					key={child.id}
 					node={child}
@@ -1577,16 +1940,20 @@ function PreviewNode({
 			))
 		: null;
 
+	const showChrome = isSelected;
+
 	const nodeContent = hidden ? (
 		<div className='flex h-full w-full items-center justify-center gap-2 text-xs text-muted-foreground'>
 			<EyeOff className='h-4 w-4' />
 			Hidden
 		</div>
 	) : isFrame && canContain ? (
-		renderFrameLayoutHost(node, <>{childNodes}</>)
+		renderFrameLayoutHost(node, <>{childNodes}</>, resolvedVisualStyle)
 	) : (
 		<>
-			<div className='absolute inset-0 overflow-auto'>{renderBlockPreview(node)}</div>
+			<div className='absolute inset-0 overflow-visible' style={resolvedVisualStyle}>
+				{renderBlockPreview(node)}
+			</div>
 			{canContain ? <div className='absolute inset-0'>{childNodes}</div> : null}
 		</>
 	);
@@ -1594,20 +1961,28 @@ function PreviewNode({
 	return (
 		<div
 			style={style}
+			tabIndex={-1}
+			onPointerEnter={() => setInteractionState((prev) => (prev === 'active' ? prev : 'hover'))}
+			onPointerLeave={() => setInteractionState('default')}
+			onPointerDown={() => setInteractionState('active')}
+			onPointerUp={() => setInteractionState('hover')}
+			onFocusCapture={() => setInteractionState('focus')}
+			onBlurCapture={() => setInteractionState('default')}
 			className={cn('group/node', isSelected ? 'ring-2 ring-ring ring-offset-2' : 'ring-0')}>
-			<div
-				className={cn(
-					'relative h-full w-full rounded-md border',
-					isFrame ? 'border-dashed bg-background/40 shadow-none' : 'bg-background/70 shadow-sm',
-					canContain && 'bg-muted/10',
-					locked && 'opacity-90'
-				)}>
+			<div className={cn('relative h-full w-full', locked && 'opacity-90')}>
 				<div className='absolute inset-0'>{nodeContent}</div>
+				{showChrome ? (
+					<div
+						className={cn(
+							'pointer-events-none absolute inset-0 rounded-md border border-ring/60',
+							isFrame && 'border-dashed'
+						)}
+					/>
+				) : null}
 			</div>
 		</div>
 	);
 }
-
 function CanvasFramePreview({
 	nodes,
 	breakpoint,
@@ -1661,6 +2036,7 @@ export function PageBuilder({
 	lockedNodeIds,
 	editRootId,
 	fullHeight = true,
+	inlineSurface = false,
 	className,
 }: {
 	value: PageBuilderState;
@@ -1669,9 +2045,11 @@ export function PageBuilder({
 	lockedNodeIds?: Iterable<string>;
 	editRootId?: string | null;
 	fullHeight?: boolean;
+	inlineSurface?: boolean;
 	className?: string;
 }) {
 	const disabledFlag = !!disabled;
+	const rulerInsetPx = inlineSurface ? 0 : RULER_SIZE_PX;
 	const lockedIds = useMemo(() => {
 		if (!lockedNodeIds) return new Set<string>();
 		return new Set(Array.from(lockedNodeIds));
@@ -1717,13 +2095,19 @@ export function PageBuilder({
 
 	const viewportRef = useRef<HTMLDivElement | null>(null);
 	const rootElRef = useRef<HTMLDivElement | null>(null);
+	const inspectorBodyRef = useRef<HTMLDivElement | null>(null);
 	const [rootClientWidth, setRootClientWidth] = useState<number | null>(null);
 	const [viewportSize, setViewportSize] = useState<{ width: number; height: number }>({ width: 0, height: 0 });
 	const [viewportScroll, setViewportScroll] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
 
 	const [breakpoint, setBreakpoint] = useState<BuilderBreakpoint>('desktop');
+	const [styleState, setStyleState] = useState<NodeStyleInteractionState>('default');
+	const [stylePresets, setStylePresets] = useState<StylePreset[]>([]);
+	const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+	const [stylePresetName, setStylePresetName] = useState<string>('');
 	const [zoom, setZoom] = useState(1);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
+	const [outlineSubSelection, setOutlineSubSelection] = useState<OutlineSubSelection | null>(null);
 	const selectedId = selectedIds.length ? selectedIds[selectedIds.length - 1] : null;
 	const [draggingId, setDraggingId] = useState<string | null>(null);
 	const [dragDelta, setDragDelta] = useState<DragDelta | null>(null);
@@ -1736,8 +2120,8 @@ export function PageBuilder({
 	const [shapeToolKind, setShapeToolKind] = useState<ShapeKind>('rect');
 	const [drawState, setDrawState] = useState<DrawState | null>(null);
 	const [marqueeState, setMarqueeState] = useState<MarqueeState | null>(null);
-	const [viewportMode, setViewportMode] = useState<CanvasViewportMode>('frames');
-	const [showGridOverlay, setShowGridOverlay] = useState(true);
+	const [viewportMode, setViewportMode] = useState<CanvasViewportMode>(inlineSurface ? 'single' : 'frames');
+	const [showGridOverlay, setShowGridOverlay] = useState(!inlineSurface);
 
 	const [blockPickerOpen, setBlockPickerOpen] = useState(false);
 	const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
@@ -1748,8 +2132,8 @@ export function PageBuilder({
 	const [insertOpen, setInsertOpen] = useState(false);
 	const [leftDockMode, setLeftDockMode] = useState<'outline' | 'insert'>('outline');
 	const [insertTab, setInsertTab] = useState<'blocks' | 'libraries'>('blocks');
-	const [showLeftDock, setShowLeftDock] = useState(true);
-	const [showRightDock, setShowRightDock] = useState(true);
+	const [showLeftDock, setShowLeftDock] = useState(!inlineSurface);
+	const [showRightDock, setShowRightDock] = useState(!inlineSurface);
 	const [focusMode, setFocusMode] = useState(false);
 	const [detachingMenu, setDetachingMenu] = useState(false);
 	const [detachMenuError, setDetachMenuError] = useState<string | null>(null);
@@ -1759,6 +2143,46 @@ export function PageBuilder({
 	useEffect(() => {
 		zoomRef.current = zoom;
 	}, [zoom]);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			const raw = window.localStorage.getItem(STYLE_PRESET_STORAGE_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw) as unknown;
+			if (!Array.isArray(parsed)) return;
+			const next: StylePreset[] = parsed
+				.map((item) => {
+					if (!isRecord(item)) return null;
+					const id = typeof item['id'] === 'string' ? item['id'].trim() : '';
+					const name = typeof item['name'] === 'string' ? item['name'].trim() : '';
+					const style = sanitizeNodeStyle(item['style']);
+					if (!id || !name || !style) return null;
+					return { id, name, style } as StylePreset;
+				})
+				.filter((v): v is StylePreset => !!v);
+			setStylePresets(next);
+		} catch {
+			// ignore malformed storage
+		}
+	}, []);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(STYLE_PRESET_STORAGE_KEY, JSON.stringify(stylePresets));
+		} catch {
+			// best effort only
+		}
+	}, [stylePresets]);
+
+	useEffect(() => {
+		if (!selectedId) {
+			setSelectedPresetId('');
+			return;
+		}
+		setStylePresetName('');
+	}, [selectedId]);
 
 	const [spaceDown, setSpaceDown] = useState(false);
 	const [isPanning, setIsPanning] = useState(false);
@@ -1787,11 +2211,75 @@ export function PageBuilder({
 		selectedNode?.type === 'frame' && isRecord(selectedNode.data.props)
 			? (selectedNode.data.props as Record<string, unknown>)
 			: {};
+	const materializingRef = useRef(false);
+
+	useEffect(() => {
+		if (materializingRef.current) return;
+		if (!hasMaterializableNodes(value.nodes)) return;
+
+		let cancelled = false;
+
+		const run = async () => {
+			materializingRef.current = true;
+			try {
+				const source = valueRef.current;
+				if (!hasMaterializableNodes(source.nodes)) return;
+
+				const startSnapshot = comparableJsonFromState(source);
+				const nextNodes = await materializeTreeToPrimitives(source.nodes, source);
+				if (cancelled) return;
+
+				// Avoid stale async writes when the document changed while materializing.
+				if (comparableJsonFromState(valueRef.current) !== startSnapshot) return;
+
+				const nextState: PageBuilderState = { ...source, nodes: nextNodes };
+				if (comparableJsonFromState(nextState) === startSnapshot) return;
+				onChange(nextState);
+			} finally {
+				materializingRef.current = false;
+			}
+		};
+
+		void run();
+		return () => {
+			cancelled = true;
+		};
+	}, [onChange, value.nodes]);
+
+	useEffect(() => {
+		setOutlineSubSelection((prev) => {
+			if (!prev) return prev;
+			if (!selectedId || prev.nodeId !== selectedId) return null;
+			return prev;
+		});
+	}, [selectedId]);
+
+	useEffect(() => {
+		setOutlineSubSelection((prev) => {
+			if (!prev || !selectedNode || prev.nodeId !== selectedNode.id) return prev;
+			if (prev.item.kind === 'menu-item') {
+				if (selectedNode.type !== 'menu' || !Array.isArray(selectedNode.data.items)) return null;
+				if (prev.item.index < 0 || prev.item.index >= selectedNode.data.items.length) return null;
+			}
+			return prev;
+		});
+	}, [selectedNode]);
+
+	useEffect(() => {
+		if (!outlineSubSelection || !selectedNode || outlineSubSelection.nodeId !== selectedNode.id) return;
+		const root = inspectorBodyRef.current;
+		if (!root) return;
+		const marker = `${outlineSubSelection.item.kind}:${outlineSubSelection.item.index}`;
+		const target = root.querySelector<HTMLElement>(`[data-inspector-sub-item="${marker}"]`);
+		if (!target) return;
+		target.scrollIntoView({ block: 'nearest' });
+	}, [outlineSubSelection, selectedNode, inspectorOpen]);
 
 	const pendingFocusIdRef = useRef<string | null>(null);
 	const requestFocus = useCallback(
 		(nodeId: string) => {
 			pendingFocusIdRef.current = nodeId;
+			setOutlineSubSelection(null);
 			setSelectedIds([nodeId]);
 		},
 		[]
@@ -1803,6 +2291,8 @@ export function PageBuilder({
 
 			const wantsToggle = !!e && (e.metaKey || e.ctrlKey);
 			const wantsAdditive = !!e && e.shiftKey;
+
+			if (!wantsToggle && !wantsAdditive) setOutlineSubSelection(null);
 
 			setSelectedIds((prev) => {
 				if (!wantsToggle && !wantsAdditive) return [nodeId];
@@ -1970,11 +2460,11 @@ export function PageBuilder({
 		const vx = clientX - rect.left;
 		const vy = clientY - rect.top;
 		const current = zoomRef.current || 1;
-		const canvasX = (el.scrollLeft + vx - RULER_SIZE_PX) / current;
-		const canvasY = (el.scrollTop + vy - RULER_SIZE_PX) / current;
+		const canvasX = (el.scrollLeft + vx - rulerInsetPx) / current;
+		const canvasY = (el.scrollTop + vy - rulerInsetPx) / current;
 
-		const nextLeft = canvasX * next + RULER_SIZE_PX - vx;
-		const nextTop = canvasY * next + RULER_SIZE_PX - vy;
+		const nextLeft = canvasX * next + rulerInsetPx - vx;
+		const nextTop = canvasY * next + rulerInsetPx - vy;
 
 		pendingZoomScrollRef.current = { left: Math.max(0, nextLeft), top: Math.max(0, nextTop) };
 		setZoom(next);
@@ -1989,8 +2479,8 @@ export function PageBuilder({
 		}
 
 		const rect = el.getBoundingClientRect();
-		const canvasCenterX = RULER_SIZE_PX + (el.clientWidth - RULER_SIZE_PX) / 2;
-		const canvasCenterY = RULER_SIZE_PX + (el.clientHeight - RULER_SIZE_PX) / 2;
+		const canvasCenterX = rulerInsetPx + (el.clientWidth - rulerInsetPx) / 2;
+		const canvasCenterY = rulerInsetPx + (el.clientHeight - rulerInsetPx) / 2;
 		setZoomAtClientPoint(next, rect.left + canvasCenterX, rect.top + canvasCenterY);
 	}
 
@@ -2141,8 +2631,8 @@ export function PageBuilder({
 
 		const zoomValue = zoomRef.current || 1;
 		const offsetX = viewportMode === 'frames' ? frameBoard.activeOffsetX : 0;
-		const targetLeft = Math.max(0, RULER_SIZE_PX + (offsetX + global.x + frame.w / 2) * zoomValue - viewportW / 2);
-		const targetTop = Math.max(0, RULER_SIZE_PX + (global.y + frame.h / 2) * zoomValue - viewportH / 2);
+		const targetLeft = Math.max(0, rulerInsetPx + (offsetX + global.x + frame.w / 2) * zoomValue - viewportW / 2);
+		const targetTop = Math.max(0, rulerInsetPx + (global.y + frame.h / 2) * zoomValue - viewportH / 2);
 
 		el.scrollTo({
 			left: targetLeft,
@@ -2370,7 +2860,7 @@ export function PageBuilder({
 			const siblings = targetParentId
 				? afterRemovalIndex.byId.get(targetParentId)?.nodes ?? []
 				: removedOut.nodes;
-			const maxSiblingZ = siblings.reduce((max, n) => {
+			const maxSiblingZ = siblings.reduce((max: number, n: PageNode) => {
 				const zRaw = n.frames[breakpoint].z;
 				const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
 				return Math.max(max, z);
@@ -2428,8 +2918,8 @@ export function PageBuilder({
 		if (viewport) {
 			const zoomAtDrop = zoomRef.current || 1;
 			const offsetX = viewportMode === 'frames' ? frameBoard.activeOffsetX : 0;
-			const visibleX0 = (viewport.scrollLeft - RULER_SIZE_PX) / zoomAtDrop - offsetX;
-			const visibleY0 = (viewport.scrollTop - RULER_SIZE_PX) / zoomAtDrop;
+			const visibleX0 = (viewport.scrollLeft - rulerInsetPx) / zoomAtDrop - offsetX;
+			const visibleY0 = (viewport.scrollTop - rulerInsetPx) / zoomAtDrop;
 			const visibleX1 = visibleX0 + viewport.clientWidth / zoomAtDrop;
 			const visibleY1 = visibleY0 + viewport.clientHeight / zoomAtDrop;
 
@@ -2688,13 +3178,13 @@ export function PageBuilder({
 			if (siblings.length < 2) return;
 
 			const ordered = siblings
-				.map((n) => {
+				.map((n: PageNode) => {
 					const zRaw = n.frames[breakpoint].z;
 					const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
 					return { id: n.id, z };
 				})
-				.sort((a, b) => (a.z - b.z) || a.id.localeCompare(b.id))
-				.map((n) => n.id);
+				.sort((a: { id: string; z: number }, b: { id: string; z: number }) => (a.z - b.z) || a.id.localeCompare(b.id))
+				.map((n: { id: string; z: number }) => n.id);
 
 			const from = ordered.indexOf(selectedId);
 			if (from === -1) return;
@@ -2740,52 +3230,112 @@ export function PageBuilder({
 			const idx = buildIndex(current.nodes, breakpoint);
 			if (!idx.byId.has(activeId) || !idx.byId.has(overId)) return;
 
-			const parentA = idx.parentById.get(activeId) ?? null;
-			const parentB = idx.parentById.get(overId) ?? null;
-			if (parentA !== parentB) return;
-
 			if (
 				!isWithinEditRoot(idx, activeId, effectiveEditRootId) ||
 				!isWithinEditRoot(idx, overId, effectiveEditRootId)
 			)
 				return;
 			if (isLockedForEdit(idx, activeId, lockedIds, effectiveEditRootId)) return;
+			if (isDescendant(idx.parentById, overId, activeId)) return;
 
-			const siblings = parentA ? idx.byId.get(parentA)?.nodes ?? [] : current.nodes;
-			if (siblings.length < 2) return;
+			const buildOrderedIds = (siblings: PageNode[]) =>
+				siblings
+					.map((n: PageNode) => {
+						const zRaw = n.frames[breakpoint].z;
+						const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
+						return { id: n.id, z };
+					})
+					.sort((a: { id: string; z: number }, b: { id: string; z: number }) => (b.z - a.z) || a.id.localeCompare(b.id))
+					.map((n: { id: string; z: number }) => n.id);
 
-			const ordered = siblings
-				.map((n) => {
-					const zRaw = n.frames[breakpoint].z;
-					const z = typeof zRaw === 'number' && Number.isFinite(zRaw) ? zRaw : 1;
-					return { id: n.id, z };
-				})
-				.sort((a, b) => (b.z - a.z) || a.id.localeCompare(b.id))
-				.map((n) => n.id);
+			const applyZOrder = (tree: PageNode[], orderedIds: string[]) => {
+				let out = tree;
+				for (let i = 0; i < orderedIds.length; i += 1) {
+					const id = orderedIds[i]!;
+					const z = orderedIds.length - i;
+					out = updateNodeInTree(out, id, (n) => ({
+						...n,
+						frames: {
+							...n.frames,
+							[breakpoint]: { ...n.frames[breakpoint], z },
+						},
+					}));
+				}
+				return out;
+			};
 
+			const parentA = idx.parentById.get(activeId) ?? null;
+			const parentB = idx.parentById.get(overId) ?? null;
+
+			if (parentA === parentB) {
+				const siblings = parentA ? idx.byId.get(parentA)?.nodes ?? [] : current.nodes;
+				if (siblings.length < 2) return;
+				const ordered = buildOrderedIds(siblings);
+				const from = ordered.indexOf(activeId);
+				const to = ordered.indexOf(overId);
+				if (from === -1 || to === -1) return;
+
+				const next = [...ordered];
+				next.splice(from, 1);
+				const toIndex = from < to ? to - 1 : to;
+				next.splice(toIndex, 0, activeId);
+
+				onChange({ ...current, nodes: applyZOrder(current.nodes, next) });
+				return;
+			}
+
+			if (parentB && (parentB === activeId || isDescendant(idx.parentById, parentB, activeId))) return;
+
+			const removedOut = removeNodeFromTree(current.nodes, activeId);
+			if (!removedOut.removed) return;
+
+			const afterRemovalIndex = buildIndex(removedOut.nodes, breakpoint);
+			const targetParentId = parentB;
+			if (targetParentId && !canContainChildren(afterRemovalIndex.byId.get(targetParentId))) return;
+			if (effectiveEditRootId && targetParentId && !isWithinEditRoot(afterRemovalIndex, targetParentId, effectiveEditRootId)) return;
+
+			const startGlobal = idx.globalById.get(activeId) ?? {
+				x: removedOut.removed.frames[breakpoint].x,
+				y: removedOut.removed.frames[breakpoint].y,
+			};
+			const targetGlobal = targetParentId
+				? afterRemovalIndex.globalById.get(targetParentId) ?? { x: 0, y: 0 }
+				: { x: 0, y: 0 };
+			const movedFrame = removedOut.removed.frames[breakpoint];
+			const movedNode: PageNode = {
+				...removedOut.removed,
+				frames: {
+					...removedOut.removed.frames,
+					[breakpoint]: {
+						...movedFrame,
+						x: Math.round(startGlobal.x - targetGlobal.x),
+						y: Math.round(startGlobal.y - targetGlobal.y),
+					},
+				},
+			};
+
+			let movedTree = insertNodeIntoTree(removedOut.nodes, targetParentId, movedNode);
+			const movedIndex = buildIndex(movedTree, breakpoint);
+			const targetSiblings = targetParentId ? movedIndex.byId.get(targetParentId)?.nodes ?? [] : movedTree;
+			if (targetSiblings.length < 2) {
+				onChange({ ...current, nodes: movedTree });
+				return;
+			}
+
+			const ordered = buildOrderedIds(targetSiblings);
 			const from = ordered.indexOf(activeId);
 			const to = ordered.indexOf(overId);
-			if (from === -1 || to === -1) return;
+			if (from === -1 || to === -1) {
+				onChange({ ...current, nodes: movedTree });
+				return;
+			}
 
 			const next = [...ordered];
 			next.splice(from, 1);
 			const toIndex = from < to ? to - 1 : to;
 			next.splice(toIndex, 0, activeId);
-
-			let nodes = current.nodes;
-			for (let i = 0; i < next.length; i += 1) {
-				const id = next[i]!;
-				const z = next.length - i;
-				nodes = updateNodeInTree(nodes, id, (n) => ({
-					...n,
-					frames: {
-						...n.frames,
-						[breakpoint]: { ...n.frames[breakpoint], z },
-					},
-				}));
-			}
-
-			onChange({ ...current, nodes });
+			movedTree = applyZOrder(movedTree, next);
+			onChange({ ...current, nodes: movedTree });
 		},
 		[breakpoint, disabledFlag, onChange, lockedIds, effectiveEditRootId]
 	);
@@ -3162,7 +3712,259 @@ export function PageBuilder({
 		});
 	}
 
-	function beginPickMedia(nodeId: string) {
+		function updateNodeStyle(nodeId: string, updater: (style: NodeStyle | undefined) => NodeStyle | undefined) {
+		updateNode(nodeId, (n) => {
+			const next = sanitizeNodeStyle(updater(n.style));
+			if (!next) {
+				const out: PageNode = { ...n };
+				delete out.style;
+				return out;
+			}
+			return { ...n, style: next };
+		});
+	}
+
+	function styleScopeFor(bp: BuilderBreakpoint): NodeStyleBreakpoint {
+		if (bp === 'mobile' || bp === 'tablet') return bp;
+		return 'desktop';
+	}
+
+	function getResolvedStyleValue(node: PageNode | null, key: string): string {
+		if (!node) return '';
+		const resolved = resolveNodeStyle(node.style, styleScopeFor(breakpoint), styleState);
+		const v = resolved[key];
+		return typeof v === 'string' ? v : '';
+	}
+
+	function setStyleValue(nodeId: string, key: string, value: string) {
+		updateNodeStyle(nodeId, (style) => {
+			const next: NodeStyle = {
+				...(style ?? {}),
+				base: { ...(style?.base ?? {}) },
+				breakpoints: {
+					...(style?.breakpoints ?? {}),
+					...(style?.breakpoints?.mobile ? { mobile: { ...style.breakpoints.mobile } } : {}),
+					...(style?.breakpoints?.tablet ? { tablet: { ...style.breakpoints.tablet } } : {}),
+				},
+				states: {
+					...(style?.states ?? {}),
+					...(style?.states?.hover ? { hover: { ...style.states.hover } } : {}),
+					...(style?.states?.active ? { active: { ...style.states.active } } : {}),
+					...(style?.states?.focus ? { focus: { ...style.states.focus } } : {}),
+				},
+				stateBreakpoints: {
+					...(style?.stateBreakpoints ?? {}),
+					...(style?.stateBreakpoints?.hover ? { hover: { ...style.stateBreakpoints.hover } } : {}),
+					...(style?.stateBreakpoints?.active ? { active: { ...style.stateBreakpoints.active } } : {}),
+					...(style?.stateBreakpoints?.focus ? { focus: { ...style.stateBreakpoints.focus } } : {}),
+				},
+				advanced: style?.advanced ? { ...style.advanced } : undefined,
+			};
+
+			const scope = styleScopeFor(breakpoint);
+			const cleaned = value.trim();
+			if (styleState === 'default') {
+				if (scope === 'desktop') {
+					const target = { ...(next.base ?? {}) };
+					if (!cleaned) delete target[key as keyof typeof target];
+					else target[key as keyof typeof target] = cleaned;
+					next.base = target;
+					return next;
+				}
+
+				const bpMap = { ...(next.breakpoints?.[scope] ?? {}) };
+				if (!cleaned) delete bpMap[key as keyof typeof bpMap];
+				else bpMap[key as keyof typeof bpMap] = cleaned;
+				next.breakpoints = { ...(next.breakpoints ?? {}), [scope]: bpMap };
+				return next;
+			}
+
+			if (scope === 'desktop') {
+				const stateMap = { ...(next.states?.[styleState] ?? {}) };
+				if (!cleaned) delete stateMap[key as keyof typeof stateMap];
+				else stateMap[key as keyof typeof stateMap] = cleaned;
+				next.states = {
+					...(next.states ?? {}),
+					[styleState]: stateMap,
+				};
+				return next;
+			}
+
+			const stateBpMap = {
+				...((next.stateBreakpoints?.[styleState] ?? {}) as Record<string, Record<string, string>>),
+			};
+			const scopedMap = { ...(stateBpMap[scope] ?? {}) };
+			if (!cleaned) delete scopedMap[key as keyof typeof scopedMap];
+			else scopedMap[key as keyof typeof scopedMap] = cleaned;
+			stateBpMap[scope] = scopedMap;
+			next.stateBreakpoints = {
+				...(next.stateBreakpoints ?? {}),
+				[styleState]: stateBpMap as NonNullable<NodeStyle['stateBreakpoints']>[Exclude<NodeStyleInteractionState, 'default'>],
+			};
+			return next;
+		});
+	}
+
+	function clearStyleValue(nodeId: string, key: string) {
+		setStyleValue(nodeId, key, '');
+	}
+
+	function clearBreakpointOverrides(nodeId: string) {
+		if (breakpoint === 'desktop') return;
+		updateNodeStyle(nodeId, (style) => {
+			if (!style) return style;
+			const scope = styleScopeFor(breakpoint);
+			if (scope === 'desktop') return style;
+
+			if (styleState === 'default') {
+				if (!style.breakpoints) return style;
+				const nextBp = { ...style.breakpoints };
+				delete nextBp[scope];
+				return { ...style, breakpoints: nextBp };
+			}
+
+			if (!style.stateBreakpoints?.[styleState]) return style;
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			const stateMap = {
+				...(nextStateBreakpoints[styleState] as Record<string, Record<string, string>>),
+			};
+			delete stateMap[scope];
+			nextStateBreakpoints[styleState] = stateMap as NonNullable<NodeStyle['stateBreakpoints']>[Exclude<NodeStyleInteractionState, 'default'>];
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
+		});
+	}
+
+	function copyDesktopStyleToCurrentBreakpoint(nodeId: string) {
+		if (breakpoint === 'desktop') return;
+		const scope = styleScopeFor(breakpoint);
+		if (scope === 'desktop') return;
+		updateNodeStyle(nodeId, (style) => {
+			if (!style) return style;
+			if (styleState === 'default') {
+				const base = style.base ?? {};
+				return {
+					...style,
+					breakpoints: {
+						...(style.breakpoints ?? {}),
+						[scope]: { ...base },
+					},
+				};
+			}
+			const baseState = style.states?.[styleState] ?? {};
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			nextStateBreakpoints[styleState] = {
+				...(nextStateBreakpoints[styleState] ?? {}),
+				[scope]: { ...baseState },
+			};
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
+		});
+	}
+
+	function parseStyleLengthValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number], allowAuto = false) {
+		const value = raw.trim().toLowerCase();
+		if (!value) return { num: '', unit: fallbackUnit };
+		if (allowAuto && value === 'auto') return { num: '', unit: 'auto' as const };
+		const m = value.match(/^(-?\\d+(?:\\.\\d+)?)(px|%|rem|vw|vh)?$/i);
+		if (!m) return { num: '', unit: fallbackUnit };
+		return {
+			num: m[1],
+			unit: ((m[2] || fallbackUnit).toLowerCase() as typeof STYLE_LENGTH_UNITS[number]),
+		};
+	}
+
+	function setStyleLengthValue(
+		nodeId: string,
+		key: string,
+		nextNum: string,
+		nextUnit: string,
+		allowAuto = false
+	) {
+		const unit = nextUnit.toLowerCase();
+		const num = nextNum.trim();
+		if (allowAuto && unit === 'auto') {
+			setStyleValue(nodeId, key, 'auto');
+			return;
+		}
+		if (!num) {
+			setStyleValue(nodeId, key, '');
+			return;
+		}
+		setStyleValue(nodeId, key, `${num}${unit}`);
+	}
+
+	function cloneStylePresetValue(style: NodeStyle): NodeStyle {
+		try {
+			const copied = JSON.parse(JSON.stringify(style)) as unknown;
+			return sanitizeNodeStyle(copied) ?? style;
+		} catch {
+			return style;
+		}
+	}
+
+	function selectStylePreset(nextId: string) {
+		setSelectedPresetId(nextId);
+		if (!nextId) {
+			setStylePresetName('');
+			return;
+		}
+		const preset = stylePresets.find((p) => p.id === nextId);
+		if (preset) setStylePresetName(preset.name);
+	}
+
+	function saveCurrentStylePreset(nodeId: string) {
+		const node = index.byId.get(nodeId);
+		if (!node?.style) return;
+		const name = stylePresetName.trim();
+		if (!name) return;
+		const preset: StylePreset = {
+			id: createId('preset'),
+			name,
+			style: cloneStylePresetValue(node.style),
+		};
+		setStylePresets((prev) => [preset, ...prev].slice(0, 100));
+		setSelectedPresetId(preset.id);
+		setStylePresetName('');
+	}
+
+	function applySelectedStylePreset(nodeId: string) {
+		if (!selectedPresetId) return;
+		const preset = stylePresets.find((p) => p.id === selectedPresetId);
+		if (!preset) return;
+		updateNodeStyle(nodeId, () => cloneStylePresetValue(preset.style));
+	}
+
+	function deleteSelectedStylePreset() {
+		if (!selectedPresetId) return;
+		setStylePresets((prev) => prev.filter((preset) => preset.id !== selectedPresetId));
+		setSelectedPresetId('');
+		setStylePresetName('');
+	}
+
+	function detachStylePreset(nodeId: string) {
+		updateNodeStyle(nodeId, () => undefined);
+	}
+
+	function parseNumericStyle(raw: string, fallbackUnit: string, fallbackValue: number) {
+		const value = raw.trim();
+		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
+		if (!m) return { value: fallbackValue, unit: fallbackUnit };
+		const n = Number(m[1]);
+		if (!Number.isFinite(n)) return { value: fallbackValue, unit: fallbackUnit };
+		return { value: n, unit: (m[2] || fallbackUnit).toLowerCase() };
+	}
+
+	function setAdvancedStyleFromJson(nodeId: string, rawJson: string) {
+		updateNodeStyle(nodeId, (style) => {
+			try {
+				const parsed = rawJson.trim() ? JSON.parse(rawJson) : {};
+				if (!isRecord(parsed)) return style;
+				return { ...(style ?? {}), advanced: parsed as Record<string, string> };
+			} catch {
+				return style;
+			}
+		});
+	}
+function beginPickMedia(nodeId: string) {
 		setMediaTargetId(nodeId);
 		setMediaPickerOpen(true);
 	}
@@ -3182,22 +3984,22 @@ export function PageBuilder({
 			let items: Array<{ label: string; href: string }> = [];
 			if (Array.isArray(selectedNode.data.items) && selectedNode.data.items.length) {
 				items = selectedNode.data.items
-					.map((it) => ({
-						label: String(it.label ?? '').trim(),
-						href: String(it.href ?? '').trim(),
+					.map((it: unknown) => ({
+						label: isRecord(it) ? String(it['label'] ?? '').trim() : '',
+						href: isRecord(it) ? String(it['href'] ?? '').trim() : '',
 					}))
-					.filter((it) => it.label && it.href);
+					.filter((it: { label: string; href: string }) => it.label && it.href);
 			} else {
 				const res = await fetch(`/api/public/menus/${encodeURIComponent(menuSlug)}`, { cache: 'no-store' });
 				if (!res.ok) throw new Error(`Failed to load menu '${menuSlug}' (${res.status})`);
 				const json = (await res.json()) as unknown;
 				if (isRecord(json) && Array.isArray((json as Record<string, unknown>)['items'])) {
 					items = ((json as Record<string, unknown>)['items'] as unknown[])
-						.map((it) => ({
+						.map((it: unknown) => ({
 							label: isRecord(it) ? String(it['label'] ?? '').trim() : '',
 							href: isRecord(it) ? String(it['href'] ?? '').trim() : '',
 						}))
-						.filter((it) => it.label && it.href);
+						.filter((it: { label: string; href: string }) => it.label && it.href);
 				}
 			}
 
@@ -3807,8 +4609,8 @@ export function PageBuilder({
 			? (resizingFrame.h / resizingParent.height) * 100
 			: null;
 
-	const rulerCanvasWidth = Math.max(0, viewportSize.width - RULER_SIZE_PX);
-	const rulerCanvasHeight = Math.max(0, viewportSize.height - RULER_SIZE_PX);
+	const rulerCanvasWidth = Math.max(0, viewportSize.width - rulerInsetPx);
+	const rulerCanvasHeight = Math.max(0, viewportSize.height - rulerInsetPx);
 	const rulerCanvasWidthUnits = rulerCanvasWidth / (zoom || 1);
 	const rulerCanvasHeightUnits = rulerCanvasHeight / (zoom || 1);
 	const scrollLeftUnits = viewportScroll.left / (zoom || 1);
@@ -3953,8 +4755,18 @@ export function PageBuilder({
 			: tool === 'shape'
 				? `${TOOL_LABELS.shape} (${shapeToolKind})`
 				: TOOL_LABELS[tool];
-	const leftDockVisible = showLeftDock && !focusMode;
-	const rightDockVisible = showRightDock && !focusMode;
+	const leftDockVisible = !inlineSurface && showLeftDock && !focusMode;
+	const rightDockVisible = !inlineSurface && showRightDock && !focusMode;
+	const styleScope = styleScopeFor(breakpoint);
+	const hasBreakpointStyleOverrides = selectedNode
+		? styleScope !== 'desktop' &&
+			(styleState === 'default'
+				? Object.keys(selectedNode.style?.breakpoints?.[styleScope] ?? {}).length > 0
+				: Object.keys(selectedNode.style?.stateBreakpoints?.[styleState]?.[styleScope] ?? {}).length > 0)
+		: false;
+	const advancedStyleJson = selectedNode?.style?.advanced
+		? JSON.stringify(selectedNode.style.advanced, null, 2)
+		: '';
 
 	function toggleTool(next: BuilderTool) {
 		setTool((prev) => (prev === next ? 'select' : next));
@@ -3987,16 +4799,20 @@ export function PageBuilder({
 			breakpoint={breakpoint}
 			selectedId={selectedId}
 			selectedIds={selectedIdsSet}
+			selectedSubItem={outlineSubSelection}
 			lockedIds={lockedIds}
 			onSelect={(id, e) => {
 				pendingFocusIdRef.current = id;
+				setInspectorOpen(false);
 				selectNode(id, e);
-				if (!e.metaKey && !e.ctrlKey && !e.shiftKey) setInspectorOpen(true);
 			}}
-			onInspect={(id) => {
-				requestFocus(id);
-				setInspectorOpen(true);
+			onSelectSubItem={(nodeId, item, e) => {
+				pendingFocusIdRef.current = nodeId;
+				setInspectorOpen(false);
+				selectNode(nodeId, e);
+				setOutlineSubSelection({ nodeId, item });
 			}}
+			onInspect={undefined}
 			onReorder={reorderLayers}
 			onPatchMeta={patchNodeMeta}
 			onOpenComponentPicker={() => openInsertPanel('libraries')}
@@ -4046,7 +4862,7 @@ export function PageBuilder({
 						<Button
 							type='button'
 							variant='outline'
-							onClick={() => setBlockPickerOpen(true)}>
+								onClick={() => setBlockPickerOpen(true)}>
 							Open component library…
 						</Button>
 					</div>
@@ -4080,7 +4896,7 @@ export function PageBuilder({
 				</div>
 			</div>
 
-			<div className='flex-1 overflow-auto p-4 space-y-4'>
+			<div ref={inspectorBodyRef} className='flex-1 overflow-y-auto overflow-x-hidden p-4 space-y-4'>
 				{selectedNode ? (
 					<>
 						<div className='grid grid-cols-2 gap-3'>
@@ -4173,6 +4989,537 @@ export function PageBuilder({
 							</div>
 						</div>
 
+
+						<Separator />
+						<div className='space-y-3'>
+							<div className='space-y-2'>
+								<div className='flex items-center justify-between gap-2'>
+									<Label>Visual style ({styleScope})</Label>
+									<div className='flex items-center gap-2 flex-wrap justify-end'>
+										<div className='w-[130px]'>
+											<Select value={styleState} onValueChange={(v) => setStyleState(v as NodeStyleInteractionState)} disabled={disabledFlag}>
+												<SelectTrigger>
+													<SelectValue placeholder='default' />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value='default'>default</SelectItem>
+													<SelectItem value='hover'>hover</SelectItem>
+													<SelectItem value='active'>active</SelectItem>
+													<SelectItem value='focus'>focus</SelectItem>
+												</SelectContent>
+											</Select>
+										</div>
+										{styleScope !== 'desktop' ? (
+										<>
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												onClick={() => copyDesktopStyleToCurrentBreakpoint(selectedNode.id)}
+												disabled={disabledFlag || !selectedNode.style}>
+												Copy desktop
+											</Button>
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												onClick={() => clearBreakpointOverrides(selectedNode.id)}
+												disabled={disabledFlag || !hasBreakpointStyleOverrides}>
+												Clear {styleScope} overrides
+											</Button>
+										</>
+									) : null}
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => updateNodeStyle(selectedNode.id, () => undefined)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Clear all
+										</Button>
+									</div>
+								</div>
+								<p className='text-xs text-muted-foreground'>Desktop values cascade to tablet/mobile unless overridden. State styles override default for hover/active/focus.</p>
+								<div className='grid grid-cols-1 gap-2 md:grid-cols-2'>
+									<div className='flex items-center gap-2'>
+										<Input
+											value={stylePresetName}
+											onChange={(e) => setStylePresetName(e.target.value)}
+											placeholder='Preset name'
+											disabled={disabledFlag}
+										/>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => saveCurrentStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style || !stylePresetName.trim()}>
+											Save
+										</Button>
+									</div>
+									<div className='flex items-center gap-2 min-w-0'>
+										<Select value={selectedPresetId || 'none'} onValueChange={(v) => selectStylePreset(v === 'none' ? '' : v)} disabled={disabledFlag || stylePresets.length === 0}>
+											<SelectTrigger className='w-full max-w-[220px] min-w-0'>
+												<SelectValue placeholder='Select preset' />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value='none'>No preset</SelectItem>
+												{stylePresets.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+											</SelectContent>
+										</Select>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => applySelectedStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedPresetId}>
+											Apply
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={deleteSelectedStylePreset}
+											disabled={disabledFlag || !selectedPresetId}>
+											Delete
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => detachStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Detach
+										</Button>
+									</div>
+								</div>
+							</div>
+
+							<div className='grid grid-cols-2 gap-3'>
+								<div className='space-y-1'>
+									<Label>Width</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'width'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'width', e.target.value, parsed.unit, true)}
+													placeholder='320'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'width', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Height</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'height'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'height', e.target.value, parsed.unit, true)}
+													placeholder='56'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'height', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Min width</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'minWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'minWidth', e.target.value)} placeholder='0 | 240px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Max width</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'maxWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'maxWidth', e.target.value)} placeholder='none | 1200px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Margin</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'margin')} onChange={(e) => setStyleValue(selectedNode.id, 'margin', e.target.value)} placeholder='0 | 12px 24px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Padding</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'padding')} onChange={(e) => setStyleValue(selectedNode.id, 'padding', e.target.value)} placeholder='0 | 16px 20px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Gap</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'gap')} onChange={(e) => setStyleValue(selectedNode.id, 'gap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Display</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'display') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'display', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='block'>block</SelectItem>
+											<SelectItem value='inline-block'>inline-block</SelectItem>
+											<SelectItem value='flex'>flex</SelectItem>
+											<SelectItem value='grid'>grid</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Position</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'position') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'position', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='static'>static</SelectItem>
+											<SelectItem value='relative'>relative</SelectItem>
+											<SelectItem value='absolute'>absolute</SelectItem>
+											<SelectItem value='fixed'>fixed</SelectItem>
+											<SelectItem value='sticky'>sticky</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>z-index</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'zIndex')} onChange={(e) => setStyleValue(selectedNode.id, 'zIndex', e.target.value)} placeholder='1' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Top</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'top'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'top', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'top', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Right</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'right'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'right', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'right', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Bottom</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'bottom'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'bottom', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'bottom', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Left</Label>
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'left'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'left', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'left', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Overflow X</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'overflowX') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'overflowX', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+											<SelectItem value='clip'>clip</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='scroll'>scroll</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Overflow Y</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'overflowY') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'overflowY', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+											<SelectItem value='clip'>clip</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='scroll'>scroll</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Visibility</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'visibility') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'visibility', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Pointer events</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'pointerEvents') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'pointerEvents', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>User select</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'userSelect') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'userSelect', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='text'>text</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+											<SelectItem value='all'>all</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Background</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'background')} onChange={(e) => setStyleValue(selectedNode.id, 'background', e.target.value)} placeholder='#fff | linear-gradient(...)' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Text color</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'color')} onChange={(e) => setStyleValue(selectedNode.id, 'color', e.target.value)} placeholder='#111827' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Border</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'border')} onChange={(e) => setStyleValue(selectedNode.id, 'border', e.target.value)} placeholder='1px solid #e5e7eb' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Shadow</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'boxShadow')} onChange={(e) => setStyleValue(selectedNode.id, 'boxShadow', e.target.value)} placeholder='0 10px 30px rgba(0,0,0,.2)' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Font size</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'fontSize')} onChange={(e) => setStyleValue(selectedNode.id, 'fontSize', e.target.value)} placeholder='14px | 1rem' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Font weight</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'fontWeight')} onChange={(e) => setStyleValue(selectedNode.id, 'fontWeight', e.target.value)} placeholder='400 | 600' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Object fit</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'objectFit') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'objectFit', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='cover'>cover</SelectItem>
+											<SelectItem value='contain'>contain</SelectItem>
+											<SelectItem value='fill'>fill</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+											<SelectItem value='scale-down'>scale-down</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Object position</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'objectPosition')} onChange={(e) => setStyleValue(selectedNode.id, 'objectPosition', e.target.value)} placeholder='center | 50% 50%' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Transition duration</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'transitionDuration')} onChange={(e) => setStyleValue(selectedNode.id, 'transitionDuration', e.target.value)} placeholder='150ms | 0.2s' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Transition easing</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'transitionTimingFunction')} onChange={(e) => setStyleValue(selectedNode.id, 'transitionTimingFunction', e.target.value)} placeholder='ease | cubic-bezier(...)' disabled={disabledFlag} />
+								</div>
+							</div>
+
+							<div className='grid grid-cols-2 gap-3'>
+								<div className='space-y-1'>
+									<Label>Border radius</Label>
+									{(() => {
+										const parsed = parseNumericStyle(getResolvedStyleValue(selectedNode, 'borderRadius') || '0px', 'px', 0);
+										return (
+											<>
+												<Input
+													type='range'
+													min={0}
+													max={200}
+													step={1}
+													value={parsed.value}
+													onChange={(e) => setStyleValue(selectedNode.id, 'borderRadius', `${e.target.value}${parsed.unit}`)}
+													disabled={disabledFlag}
+												/>
+												<Input
+													value={getResolvedStyleValue(selectedNode, 'borderRadius')}
+													onChange={(e) => setStyleValue(selectedNode.id, 'borderRadius', e.target.value)}
+													placeholder='0px'
+													disabled={disabledFlag}
+												/>
+											</>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Opacity</Label>
+									{(() => {
+										const parsed = parseNumericStyle(getResolvedStyleValue(selectedNode, 'opacity') || '1', '', 1);
+										const sliderValue = Math.max(0, Math.min(1, parsed.value));
+										return (
+											<>
+												<Input
+													type='range'
+													min={0}
+													max={1}
+													step={0.01}
+													value={sliderValue}
+													onChange={(e) => setStyleValue(selectedNode.id, 'opacity', e.target.value)}
+													disabled={disabledFlag}
+												/>
+												<Input
+													value={getResolvedStyleValue(selectedNode, 'opacity') || '1'}
+													onChange={(e) => setStyleValue(selectedNode.id, 'opacity', e.target.value)}
+													placeholder='1'
+													disabled={disabledFlag}
+												/>
+											</>
+										);
+									})()}
+								</div>
+							</div>
+
+							<div className='grid grid-cols-2 gap-3'>
+								<div className='space-y-1'>
+									<Label>Align items</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'alignItems') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'alignItems', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='start'>start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='end'>end</SelectItem>
+											<SelectItem value='stretch'>stretch</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Justify content</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'justifyContent') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'justifyContent', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='start'>start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='end'>end</SelectItem>
+											<SelectItem value='space-between'>space-between</SelectItem>
+											<SelectItem value='space-around'>space-around</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
+
+							<div className='space-y-1'>
+								<div className='flex items-center justify-between'>
+									<Label>Advanced CSS JSON</Label>
+									<Button type='button' variant='ghost' size='sm' onClick={() => clearStyleValue(selectedNode.id, 'transition')} disabled={disabledFlag}>
+										Clear transition
+									</Button>
+								</div>
+								<Textarea
+									defaultValue={advancedStyleJson}
+									onBlur={(e) => setAdvancedStyleFromJson(selectedNode.id, e.target.value)}
+									rows={5}
+									className='font-mono text-xs'
+									placeholder='{"backdropFilter":"blur(10px)","transition":"all .2s ease"}'
+									disabled={disabledFlag}
+								/>
+							</div>
+						</div>
 						{selectedNode.type === 'frame' ? (
 							<>
 								<Separator />
@@ -4742,8 +6089,19 @@ export function PageBuilder({
 									<div className='space-y-2'>
 										<Label>Items</Label>
 										<div className='space-y-2'>
-											{selectedNode.data.items.map((it, idx) => (
-												<div key={it.id ?? idx} className='rounded-md border bg-muted/10 p-2 space-y-2'>
+											{selectedNode.data.items.map((it: { id?: string; label: string; href: string }, idx: number) => (
+												<div
+	key={it.id ?? idx}
+	data-inspector-sub-item={`menu-item:${idx}`}
+	onClick={() => setOutlineSubSelection({ nodeId: selectedNode.id, item: { kind: 'menu-item', index: idx } })}
+	className={cn(
+		'rounded-md border p-2 space-y-2',
+		outlineSubSelection?.nodeId === selectedNode.id &&
+		outlineSubSelection?.item?.kind === 'menu-item' &&
+		outlineSubSelection?.item?.index === idx
+			? 'bg-primary/10 ring-1 ring-primary/50'
+			: 'bg-muted/10'
+	)}>
 													<div className='grid grid-cols-2 gap-2'>
 														<div className='space-y-1'>
 															<Label className='text-xs'>Label</Label>
@@ -4986,73 +6344,6 @@ export function PageBuilder({
 								</div>
 							</>
 						) : null}
-
-						{selectedNode.type === 'shadcn' ? (
-							<>
-								<Separator />
-								{canConvertShadcnToPrimitives(selectedNode) ? (
-									<div className='space-y-2'>
-										<Button
-											type='button'
-											variant='outline'
-											size='sm'
-											onClick={detachSelectedShadcnToPrimitives}
-											disabled={disabledFlag}>
-											Convert to primitives
-										</Button>
-										<p className='text-xs text-muted-foreground'>
-											Supported: button, card, badge, separator, typography. Other shadcn components remain rendered components.
-										</p>
-									</div>
-								) : null}
-								<ComponentDataEditor
-									type='shadcn'
-									value={selectedNode.data}
-									onChange={(next) =>
-										updateNode(selectedNode.id, (n) => {
-											if (n.type !== 'shadcn') return n;
-											if (!isRecord(next)) return n;
-											const rec = next as Record<string, unknown>;
-											const component = typeof rec['component'] === 'string' ? String(rec['component']) : n.data.component;
-											const props = isRecord(rec['props']) ? (rec['props'] as Record<string, unknown>) : (n.data.props ?? {});
-											return { ...n, data: { ...n.data, component, props } };
-										})
-									}
-									disabled={disabledFlag}
-								/>
-								<div className='space-y-2'>
-									<Label>Children (JSON)</Label>
-									<Textarea
-										value={selectedNode.children ? JSON.stringify(selectedNode.children, null, 2) : ''}
-										onChange={(e) => {
-											const raw = e.target.value;
-												try {
-													const parsed = raw.trim() ? JSON.parse(raw) : null;
-													if (!parsed) {
-														updateNode(selectedNode.id, (n) => {
-															if (n.type !== 'shadcn') return n;
-															return { ...n, children: undefined };
-														});
-														return;
-													}
-												if (!Array.isArray(parsed)) return;
-												updateNode(selectedNode.id, (n) => {
-													if (n.type !== 'shadcn') return n;
-													return { ...n, children: parsed };
-												});
-											} catch {
-												// ignore invalid JSON while typing
-											}
-										}}
-										disabled={disabledFlag}
-										rows={6}
-									/>
-									<p className='text-xs text-muted-foreground'>
-										Used for structural components (e.g. tabs, accordion) to host other components.
-									</p>
-								</div>
-							</>
-						) : null}
 					</>
 				) : (
 					<div className='text-sm text-muted-foreground'>
@@ -5067,7 +6358,7 @@ export function PageBuilder({
 		<Theme
 			asChild
 			hasBackground={false}>
-			<div className={cn('hooshpro-builder flex w-full flex-col min-h-0 overflow-hidden', fullHeight ? 'min-h-[100svh]' : 'h-full', className)}>
+			<div className={cn('hooshpro-builder flex w-full flex-col min-h-0', inlineSurface ? 'overflow-visible' : 'overflow-hidden', fullHeight ? 'min-h-[100svh]' : 'h-full', className)}>
 			{/* Legacy toolbar (deprecated)
 			<div className='hidden'>
 				<div className='flex items-center gap-2'>
@@ -5088,7 +6379,7 @@ export function PageBuilder({
 							{FRAME_LAYOUT_PRESETS.map((preset) => (
 								<DropdownMenuItem
 									key={preset.slug}
-									onSelect={() => addFrame(preset.layout)}>
+										onSelect={() => addFrame(preset.layout)}>
 									<div className='flex flex-col'>
 										<span className='font-medium'>{preset.label}</span>
 										<span className='text-xs text-muted-foreground'>/{preset.slug} · frame</span>
@@ -5936,31 +7227,7 @@ export function PageBuilder({
 												</>
 											) : null}
 
-											{selectedNode.type === 'shadcn' ? (
-												<>
-													<Separator />
-													<ComponentDataEditor
-														type='shadcn'
-														value={{
-															component: selectedNode.data.component ?? '',
-															props: selectedNode.data.props ?? {},
-														}}
-														disabled={disabledFlag}
-														onChange={(next) => {
-															updateNode(selectedNode.id, (n) => {
-																if (n.type !== 'shadcn') return n;
-																const rec = isRecord(next) ? (next as Record<string, unknown>) : {};
-																const component =
-																	typeof rec['component'] === 'string'
-																		? String(rec['component']).trim().toLowerCase()
-																		: n.data.component;
-																const props = isRecord(rec['props']) ? (rec['props'] as Record<string, unknown>) : undefined;
-																return { ...n, data: props ? { component, props } : { component } };
-															});
-														}}
-													/>
-												</>
-											) : null}
+											
 										</>
 									) : (
 										<div className='text-sm text-muted-foreground'>Select a node to edit its props.</div>
@@ -6126,7 +7393,7 @@ export function PageBuilder({
 					<div
 						ref={viewportRef}
 						className={cn(
-							'absolute inset-0 overflow-auto',
+							'absolute inset-0 overflow-visible',
 							viewportCursorClass
 						)}
 						onPointerDownCapture={onViewportPointerDownCapture}
@@ -6135,8 +7402,8 @@ export function PageBuilder({
 						onPointerCancelCapture={onViewportPointerUpCapture}>
 						<div
 							style={{
-								paddingLeft: RULER_SIZE_PX,
-								paddingTop: RULER_SIZE_PX,
+								paddingLeft: rulerInsetPx,
+								paddingTop: rulerInsetPx,
 								minWidth: '100%',
 								minHeight: '100%',
 							}}>
@@ -6456,15 +7723,15 @@ export function PageBuilder({
 					<div
 						className='pointer-events-none absolute left-0 top-0 border-b border-r bg-background/95'
 						style={{
-							height: RULER_SIZE_PX,
-							width: RULER_SIZE_PX,
+							height: rulerInsetPx,
+							width: rulerInsetPx,
 						}}
 					/>
 					<div
 						className='pointer-events-none absolute right-0 top-0 border-b bg-background/95'
 						style={{
-							left: RULER_SIZE_PX,
-							height: RULER_SIZE_PX,
+							left: rulerInsetPx,
+							height: rulerInsetPx,
 							backgroundImage: [
 								`repeating-linear-gradient(to right, transparent 0, transparent ${rulerMinorPxScaled - 1}px, ${RULER_MINOR_COLOR} ${rulerMinorPxScaled - 1}px, ${RULER_MINOR_COLOR} ${rulerMinorPxScaled}px)`,
 								`repeating-linear-gradient(to right, transparent 0, transparent ${rulerMajorPxScaled - 1}px, ${RULER_MAJOR_COLOR} ${rulerMajorPxScaled - 1}px, ${RULER_MAJOR_COLOR} ${rulerMajorPxScaled}px)`,
@@ -6485,8 +7752,8 @@ export function PageBuilder({
 					<div
 						className='pointer-events-none absolute bottom-0 left-0 border-r bg-background/95'
 						style={{
-							top: RULER_SIZE_PX,
-							width: RULER_SIZE_PX,
+							top: rulerInsetPx,
+							width: rulerInsetPx,
 							backgroundImage: [
 								`repeating-linear-gradient(to bottom, transparent 0, transparent ${rulerMinorPxScaled - 1}px, ${RULER_MINOR_COLOR} ${rulerMinorPxScaled - 1}px, ${RULER_MINOR_COLOR} ${rulerMinorPxScaled}px)`,
 								`repeating-linear-gradient(to bottom, transparent 0, transparent ${rulerMajorPxScaled - 1}px, ${RULER_MAJOR_COLOR} ${rulerMajorPxScaled - 1}px, ${RULER_MAJOR_COLOR} ${rulerMajorPxScaled}px)`,
@@ -6785,17 +8052,23 @@ export function PageBuilder({
 							breakpoint={breakpoint}
 							selectedId={selectedId}
 							selectedIds={selectedIdsSet}
+							selectedSubItem={outlineSubSelection}
 							lockedIds={lockedIds}
 							onSelect={(id) => {
 								pendingFocusIdRef.current = id;
+								setInspectorOpen(false);
+								setOutlineSubSelection(null);
 								setSelectedIds([id]);
 								setOutlineOpen(false);
 							}}
-							onInspect={(id) => {
-								requestFocus(id);
+							onSelectSubItem={(nodeId, item) => {
+								pendingFocusIdRef.current = nodeId;
+								setInspectorOpen(false);
+								setSelectedIds([nodeId]);
+								setOutlineSubSelection({ nodeId, item });
 								setOutlineOpen(false);
-								setInspectorOpen(true);
 							}}
+							onInspect={undefined}
 							onReorder={reorderLayers}
 							onPatchMeta={patchNodeMeta}
 							onOpenComponentPicker={() => openInsertPanel('libraries')}
@@ -6830,3 +8103,4 @@ export function PageBuilder({
 }
 
 export { PageRenderer, PageRendererWithSlot } from './page-renderer';
+
