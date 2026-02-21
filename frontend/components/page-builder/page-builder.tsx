@@ -38,7 +38,7 @@ import {
 import type { BlockTemplate, ComponentDef, MediaAsset } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { shadcnComponentMeta } from '@/lib/shadcn-meta';
-import { hasNodeStyleOverride, resolveNodeStyle, sanitizeNodeStyle, type NodeStyle, type NodeStyleBreakpoint } from '@/lib/node-style';
+import { hasNodeStyleOverride, resolveNodeStyle, sanitizeNodeStyle, type NodeStyle, type NodeStyleBreakpoint, type NodeStyleInteractionState } from '@/lib/node-style';
 
 import { EditorBlock } from '@/components/editor-block';
 import { ComponentDataEditor } from '@/components/components/component-data-editor';
@@ -1618,7 +1618,8 @@ function CanvasNode({
 	const frameProps = isFrame && isRecord(node.data.props) ? (node.data.props as Record<string, unknown>) : null;
 	const clipContents = isFrame && node.data.clip === true;
 	const containerOverflowClass = isFrame && clipContents ? 'overflow-hidden' : 'overflow-visible';
-	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, 'default') as CSSProperties;
+	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 
 	let containerHint: ReactNode = null;
 	if (isFrame && frameLayout === 'container') {
@@ -1756,10 +1757,16 @@ function CanvasNode({
 			ref={setNodeRef}
 			style={style}
 			{...attributes}
+			onPointerEnter={() => setInteractionState((prev) => (prev === 'active' ? prev : 'hover'))}
+			onPointerLeave={() => setInteractionState('default')}
+			onPointerUp={() => setInteractionState('hover')}
+			onFocusCapture={() => setInteractionState('focus')}
+			onBlurCapture={() => setInteractionState('default')}
 			onPointerDown={(e) => {
 				if (!interactionsEnabled) return;
 				e.stopPropagation();
 				onSelect(node.id, e);
+				setInteractionState('active');
 
 				if (disabled || locked) return;
 				if (isTypingTarget(e.target as Element | null)) return;
@@ -1906,7 +1913,8 @@ function PreviewNode({
 		zIndex,
 	};
 
-	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, 'default') as CSSProperties;
+	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 	const canContain = Array.isArray(node.nodes);
 	const isFrame = node.type === 'frame';
 
@@ -1945,6 +1953,13 @@ function PreviewNode({
 	return (
 		<div
 			style={style}
+			tabIndex={-1}
+			onPointerEnter={() => setInteractionState((prev) => (prev === 'active' ? prev : 'hover'))}
+			onPointerLeave={() => setInteractionState('default')}
+			onPointerDown={() => setInteractionState('active')}
+			onPointerUp={() => setInteractionState('hover')}
+			onFocusCapture={() => setInteractionState('focus')}
+			onBlurCapture={() => setInteractionState('default')}
 			className={cn('group/node', isSelected ? 'ring-2 ring-ring ring-offset-2' : 'ring-0')}>
 			<div className={cn('relative h-full w-full', locked && 'opacity-90')}>
 				<div className='absolute inset-0'>{nodeContent}</div>
@@ -2078,6 +2093,7 @@ export function PageBuilder({
 	const [viewportScroll, setViewportScroll] = useState<{ left: number; top: number }>({ left: 0, top: 0 });
 
 	const [breakpoint, setBreakpoint] = useState<BuilderBreakpoint>('desktop');
+	const [styleState, setStyleState] = useState<NodeStyleInteractionState>('default');
 	const [zoom, setZoom] = useState(1);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [outlineSubSelection, setOutlineSubSelection] = useState<OutlineSubSelection | null>(null);
@@ -3664,7 +3680,7 @@ export function PageBuilder({
 
 	function getResolvedStyleValue(node: PageNode | null, key: string): string {
 		if (!node) return '';
-		const resolved = resolveNodeStyle(node.style, styleScopeFor(breakpoint), 'default');
+		const resolved = resolveNodeStyle(node.style, styleScopeFor(breakpoint), styleState);
 		const v = resolved[key];
 		return typeof v === 'string' ? v : '';
 	}
@@ -3679,23 +3695,61 @@ export function PageBuilder({
 					...(style?.breakpoints?.mobile ? { mobile: { ...style.breakpoints.mobile } } : {}),
 					...(style?.breakpoints?.tablet ? { tablet: { ...style.breakpoints.tablet } } : {}),
 				},
+				states: {
+					...(style?.states ?? {}),
+					...(style?.states?.hover ? { hover: { ...style.states.hover } } : {}),
+					...(style?.states?.active ? { active: { ...style.states.active } } : {}),
+					...(style?.states?.focus ? { focus: { ...style.states.focus } } : {}),
+				},
+				stateBreakpoints: {
+					...(style?.stateBreakpoints ?? {}),
+					...(style?.stateBreakpoints?.hover ? { hover: { ...style.stateBreakpoints.hover } } : {}),
+					...(style?.stateBreakpoints?.active ? { active: { ...style.stateBreakpoints.active } } : {}),
+					...(style?.stateBreakpoints?.focus ? { focus: { ...style.stateBreakpoints.focus } } : {}),
+				},
 				advanced: style?.advanced ? { ...style.advanced } : undefined,
 			};
 
 			const scope = styleScopeFor(breakpoint);
 			const cleaned = value.trim();
-			if (scope === 'desktop') {
-				const target = { ...(next.base ?? {}) };
-				if (!cleaned) delete target[key as keyof typeof target];
-				else target[key as keyof typeof target] = cleaned;
-				next.base = target;
+			if (styleState === 'default') {
+				if (scope === 'desktop') {
+					const target = { ...(next.base ?? {}) };
+					if (!cleaned) delete target[key as keyof typeof target];
+					else target[key as keyof typeof target] = cleaned;
+					next.base = target;
+					return next;
+				}
+
+				const bpMap = { ...(next.breakpoints?.[scope] ?? {}) };
+				if (!cleaned) delete bpMap[key as keyof typeof bpMap];
+				else bpMap[key as keyof typeof bpMap] = cleaned;
+				next.breakpoints = { ...(next.breakpoints ?? {}), [scope]: bpMap };
 				return next;
 			}
 
-			const bpMap = { ...(next.breakpoints?.[scope] ?? {}) };
-			if (!cleaned) delete bpMap[key as keyof typeof bpMap];
-			else bpMap[key as keyof typeof bpMap] = cleaned;
-			next.breakpoints = { ...(next.breakpoints ?? {}), [scope]: bpMap };
+			if (scope === 'desktop') {
+				const stateMap = { ...(next.states?.[styleState] ?? {}) };
+				if (!cleaned) delete stateMap[key as keyof typeof stateMap];
+				else stateMap[key as keyof typeof stateMap] = cleaned;
+				next.states = {
+					...(next.states ?? {}),
+					[styleState]: stateMap,
+				};
+				return next;
+			}
+
+			const stateBpMap = {
+				...((next.stateBreakpoints?.[styleState] ?? {}) as Record<string, Record<string, string>>),
+			};
+			const scopedMap = { ...(stateBpMap[scope] ?? {}) };
+			if (!cleaned) delete scopedMap[key as keyof typeof scopedMap];
+			else scopedMap[key as keyof typeof scopedMap] = cleaned;
+			stateBpMap[scope] = scopedMap;
+			next.stateBreakpoints = {
+				...(next.stateBreakpoints ?? {}),
+				[styleState]: stateBpMap as NonNullable<NodeStyle['stateBreakpoints']>[Exclude<NodeStyleInteractionState, 'default'>],
+			};
 			return next;
 		});
 	}
@@ -3707,12 +3761,25 @@ export function PageBuilder({
 	function clearBreakpointOverrides(nodeId: string) {
 		if (breakpoint === 'desktop') return;
 		updateNodeStyle(nodeId, (style) => {
-			if (!style?.breakpoints) return style;
+			if (!style) return style;
 			const scope = styleScopeFor(breakpoint);
 			if (scope === 'desktop') return style;
-			const nextBp = { ...style.breakpoints };
-			delete nextBp[scope];
-			return { ...style, breakpoints: nextBp };
+
+			if (styleState === 'default') {
+				if (!style.breakpoints) return style;
+				const nextBp = { ...style.breakpoints };
+				delete nextBp[scope];
+				return { ...style, breakpoints: nextBp };
+			}
+
+			if (!style.stateBreakpoints?.[styleState]) return style;
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			const stateMap = {
+				...(nextStateBreakpoints[styleState] as Record<string, Record<string, string>>),
+			};
+			delete stateMap[scope];
+			nextStateBreakpoints[styleState] = stateMap as NonNullable<NodeStyle['stateBreakpoints']>[Exclude<NodeStyleInteractionState, 'default'>];
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
 		});
 	}
 
@@ -4531,7 +4598,10 @@ function beginPickMedia(nodeId: string) {
 	const rightDockVisible = !inlineSurface && showRightDock && !focusMode;
 	const styleScope = styleScopeFor(breakpoint);
 	const hasBreakpointStyleOverrides = selectedNode
-		? styleScope !== 'desktop' && Object.keys(selectedNode.style?.breakpoints?.[styleScope] ?? {}).length > 0
+		? styleScope !== 'desktop' &&
+			(styleState === 'default'
+				? Object.keys(selectedNode.style?.breakpoints?.[styleScope] ?? {}).length > 0
+				: Object.keys(selectedNode.style?.stateBreakpoints?.[styleState]?.[styleScope] ?? {}).length > 0)
 		: false;
 	const advancedStyleJson = selectedNode?.style?.advanced
 		? JSON.stringify(selectedNode.style.advanced, null, 2)
@@ -4761,28 +4831,44 @@ function beginPickMedia(nodeId: string) {
 
 						<Separator />
 						<div className='space-y-3'>
-							<div className='flex items-center justify-between gap-2'>
-								<Label>Visual style ({styleScope})</Label>
-								<div className='flex items-center gap-2'>
-									{styleScope !== 'desktop' ? (
+							<div className='space-y-2'>
+								<div className='flex items-center justify-between gap-2'>
+									<Label>Visual style ({styleScope})</Label>
+									<div className='flex items-center gap-2'>
+										<div className='w-[130px]'>
+											<Select value={styleState} onValueChange={(v) => setStyleState(v as NodeStyleInteractionState)} disabled={disabledFlag}>
+												<SelectTrigger>
+													<SelectValue placeholder='default' />
+												</SelectTrigger>
+												<SelectContent>
+													<SelectItem value='default'>default</SelectItem>
+													<SelectItem value='hover'>hover</SelectItem>
+													<SelectItem value='active'>active</SelectItem>
+													<SelectItem value='focus'>focus</SelectItem>
+												</SelectContent>
+											</Select>
+										</div>
+										{styleScope !== 'desktop' ? (
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												onClick={() => clearBreakpointOverrides(selectedNode.id)}
+												disabled={disabledFlag || !hasBreakpointStyleOverrides}>
+												Clear {styleScope} overrides
+											</Button>
+										) : null}
 										<Button
 											type='button'
 											variant='outline'
 											size='sm'
-											onClick={() => clearBreakpointOverrides(selectedNode.id)}
-											disabled={disabledFlag || !hasBreakpointStyleOverrides}>
-											Clear {styleScope} overrides
+											onClick={() => updateNodeStyle(selectedNode.id, () => undefined)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Clear all
 										</Button>
-									) : null}
-									<Button
-										type='button'
-										variant='outline'
-										size='sm'
-										onClick={() => updateNodeStyle(selectedNode.id, () => undefined)}
-										disabled={disabledFlag || !selectedNode.style}>
-										Clear all
-									</Button>
+									</div>
 								</div>
+								<p className='text-xs text-muted-foreground'>Desktop values cascade to tablet/mobile unless overridden. State styles override default for hover/active/focus.</p>
 							</div>
 
 							<div className='grid grid-cols-2 gap-3'>
@@ -4829,6 +4915,103 @@ function beginPickMedia(nodeId: string) {
 									</Select>
 								</div>
 								<div className='space-y-1'>
+									<Label>Position</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'position') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'position', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='static'>static</SelectItem>
+											<SelectItem value='relative'>relative</SelectItem>
+											<SelectItem value='absolute'>absolute</SelectItem>
+											<SelectItem value='fixed'>fixed</SelectItem>
+											<SelectItem value='sticky'>sticky</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>z-index</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'zIndex')} onChange={(e) => setStyleValue(selectedNode.id, 'zIndex', e.target.value)} placeholder='1' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Top</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'top')} onChange={(e) => setStyleValue(selectedNode.id, 'top', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Right</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'right')} onChange={(e) => setStyleValue(selectedNode.id, 'right', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Bottom</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'bottom')} onChange={(e) => setStyleValue(selectedNode.id, 'bottom', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Left</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'left')} onChange={(e) => setStyleValue(selectedNode.id, 'left', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Overflow X</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'overflowX') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'overflowX', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+											<SelectItem value='clip'>clip</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='scroll'>scroll</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Overflow Y</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'overflowY') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'overflowY', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+											<SelectItem value='clip'>clip</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='scroll'>scroll</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Visibility</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'visibility') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'visibility', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='visible'>visible</SelectItem>
+											<SelectItem value='hidden'>hidden</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Pointer events</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'pointerEvents') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'pointerEvents', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>User select</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'userSelect') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'userSelect', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='auto'>auto</SelectItem>
+											<SelectItem value='text'>text</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+											<SelectItem value='all'>all</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
 									<Label>Background</Label>
 									<Input value={getResolvedStyleValue(selectedNode, 'background')} onChange={(e) => setStyleValue(selectedNode.id, 'background', e.target.value)} placeholder='#fff | linear-gradient(...)' disabled={disabledFlag} />
 								</div>
@@ -4851,6 +5034,32 @@ function beginPickMedia(nodeId: string) {
 								<div className='space-y-1'>
 									<Label>Font weight</Label>
 									<Input value={getResolvedStyleValue(selectedNode, 'fontWeight')} onChange={(e) => setStyleValue(selectedNode.id, 'fontWeight', e.target.value)} placeholder='400 | 600' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Object fit</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'objectFit') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'objectFit', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='cover'>cover</SelectItem>
+											<SelectItem value='contain'>contain</SelectItem>
+											<SelectItem value='fill'>fill</SelectItem>
+											<SelectItem value='none'>none</SelectItem>
+											<SelectItem value='scale-down'>scale-down</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Object position</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'objectPosition')} onChange={(e) => setStyleValue(selectedNode.id, 'objectPosition', e.target.value)} placeholder='center | 50% 50%' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Transition duration</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'transitionDuration')} onChange={(e) => setStyleValue(selectedNode.id, 'transitionDuration', e.target.value)} placeholder='150ms | 0.2s' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Transition easing</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'transitionTimingFunction')} onChange={(e) => setStyleValue(selectedNode.id, 'transitionTimingFunction', e.target.value)} placeholder='ease | cubic-bezier(...)' disabled={disabledFlag} />
 								</div>
 							</div>
 
@@ -7538,23 +7747,4 @@ function beginPickMedia(nodeId: string) {
 }
 
 export { PageRenderer, PageRendererWithSlot } from './page-renderer';
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

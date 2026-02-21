@@ -6,7 +6,7 @@ import Image from 'next/image';
 import { Box, Container, Flex, Grid, Section, Theme } from '@radix-ui/themes';
 
 import type { BuilderBreakpoint, PageBlock, PageBuilderState, PageNode } from '@/lib/page-builder';
-import { resolveNodeStyle } from '@/lib/node-style';
+import { resolveNodeStyle, type NodeStyleInteractionState } from '@/lib/node-style';
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import { apiFetch } from '@/lib/http';
 import { cn } from '@/lib/utils';
@@ -603,9 +603,18 @@ export function PageRenderer({ state, collectionsByNodeId }: { state: PageBuilde
 	return <PageRendererWithSlot state={state} collectionsByNodeId={collectionsByNodeId} />;
 }
 
-function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: RenderOpts) {
+function RenderNode({
+	node,
+	breakpoint,
+	opts,
+}: {
+	node: PageNode;
+	breakpoint: BuilderBreakpoint;
+	opts?: RenderOpts;
+}) {
 	if (node.meta?.hidden) return null;
 
+	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	const frame = node.frames[breakpoint];
 	const z = typeof frame.z === 'number' && Number.isFinite(frame.z) ? frame.z : undefined;
 
@@ -618,18 +627,29 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 		zIndex: z,
 	};
 
-	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, 'default') as CSSProperties;
+	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 
-	const childNodes = Array.isArray(node.nodes) ? node.nodes : null;
+	const childNodes = Array.isArray(node.nodes)
+		? node.nodes.map((c: PageNode) => <RenderNode key={c.id} node={c} breakpoint={breakpoint} opts={opts} />)
+		: null;
+
+	const interactionHandlers = {
+		onPointerEnter: () => setInteractionState((prev) => (prev === 'active' ? prev : 'hover')),
+		onPointerLeave: () => setInteractionState('default' as NodeStyleInteractionState),
+		onPointerDown: () => setInteractionState('active' as NodeStyleInteractionState),
+		onPointerUp: () => setInteractionState('hover' as NodeStyleInteractionState),
+		onFocusCapture: () => setInteractionState('focus' as NodeStyleInteractionState),
+		onBlurCapture: () => setInteractionState('default' as NodeStyleInteractionState),
+	};
 
 	if (node.type === 'frame') {
-		const children = childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null;
 		return (
 			<div
-				key={node.id}
 				style={nodeStyle}
-				className={node.data.clip ? 'overflow-hidden' : 'overflow-visible'}>
-				{renderFrameHost(node, children, resolvedVisualStyle)}
+				className={node.data.clip ? 'overflow-hidden' : 'overflow-visible'}
+				tabIndex={-1}
+				{...interactionHandlers}>
+				{renderFrameHost(node, childNodes, resolvedVisualStyle)}
 			</div>
 		);
 	}
@@ -640,12 +660,13 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 		const href = node.data.href.trim();
 		return (
 			<div
-				key={node.id}
 				style={nodeStyle}
-				className='overflow-visible'>
+				className='overflow-visible'
+				tabIndex={-1}
+				{...interactionHandlers}>
 				<Link href={href} className='relative block h-full w-full'>
 					{content ? <div className='absolute inset-0' style={resolvedVisualStyle}>{content}</div> : null}
-					{childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null}
+					{childNodes}
 				</Link>
 			</div>
 		);
@@ -653,12 +674,13 @@ function renderNode(node: PageNode, breakpoint: BuilderBreakpoint, opts?: Render
 
 	return (
 		<div
-			key={node.id}
 			style={nodeStyle}
-			className='overflow-visible'>
+			className='overflow-visible'
+			tabIndex={-1}
+			{...interactionHandlers}>
 			<div className='relative w-full h-full'>
 				{content ? <div className='absolute inset-0' style={resolvedVisualStyle}>{content}</div> : null}
-				{childNodes ? childNodes.map((c: PageNode) => renderNode(c, breakpoint, opts)) : null}
+				{childNodes}
 			</div>
 		</div>
 	);
@@ -731,7 +753,7 @@ export function PageRendererWithSlot({
 						maxWidth: '100%',
 						height,
 					}}>
-					{nodes.map((n) => renderNode(n, bp, opts))}
+					{nodes.map((n) => <RenderNode key={n.id} node={n} breakpoint={bp} opts={opts} />)}
 				</div>
 			</div>
 		);
@@ -751,8 +773,4 @@ export function PageRendererWithSlot({
 		</Theme>
 	);
 }
-
-
-
-
 

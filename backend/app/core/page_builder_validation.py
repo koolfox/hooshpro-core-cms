@@ -46,7 +46,27 @@ STYLE_VALUE_DENY_PATTERNS = (
     re.compile(r"url\s*\(\s*['\"]?\s*javascript\s*:", re.IGNORECASE),
 )
 
+CSS_NUMBER_RE = re.compile(r"^-?\d+(?:\.\d+)?$")
+CSS_INTEGER_RE = re.compile(r"^-?\d+$")
+CSS_LENGTH_OR_ZERO_RE = re.compile(r"^(?:0|-?\d+(?:\.\d+)?(?:px|%|rem|vw|vh))$", re.IGNORECASE)
+CSS_SIZE_RE = re.compile(r"^(?:auto|fit-content|min-content|max-content|none|0|-?\d+(?:\.\d+)?(?:px|%|rem|vw|vh))$", re.IGNORECASE)
+CSS_COLOR_RE = re.compile(
+    r"^(?:#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla|oklch|oklab)\([^)]*\)|transparent|currentcolor|inherit|var\(--[a-z0-9-_]+\))$",
+    re.IGNORECASE,
+)
+CSS_TIMING_RE = re.compile(
+    r"^(?:linear|ease|ease-in|ease-out|ease-in-out|step-start|step-end|cubic-bezier\([^)]*\)|steps\([^)]*\))$",
+    re.IGNORECASE,
+)
+CSS_SIMPLE_TOKEN_RE = re.compile(r"^[a-z0-9_#().,%\-+\s/]*$", re.IGNORECASE)
+
 NODE_STYLE_ALLOWED_KEYS = {
+    "position",
+    "top",
+    "right",
+    "bottom",
+    "left",
+    "zIndex",
     "display",
     "width",
     "height",
@@ -111,8 +131,11 @@ NODE_STYLE_ALLOWED_KEYS = {
     "textAlign",
     "textTransform",
     "textDecoration",
+    "visibility",
     "whiteSpace",
     "wordBreak",
+    "objectFit",
+    "objectPosition",
     "overflow",
     "overflowX",
     "overflowY",
@@ -125,9 +148,81 @@ NODE_STYLE_ALLOWED_KEYS = {
     "transitionDuration",
     "transitionTimingFunction",
     "transitionDelay",
+    "mixBlendMode",
     "cursor",
     "pointerEvents",
     "userSelect",
+}
+
+STYLE_ENUMS: dict[str, set[str]] = {
+    "position": {"static", "relative", "absolute", "fixed", "sticky"},
+    "display": {
+        "block",
+        "inline",
+        "inline-block",
+        "flex",
+        "inline-flex",
+        "grid",
+        "inline-grid",
+        "none",
+        "contents",
+    },
+    "flexDirection": {"row", "row-reverse", "column", "column-reverse"},
+    "flexWrap": {"nowrap", "wrap", "wrap-reverse"},
+    "justifyContent": {
+        "normal",
+        "start",
+        "end",
+        "center",
+        "left",
+        "right",
+        "flex-start",
+        "flex-end",
+        "space-between",
+        "space-around",
+        "space-evenly",
+        "stretch",
+    },
+    "alignItems": {"normal", "start", "end", "center", "baseline", "stretch", "flex-start", "flex-end"},
+    "alignContent": {
+        "normal",
+        "start",
+        "end",
+        "center",
+        "stretch",
+        "space-between",
+        "space-around",
+        "space-evenly",
+        "flex-start",
+        "flex-end",
+    },
+    "gridAutoFlow": {"row", "column", "dense", "row dense", "column dense"},
+    "textAlign": {"left", "right", "center", "justify", "start", "end", "match-parent"},
+    "textTransform": {"none", "capitalize", "uppercase", "lowercase", "full-width", "full-size-kana"},
+    "textDecoration": {"none", "underline", "overline", "line-through"},
+    "visibility": {"visible", "hidden", "collapse"},
+    "whiteSpace": {"normal", "nowrap", "pre", "pre-wrap", "pre-line", "break-spaces"},
+    "wordBreak": {"normal", "break-all", "keep-all", "break-word"},
+    "objectFit": {"fill", "contain", "cover", "none", "scale-down"},
+    "overflow": {"visible", "hidden", "clip", "scroll", "auto"},
+    "overflowX": {"visible", "hidden", "clip", "scroll", "auto"},
+    "overflowY": {"visible", "hidden", "clip", "scroll", "auto"},
+    "pointerEvents": {"auto", "none"},
+    "userSelect": {"auto", "none", "text", "contain", "all"},
+    "cursor": {
+        "auto",
+        "default",
+        "pointer",
+        "grab",
+        "grabbing",
+        "text",
+        "move",
+        "not-allowed",
+        "crosshair",
+        "zoom-in",
+        "zoom-out",
+    },
+    "borderStyle": {"none", "hidden", "dotted", "dashed", "solid", "double", "groove", "ridge", "inset", "outset"},
 }
 
 
@@ -179,6 +274,99 @@ def _as_style_value(value: Any, path: str) -> str:
     return out
 
 
+def _is_valid_style_value_for_key(key: str, value: str) -> bool:
+    v = value.strip()
+    if not v:
+        return False
+
+    enum_values = STYLE_ENUMS.get(key)
+    if enum_values is not None:
+        return v.lower() in enum_values
+
+    if key == "opacity":
+        if not CSS_NUMBER_RE.match(v):
+            return False
+        n = float(v)
+        return 0 <= n <= 1
+
+    if key == "zIndex":
+        return bool(CSS_INTEGER_RE.match(v))
+
+    if key in {
+        "width",
+        "height",
+        "minWidth",
+        "maxWidth",
+        "minHeight",
+        "maxHeight",
+        "top",
+        "right",
+        "bottom",
+        "left",
+    }:
+        return bool(CSS_SIZE_RE.match(v))
+
+    if key in {
+        "margin",
+        "marginTop",
+        "marginRight",
+        "marginBottom",
+        "marginLeft",
+        "padding",
+        "paddingTop",
+        "paddingRight",
+        "paddingBottom",
+        "paddingLeft",
+        "gap",
+        "rowGap",
+        "columnGap",
+        "borderWidth",
+        "borderTopWidth",
+        "borderRightWidth",
+        "borderBottomWidth",
+        "borderLeftWidth",
+        "borderRadius",
+        "borderTopLeftRadius",
+        "borderTopRightRadius",
+        "borderBottomRightRadius",
+        "borderBottomLeftRadius",
+        "fontSize",
+        "lineHeight",
+        "letterSpacing",
+        "transitionDuration",
+        "transitionDelay",
+    }:
+        return all(CSS_LENGTH_OR_ZERO_RE.match(part) for part in v.split())
+
+    if key in {
+        "color",
+        "backgroundColor",
+        "borderColor",
+        "borderTopColor",
+        "borderRightColor",
+        "borderBottomColor",
+        "borderLeftColor",
+    }:
+        return bool(CSS_COLOR_RE.match(v))
+
+    if key == "fontWeight":
+        return bool(CSS_INTEGER_RE.match(v)) or v.lower() in {
+            "normal",
+            "bold",
+            "lighter",
+            "bolder",
+        }
+
+    if key in {"backgroundPosition", "objectPosition", "transformOrigin"}:
+        return len(v) <= 80 and bool(CSS_SIMPLE_TOKEN_RE.match(v))
+
+    if key == "transitionTimingFunction":
+        return bool(CSS_TIMING_RE.match(v))
+
+    # Composite CSS values remain permissive and are protected by deny patterns.
+    return True
+
+
 def _validate_style_map(raw: Any, path: str, *, allow_custom_keys: bool) -> None:
     style_map = _as_dict(raw, path)
     if len(style_map) > MAX_STYLE_ITEMS:
@@ -201,7 +389,11 @@ def _validate_style_map(raw: Any, path: str, *, allow_custom_keys: bool) -> None
                 f"{path}.{key} is not an allowed style property."
             )
 
-        _as_style_value(value_raw, f"{path}.{key}")
+        out = _as_style_value(value_raw, f"{path}.{key}")
+        if not allow_custom_keys and not _is_valid_style_value_for_key(key, out):
+            raise PageBuilderValidationError(
+                f"{path}.{key} has an invalid value '{out}'."
+            )
 
 
 def _validate_node_style(raw: Any, path: str) -> None:
@@ -403,3 +595,4 @@ def validate_page_builder_document(
         ) from exc
 
     return dict(root)
+

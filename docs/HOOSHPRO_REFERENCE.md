@@ -390,6 +390,7 @@ First-run seed (empty DB only):
 - [x] Backend builder contract validation: Pages/Templates/Blocks validate persisted builder JSON (graph-only v4/v6 accepted for writes; invalid docs return 422)
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
 - [x] API observability/security hardening: structured request logs + query redaction + standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
+- [x] V6 inspector/style pass (phase 1): canonical style keys expanded (position/visibility/object-fit/overflow), strict unit-aware validation mirrored frontend+backend, interaction-state style editing (default/hover/active/focus), and state-aware resolver parity in editor + public renderer
 
 ### In Progress
 
@@ -640,6 +641,7 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
 
 
 
