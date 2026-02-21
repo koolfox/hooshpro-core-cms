@@ -395,6 +395,7 @@ First-run seed (empty DB only):
 - [x] V6 inspector/style pass (phase 1.6): preset safety/management hardening (deep-cloned save/apply to avoid shared references + delete preset action + preset name sync on selection)
 - [x] V6 inspector/style pass (phase 1.7): inspector overflow safety (right panel now clips horizontal overflow and wraps style controls to keep all fields visible on narrower widths)
 - [x] V6 inspector/style pass (phase 1.8): fixed length-value parser regression and added unit/special-value selectors for `min/max width/height` (`auto|none|fit-content|min-content|max-content|px|%|rem|vw|vh`)
+- [x] V6 inspector/style pass (phase 1.9): added layout knobs for `rowGap`, `columnGap`, `flexDirection`, `flexWrap`, `justifyContent`, and `alignItems` in the visual style panel
 
 ### In Progress
 

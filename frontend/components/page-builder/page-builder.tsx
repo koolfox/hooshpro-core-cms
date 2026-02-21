@@ -5294,6 +5294,69 @@ function beginPickMedia(nodeId: string) {
 									<Input value={getResolvedStyleValue(selectedNode, 'gap')} onChange={(e) => setStyleValue(selectedNode.id, 'gap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
 								</div>
 								<div className='space-y-1'>
+									<Label>Row gap</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'rowGap')} onChange={(e) => setStyleValue(selectedNode.id, 'rowGap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Column gap</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'columnGap')} onChange={(e) => setStyleValue(selectedNode.id, 'columnGap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Flex direction</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'flexDirection') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'flexDirection', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='row'>row</SelectItem>
+											<SelectItem value='row-reverse'>row-reverse</SelectItem>
+											<SelectItem value='column'>column</SelectItem>
+											<SelectItem value='column-reverse'>column-reverse</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Flex wrap</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'flexWrap') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'flexWrap', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='nowrap'>nowrap</SelectItem>
+											<SelectItem value='wrap'>wrap</SelectItem>
+											<SelectItem value='wrap-reverse'>wrap-reverse</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Justify content</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'justifyContent') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'justifyContent', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='flex-start'>flex-start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='flex-end'>flex-end</SelectItem>
+											<SelectItem value='space-between'>space-between</SelectItem>
+											<SelectItem value='space-around'>space-around</SelectItem>
+											<SelectItem value='space-evenly'>space-evenly</SelectItem>
+											<SelectItem value='stretch'>stretch</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Align items</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'alignItems') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'alignItems', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='flex-start'>flex-start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='flex-end'>flex-end</SelectItem>
+											<SelectItem value='stretch'>stretch</SelectItem>
+											<SelectItem value='baseline'>baseline</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
 									<Label>Display</Label>
 									<Select value={getResolvedStyleValue(selectedNode, 'display') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'display', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
 										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
