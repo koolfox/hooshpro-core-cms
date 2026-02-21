@@ -27,7 +27,7 @@ A simple, professional blog/site builder with admin login + page editor + public
 
 - Branch: `main-pushable`
 - Feature: `V5 Platform/BaaS Backbone (WordPress-like modules)`
-- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added)
+- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added; V6 inspector style presets + unitized size/anchor controls in progress)
 
 Quick check:
 
@@ -391,6 +391,7 @@ First-run seed (empty DB only):
 - [x] SEO baseline routes: dynamic `/robots.txt` and `/sitemap.xml` + backend published-pages list endpoint (`GET /api/public/pages`)
 - [x] API observability/security hardening: structured request logs + query redaction + standardized error payload (`error_code` + `trace_id`) + login rate limiting (`429` + `Retry-After`)
 - [x] V6 inspector/style pass (phase 1): canonical style keys expanded (position/visibility/object-fit/overflow), strict unit-aware validation mirrored frontend+backend, interaction-state style editing (default/hover/active/focus), and state-aware resolver parity in editor + public renderer
+- [x] V6 inspector/style pass (phase 1.5): local style presets (save/apply/detach + localStorage persistence) and unitized controls for width/height + position anchors (`top/right/bottom/left`) including `auto`
 
 ### In Progress
 
@@ -475,6 +476,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 - [ ] Run API smoke scripts: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000` and `python backend/scripts/smoke_mvp.py --base-url http://127.0.0.1:8000`
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
 - [ ] Create a sample Collection + Entries and render with `collection-list`
+- [ ] Verify style preset flow end-to-end (save/apply/detach + persistence on reload) and unit controls (`auto|px|%|rem|vw|vh`) on width/height/anchors
 
 ---
 

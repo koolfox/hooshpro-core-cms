@@ -83,6 +83,8 @@ const MIN_NODE_H = 32;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const HISTORY_LIMIT = 120;
+const STYLE_PRESET_STORAGE_KEY = 'hooshpro_style_presets_v1';
+const STYLE_LENGTH_UNITS = ['px', '%', 'rem', 'vw', 'vh'] as const;
 
 const GRID_CELL_PX = 5;
 const GRID_MAJOR_PX = GRID_CELL_PX * 10;
@@ -167,6 +169,12 @@ type DropNotice = {
 	kind: 'error' | 'info';
 	message: string;
 	stamp: number;
+};
+
+type StylePreset = {
+	id: string;
+	name: string;
+	style: NodeStyle;
 };
 
 const FRAME_LAYOUT_PRESETS: Array<{
@@ -2094,6 +2102,9 @@ export function PageBuilder({
 
 	const [breakpoint, setBreakpoint] = useState<BuilderBreakpoint>('desktop');
 	const [styleState, setStyleState] = useState<NodeStyleInteractionState>('default');
+	const [stylePresets, setStylePresets] = useState<StylePreset[]>([]);
+	const [selectedPresetId, setSelectedPresetId] = useState<string>('');
+	const [stylePresetName, setStylePresetName] = useState<string>('');
 	const [zoom, setZoom] = useState(1);
 	const [selectedIds, setSelectedIds] = useState<string[]>([]);
 	const [outlineSubSelection, setOutlineSubSelection] = useState<OutlineSubSelection | null>(null);
@@ -2132,6 +2143,46 @@ export function PageBuilder({
 	useEffect(() => {
 		zoomRef.current = zoom;
 	}, [zoom]);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			const raw = window.localStorage.getItem(STYLE_PRESET_STORAGE_KEY);
+			if (!raw) return;
+			const parsed = JSON.parse(raw) as unknown;
+			if (!Array.isArray(parsed)) return;
+			const next: StylePreset[] = parsed
+				.map((item) => {
+					if (!isRecord(item)) return null;
+					const id = typeof item['id'] === 'string' ? item['id'].trim() : '';
+					const name = typeof item['name'] === 'string' ? item['name'].trim() : '';
+					const style = sanitizeNodeStyle(item['style']);
+					if (!id || !name || !style) return null;
+					return { id, name, style } as StylePreset;
+				})
+				.filter((v): v is StylePreset => !!v);
+			setStylePresets(next);
+		} catch {
+			// ignore malformed storage
+		}
+	}, []);
+
+	useEffect(() => {
+		if (typeof window === 'undefined') return;
+		try {
+			window.localStorage.setItem(STYLE_PRESET_STORAGE_KEY, JSON.stringify(stylePresets));
+		} catch {
+			// best effort only
+		}
+	}, [stylePresets]);
+
+	useEffect(() => {
+		if (!selectedId) {
+			setSelectedPresetId('');
+			return;
+		}
+		setStylePresetName('');
+	}, [selectedId]);
 
 	const [spaceDown, setSpaceDown] = useState(false);
 	const [isPanning, setIsPanning] = useState(false);
@@ -3783,6 +3834,90 @@ export function PageBuilder({
 		});
 	}
 
+	function copyDesktopStyleToCurrentBreakpoint(nodeId: string) {
+		if (breakpoint === 'desktop') return;
+		const scope = styleScopeFor(breakpoint);
+		if (scope === 'desktop') return;
+		updateNodeStyle(nodeId, (style) => {
+			if (!style) return style;
+			if (styleState === 'default') {
+				const base = style.base ?? {};
+				return {
+					...style,
+					breakpoints: {
+						...(style.breakpoints ?? {}),
+						[scope]: { ...base },
+					},
+				};
+			}
+			const baseState = style.states?.[styleState] ?? {};
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			nextStateBreakpoints[styleState] = {
+				...(nextStateBreakpoints[styleState] ?? {}),
+				[scope]: { ...baseState },
+			};
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
+		});
+	}
+
+	function parseStyleLengthValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number], allowAuto = false) {
+		const value = raw.trim().toLowerCase();
+		if (!value) return { num: '', unit: fallbackUnit };
+		if (allowAuto && value === 'auto') return { num: '', unit: 'auto' as const };
+		const m = value.match(/^(-?\\d+(?:\\.\\d+)?)(px|%|rem|vw|vh)?$/i);
+		if (!m) return { num: '', unit: fallbackUnit };
+		return {
+			num: m[1],
+			unit: ((m[2] || fallbackUnit).toLowerCase() as typeof STYLE_LENGTH_UNITS[number]),
+		};
+	}
+
+	function setStyleLengthValue(
+		nodeId: string,
+		key: string,
+		nextNum: string,
+		nextUnit: string,
+		allowAuto = false
+	) {
+		const unit = nextUnit.toLowerCase();
+		const num = nextNum.trim();
+		if (allowAuto && unit === 'auto') {
+			setStyleValue(nodeId, key, 'auto');
+			return;
+		}
+		if (!num) {
+			setStyleValue(nodeId, key, '');
+			return;
+		}
+		setStyleValue(nodeId, key, `${num}${unit}`);
+	}
+
+	function saveCurrentStylePreset(nodeId: string) {
+		const node = index.byId.get(nodeId);
+		if (!node?.style) return;
+		const name = stylePresetName.trim();
+		if (!name) return;
+		const preset: StylePreset = {
+			id: createId('preset'),
+			name,
+			style: node.style,
+		};
+		setStylePresets((prev) => [preset, ...prev].slice(0, 100));
+		setSelectedPresetId(preset.id);
+		setStylePresetName('');
+	}
+
+	function applySelectedStylePreset(nodeId: string) {
+		if (!selectedPresetId) return;
+		const preset = stylePresets.find((p) => p.id === selectedPresetId);
+		if (!preset) return;
+		updateNodeStyle(nodeId, () => preset.style);
+	}
+
+	function detachStylePreset(nodeId: string) {
+		updateNodeStyle(nodeId, () => undefined);
+	}
+
 	function parseNumericStyle(raw: string, fallbackUnit: string, fallbackValue: number) {
 		const value = raw.trim();
 		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
@@ -4849,6 +4984,15 @@ function beginPickMedia(nodeId: string) {
 											</Select>
 										</div>
 										{styleScope !== 'desktop' ? (
+										<>
+											<Button
+												type='button'
+												variant='outline'
+												size='sm'
+												onClick={() => copyDesktopStyleToCurrentBreakpoint(selectedNode.id)}
+												disabled={disabledFlag || !selectedNode.style}>
+												Copy desktop
+											</Button>
 											<Button
 												type='button'
 												variant='outline'
@@ -4857,7 +5001,8 @@ function beginPickMedia(nodeId: string) {
 												disabled={disabledFlag || !hasBreakpointStyleOverrides}>
 												Clear {styleScope} overrides
 											</Button>
-										) : null}
+										</>
+									) : null}
 										<Button
 											type='button'
 											variant='outline'
@@ -4869,16 +5014,105 @@ function beginPickMedia(nodeId: string) {
 									</div>
 								</div>
 								<p className='text-xs text-muted-foreground'>Desktop values cascade to tablet/mobile unless overridden. State styles override default for hover/active/focus.</p>
+								<div className='grid grid-cols-1 gap-2 md:grid-cols-2'>
+									<div className='flex items-center gap-2'>
+										<Input
+											value={stylePresetName}
+											onChange={(e) => setStylePresetName(e.target.value)}
+											placeholder='Preset name'
+											disabled={disabledFlag}
+										/>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => saveCurrentStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style || !stylePresetName.trim()}>
+											Save
+										</Button>
+									</div>
+									<div className='flex items-center gap-2'>
+										<Select value={selectedPresetId || 'none'} onValueChange={(v) => setSelectedPresetId(v === 'none' ? '' : v)} disabled={disabledFlag || stylePresets.length === 0}>
+											<SelectTrigger className='min-w-[180px]'>
+												<SelectValue placeholder='Select preset' />
+											</SelectTrigger>
+											<SelectContent>
+												<SelectItem value='none'>No preset</SelectItem>
+												{stylePresets.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}
+											</SelectContent>
+										</Select>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => applySelectedStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedPresetId}>
+											Apply
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => detachStylePreset(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Detach
+										</Button>
+									</div>
+								</div>
 							</div>
 
 							<div className='grid grid-cols-2 gap-3'>
 								<div className='space-y-1'>
 									<Label>Width</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'width')} onChange={(e) => setStyleValue(selectedNode.id, 'width', e.target.value)} placeholder='auto | 100% | 320px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'width'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'width', e.target.value, parsed.unit, true)}
+													placeholder='320'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'width', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Height</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'height')} onChange={(e) => setStyleValue(selectedNode.id, 'height', e.target.value)} placeholder='auto | 56px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'height'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'height', e.target.value, parsed.unit, true)}
+													placeholder='56'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'height', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Min width</Label>
@@ -4934,19 +5168,107 @@ function beginPickMedia(nodeId: string) {
 								</div>
 								<div className='space-y-1'>
 									<Label>Top</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'top')} onChange={(e) => setStyleValue(selectedNode.id, 'top', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'top'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'top', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'top', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Right</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'right')} onChange={(e) => setStyleValue(selectedNode.id, 'right', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'right'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'right', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'right', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Bottom</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'bottom')} onChange={(e) => setStyleValue(selectedNode.id, 'bottom', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'bottom'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'bottom', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'bottom', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Left</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'left')} onChange={(e) => setStyleValue(selectedNode.id, 'left', e.target.value)} placeholder='auto | 0 | 12px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleLengthValue(getResolvedStyleValue(selectedNode, 'left'), 'px', true);
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleLengthValue(selectedNode.id, 'left', e.target.value, parsed.unit, true)}
+													placeholder='12'
+													disabled={disabledFlag || parsed.unit === 'auto'}
+												/>
+												<Select
+													value={parsed.unit}
+													onValueChange={(v) => setStyleLengthValue(selectedNode.id, 'left', parsed.num, v, true)}
+													disabled={disabledFlag}>
+													<SelectTrigger className='w-[84px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														<SelectItem value='auto'>auto</SelectItem>
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Overflow X</Label>
