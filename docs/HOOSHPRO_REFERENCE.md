@@ -27,7 +27,7 @@ A simple, professional blog/site builder with admin login + page editor + public
 
 - Branch: `main-pushable`
 - Feature: `V5 Platform/BaaS Backbone (WordPress-like modules)`
-- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added; V6 inspector style presets + unitized size/anchor controls in progress)
+- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added; V6 inspector style controls expansion in progress (presets + unitized size/anchors + min/max selectors))
 
 Quick check:
 
@@ -394,6 +394,7 @@ First-run seed (empty DB only):
 - [x] V6 inspector/style pass (phase 1.5): local style presets (save/apply/detach + localStorage persistence) and unitized controls for width/height + position anchors (`top/right/bottom/left`) including `auto`
 - [x] V6 inspector/style pass (phase 1.6): preset safety/management hardening (deep-cloned save/apply to avoid shared references + delete preset action + preset name sync on selection)
 - [x] V6 inspector/style pass (phase 1.7): inspector overflow safety (right panel now clips horizontal overflow and wraps style controls to keep all fields visible on narrower widths)
+- [x] V6 inspector/style pass (phase 1.8): fixed length-value parser regression and added unit/special-value selectors for `min/max width/height` (`auto|none|fit-content|min-content|max-content|px|%|rem|vw|vh`)
 
 ### In Progress
 

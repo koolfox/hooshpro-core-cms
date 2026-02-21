@@ -85,6 +85,13 @@ const MAX_ZOOM = 4;
 const HISTORY_LIMIT = 120;
 const STYLE_PRESET_STORAGE_KEY = 'hooshpro_style_presets_v1';
 const STYLE_LENGTH_UNITS = ['px', '%', 'rem', 'vw', 'vh'] as const;
+const STYLE_SIZE_SPECIAL_VALUES = [
+	'auto',
+	'none',
+	'fit-content',
+	'min-content',
+	'max-content',
+] as const;
 
 const GRID_CELL_PX = 5;
 const GRID_MAJOR_PX = GRID_CELL_PX * 10;
@@ -3864,7 +3871,7 @@ export function PageBuilder({
 		const value = raw.trim().toLowerCase();
 		if (!value) return { num: '', unit: fallbackUnit };
 		if (allowAuto && value === 'auto') return { num: '', unit: 'auto' as const };
-		const m = value.match(/^(-?\\d+(?:\\.\\d+)?)(px|%|rem|vw|vh)?$/i);
+		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
 		if (!m) return { num: '', unit: fallbackUnit };
 		return {
 			num: m[1],
@@ -3890,6 +3897,36 @@ export function PageBuilder({
 			return;
 		}
 		setStyleValue(nodeId, key, `${num}${unit}`);
+	}
+
+	function parseStyleSizeValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number]) {
+		const value = raw.trim().toLowerCase();
+		if (!value) return { mode: 'unit' as const, num: '', unit: fallbackUnit, special: '' as const };
+		if ((STYLE_SIZE_SPECIAL_VALUES as readonly string[]).includes(value)) {
+			return { mode: 'special' as const, num: '', unit: fallbackUnit, special: value as (typeof STYLE_SIZE_SPECIAL_VALUES)[number] };
+		}
+		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
+		if (!m) return { mode: 'unit' as const, num: '', unit: fallbackUnit, special: '' as const };
+		return {
+			mode: 'unit' as const,
+			num: m[1],
+			unit: ((m[2] || fallbackUnit).toLowerCase() as typeof STYLE_LENGTH_UNITS[number]),
+			special: '' as const,
+		};
+	}
+
+	function setStyleSizeValue(nodeId: string, key: string, nextNum: string, nextUnitOrSpecial: string) {
+		const token = nextUnitOrSpecial.trim().toLowerCase();
+		if ((STYLE_SIZE_SPECIAL_VALUES as readonly string[]).includes(token)) {
+			setStyleValue(nodeId, key, token);
+			return;
+		}
+		const num = nextNum.trim();
+		if (!num) {
+			setStyleValue(nodeId, key, '');
+			return;
+		}
+		setStyleValue(nodeId, key, `${num}${token}`);
 	}
 
 	function cloneStylePresetValue(style: NodeStyle): NodeStyle {
@@ -5150,11 +5187,99 @@ function beginPickMedia(nodeId: string) {
 								</div>
 								<div className='space-y-1'>
 									<Label>Min width</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'minWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'minWidth', e.target.value)} placeholder='0 | 240px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'minWidth'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'minWidth', e.target.value, controlValue)}
+													placeholder='240'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'minWidth', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Max width</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'maxWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'maxWidth', e.target.value)} placeholder='none | 1200px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'maxWidth'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'maxWidth', e.target.value, controlValue)}
+													placeholder='1200'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'maxWidth', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Min height</Label>
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'minHeight'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'minHeight', e.target.value, controlValue)}
+													placeholder='56'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'minHeight', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Max height</Label>
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'maxHeight'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'maxHeight', e.target.value, controlValue)}
+													placeholder='720'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'maxHeight', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Margin</Label>
