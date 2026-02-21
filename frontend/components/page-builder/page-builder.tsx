@@ -3892,6 +3892,25 @@ export function PageBuilder({
 		setStyleValue(nodeId, key, `${num}${unit}`);
 	}
 
+	function cloneStylePresetValue(style: NodeStyle): NodeStyle {
+		try {
+			const copied = JSON.parse(JSON.stringify(style)) as unknown;
+			return sanitizeNodeStyle(copied) ?? style;
+		} catch {
+			return style;
+		}
+	}
+
+	function selectStylePreset(nextId: string) {
+		setSelectedPresetId(nextId);
+		if (!nextId) {
+			setStylePresetName('');
+			return;
+		}
+		const preset = stylePresets.find((p) => p.id === nextId);
+		if (preset) setStylePresetName(preset.name);
+	}
+
 	function saveCurrentStylePreset(nodeId: string) {
 		const node = index.byId.get(nodeId);
 		if (!node?.style) return;
@@ -3900,7 +3919,7 @@ export function PageBuilder({
 		const preset: StylePreset = {
 			id: createId('preset'),
 			name,
-			style: node.style,
+			style: cloneStylePresetValue(node.style),
 		};
 		setStylePresets((prev) => [preset, ...prev].slice(0, 100));
 		setSelectedPresetId(preset.id);
@@ -3911,7 +3930,14 @@ export function PageBuilder({
 		if (!selectedPresetId) return;
 		const preset = stylePresets.find((p) => p.id === selectedPresetId);
 		if (!preset) return;
-		updateNodeStyle(nodeId, () => preset.style);
+		updateNodeStyle(nodeId, () => cloneStylePresetValue(preset.style));
+	}
+
+	function deleteSelectedStylePreset() {
+		if (!selectedPresetId) return;
+		setStylePresets((prev) => prev.filter((preset) => preset.id !== selectedPresetId));
+		setSelectedPresetId('');
+		setStylePresetName('');
 	}
 
 	function detachStylePreset(nodeId: string) {
@@ -5032,7 +5058,7 @@ function beginPickMedia(nodeId: string) {
 										</Button>
 									</div>
 									<div className='flex items-center gap-2'>
-										<Select value={selectedPresetId || 'none'} onValueChange={(v) => setSelectedPresetId(v === 'none' ? '' : v)} disabled={disabledFlag || stylePresets.length === 0}>
+										<Select value={selectedPresetId || 'none'} onValueChange={(v) => selectStylePreset(v === 'none' ? '' : v)} disabled={disabledFlag || stylePresets.length === 0}>
 											<SelectTrigger className='min-w-[180px]'>
 												<SelectValue placeholder='Select preset' />
 											</SelectTrigger>
@@ -5048,6 +5074,14 @@ function beginPickMedia(nodeId: string) {
 											onClick={() => applySelectedStylePreset(selectedNode.id)}
 											disabled={disabledFlag || !selectedPresetId}>
 											Apply
+										</Button>
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={deleteSelectedStylePreset}
+											disabled={disabledFlag || !selectedPresetId}>
+											Delete
 										</Button>
 										<Button
 											type='button'
