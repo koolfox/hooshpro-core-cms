@@ -488,6 +488,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 
 - Onboarding guide (repo structure + how to add APIs/admin CRUD): `docs/DEVELOPER_ONBOARDING.md`
 - V6 execution contract + ordered backlog: `docs/EDITOR_V6_CONTRACT.md`
+- WordPress-competitor status + ordered loop roadmap: `docs/WORDPRESS_COMPETITOR_STATUS.md`
 
 ---
 
@@ -647,7 +648,4 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
-
-
-
 

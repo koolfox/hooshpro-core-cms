@@ -3867,6 +3867,31 @@ export function PageBuilder({
 		});
 	}
 
+	function propagateDesktopStyleToAllBreakpoints(nodeId: string) {
+		updateNodeStyle(nodeId, (style) => {
+			if (!style) return style;
+			if (styleState === 'default') {
+				const base = style.base ?? {};
+				return {
+					...style,
+					breakpoints: {
+						...(style.breakpoints ?? {}),
+						tablet: { ...base },
+						mobile: { ...base },
+					},
+				};
+			}
+			const baseState = style.states?.[styleState] ?? {};
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			nextStateBreakpoints[styleState] = {
+				...(nextStateBreakpoints[styleState] ?? {}),
+				tablet: { ...baseState },
+				mobile: { ...baseState },
+			};
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
+		});
+	}
+
 	function parseStyleLengthValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number], allowAuto = false) {
 		const value = raw.trim().toLowerCase();
 		if (!value) return { num: '', unit: fallbackUnit };
@@ -5065,7 +5090,16 @@ function beginPickMedia(nodeId: string) {
 												Clear {styleScope} overrides
 											</Button>
 										</>
-									) : null}
+									) : (
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => propagateDesktopStyleToAllBreakpoints(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Sync tablet+mobile
+										</Button>
+									)}
 										<Button
 											type='button'
 											variant='outline'
