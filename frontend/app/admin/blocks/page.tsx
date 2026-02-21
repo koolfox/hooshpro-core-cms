@@ -16,7 +16,7 @@ import {
 	parsePageBuilderState,
 	serializePageBuilderState,
 	type PageBuilderState,
-	type PageBlock,
+	
 	type PageNode,
 } from '@/lib/page-builder';
 import { useApiList } from '@/hooks/use-api-list';
@@ -110,16 +110,6 @@ function formatIso(iso: string) {
 
 function getBlockStats(definition: unknown) {
 	const state = parsePageBuilderState(definition);
-	function countBlocks(blocks: PageBlock[]): number {
-		let total = 0;
-		for (const b of blocks) {
-			total += 1;
-			if (b.type === 'shadcn' && Array.isArray(b.children)) {
-				total += countBlocks(b.children);
-			}
-		}
-		return total;
-	}
 
 	function walk(nodes: PageNode[]) {
 		let nodesTotal = 0;
@@ -129,9 +119,7 @@ function getBlockStats(definition: unknown) {
 			nodesTotal += 1;
 			if (n.type === 'frame') frames += 1;
 			else items += 1;
-			if (n.type === 'shadcn' && Array.isArray(n.children)) {
-				items += countBlocks(n.children);
-			}
+
 			if (Array.isArray(n.nodes)) {
 				const nested = walk(n.nodes);
 				nodesTotal += nested.nodesTotal;
