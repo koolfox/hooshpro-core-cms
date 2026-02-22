@@ -291,7 +291,30 @@ export function ComponentPreview({
 		);
 	}
 
-	if (type === 'menu') {
+		if (type === 'flow-form') {
+		const d = isRecord(data) ? data : {};
+		const title = typeof d['title'] === 'string' && d['title'].trim() ? d['title'].trim() : 'Contact us';
+		const submitLabel = typeof d['submit_label'] === 'string' && d['submit_label'].trim() ? d['submit_label'].trim() : 'Submit';
+		const flowSlug = typeof d['flow_slug'] === 'string' ? d['flow_slug'].trim() : '';
+		return (
+			<div className={className}>
+				<div className='rounded-lg border bg-background p-3 space-y-2'>
+					<div className='flex items-center justify-between gap-2'>
+						<div className='text-sm font-medium'>{title}</div>
+						<Badge variant='secondary'>flow</Badge>
+					</div>
+					{flowSlug ? <p className='text-xs text-muted-foreground'>/{flowSlug}</p> : <p className='text-xs text-muted-foreground'>missing flow_slug</p>}
+					<div className='grid gap-2'>
+						<div className='h-8 rounded-md border bg-muted/20' />
+						<div className='h-8 rounded-md border bg-muted/20' />
+						<div className='h-20 rounded-md border bg-muted/20' />
+					</div>
+					<Button size='sm' className='w-full'>{submitLabel}</Button>
+				</div>
+			</div>
+		);
+	}
+if (type === 'menu') {
 		const d = isRecord(data) ? data : {};
 		const menu = typeof d['menu'] === 'string' && d['menu'].trim() ? d['menu'].trim() : 'main';
 		const kindRaw = typeof d['kind'] === 'string' ? d['kind'].trim().toLowerCase() : 'top';
@@ -1448,3 +1471,4 @@ export function ComponentPreview({
 		</div>
 	);
 }
+

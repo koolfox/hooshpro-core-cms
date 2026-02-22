@@ -136,7 +136,7 @@ export default function AdminSettingsPage() {
 				throw new Error('Theme vars must be valid JSON.');
 			}
 			if (!themeVars || typeof themeVars !== 'object' || Array.isArray(themeVars)) {
-				throw new Error('Theme vars must be a JSON object (e.g. {\"--jeweler-gold\":\"#c8b79a\"}).');
+				throw new Error('Theme vars must be a JSON object (e.g. {\"--brand-color\\":\\"#2563eb\"}).');
 			}
 
 			const updates: Array<[string, unknown]> = [
@@ -270,7 +270,6 @@ export default function AdminSettingsPage() {
 									) : (
 										<>
 											<SelectItem value='default'>Default (default)</SelectItem>
-											<SelectItem value='jeweler'>Jeweler (jeweler)</SelectItem>
 										</>
 									)}
 								</SelectContent>
@@ -287,14 +286,14 @@ export default function AdminSettingsPage() {
 							className='font-mono text-xs'
 						/>
 						<p className='text-xs text-muted-foreground'>
-							Example: <code>{'{\"--jeweler-gold\":\"#c8b79a\"}'}</code>
+							Example: <code>{'{\"--brand-color\\":\\"#2563eb\"}'}</code>
 						</p>
 					</div>
 
 					<Separator />
 
 					<p className='text-xs text-muted-foreground'>
-						Current note: the “Jeweler” demo uses template-based theming; V5 moves theme tokens/fonts into the DB.
+						Theme tokens are DB-driven. Add any CSS variables here and they are injected at render time.
 						</p>
 					</CardContent>
 				</Card>
@@ -302,6 +301,8 @@ export default function AdminSettingsPage() {
 		</div>
 	);
 }
+
+
 
 
 

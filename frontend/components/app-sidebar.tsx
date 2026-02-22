@@ -13,6 +13,7 @@ import {
 	LogOut,
 	Palette,
 	Puzzle,
+	Workflow,
 	Settings,
 	Tags,
 } from 'lucide-react';
@@ -38,6 +39,7 @@ const nav = [
 	{ title: 'Collections', href: '/admin/collections', icon: Database },
 	{ title: 'Entries', href: '/admin/entries', icon: ListOrdered },
 	{ title: 'Taxonomies', href: '/admin/taxonomies', icon: Tags },
+	{ title: 'Flows', href: '/admin/flows', icon: Workflow },
 	{ title: 'Media', href: '/admin/media', icon: ImageIcon },
 	{ title: 'Themes', href: '/admin/themes', icon: Palette },
 	{ title: 'Settings', href: '/admin/settings', icon: Settings },

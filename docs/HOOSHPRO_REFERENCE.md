@@ -27,7 +27,7 @@ A simple, professional blog/site builder with admin login + page editor + public
 
 - Branch: `main-pushable`
 - Feature: `V5 Platform/BaaS Backbone (WordPress-like modules)`
-- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added; V6 inspector style presets + unitized size/anchor controls in progress)
+- Status: `In progress` (V5-A core modules wired service-first: collections/options/taxonomies/themes + settings/themes admin UI live; CSRF self-healing + structured log redaction + MVP smoke script added; V6 inspector style controls expansion in progress (presets + unitized size/anchors + min/max selectors))
 
 Quick check:
 
@@ -43,11 +43,11 @@ Quick check:
 - Public pages: `/[slug]`
 - SEO metadata routes: `/robots.txt`, `/sitemap.xml`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/collections`, `/admin/collections/[id]`, `/admin/entries`, `/admin/taxonomies`, `/admin/taxonomies/[id]`, `/admin/media`, `/admin/themes`, `/admin/settings`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/collections`, `/admin/collections/[id]`, `/admin/entries`, `/admin/taxonomies`, `/admin/taxonomies/[id]`, `/admin/media`, `/admin/themes`, `/admin/flows`, `/admin/settings`
 - Homepage: `/` (renders the page with slug from option `reading.front_page_slug`; default `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/<front-page-slug>` redirects to `/` (e.g. `/home` -> `/`)
-- Public theme: option `appearance.active_theme` (slug; `jeweler` applies `.theme-jeweler`; CSS vars resolved via `/api/public/themes/active`)
-- Theme CSS vars: `themes.vars_json` + option `appearance.theme_vars` overrides (JSON like `{"--jeweler-gold":"#c8b79a"}`) injected into public pages
+- Public theme: option `appearance.active_theme` (slug; applied as root class `theme-<slug>`; CSS vars resolved via `/api/public/themes/active`)
+- Theme CSS vars: `themes.vars_json` + option `appearance.theme_vars` overrides (JSON like `{"--brand-primary":"#2563eb"}`) injected into public pages
 - Public preview override: `?menu=<slug>` and `?footer=<slug>` (temporarily override template menu blocks for previews)
 - Internal docs helper: `GET /shadcn/variants?slug=<component>` (extracts CVA variant groups + title/description + exports/deps + Radix doc/API links; prefers local `docs/shadcn/components/*.md` synced via `python scripts/sync_shadcn_docs.py`)
 
@@ -149,6 +149,18 @@ Quick check:
   - Public:
     - GET `/api/public/themes/active` (resolves active theme from options + merges `appearance.theme_vars` overrides)
     - GET `/api/public/themes/{slug}`
+
+- Flows (workflow automation):
+  - Admin CRUD + runs:
+    - GET    `/api/admin/flows` (pagination + q + status + sorting via `sort`/`dir`)
+    - POST   `/api/admin/flows`
+    - GET    `/api/admin/flows/{flow_id}`
+    - PUT    `/api/admin/flows/{flow_id}`
+    - DELETE `/api/admin/flows/{flow_id}`
+    - GET    `/api/admin/flows/{flow_id}/runs` (recent run history)
+    - POST   `/api/admin/flows/{flow_id}/run-test` (dry-run/test payload)
+  - Public trigger:
+    - POST `/api/public/flows/{slug}/trigger` (rate-limited, active flows only)
 
 - Realtime editor channel (admin session required):
   - WS `/api/ws/editor/{resource_type}/{resource_id}` (`resource_type` in `pages|templates|blocks|components`)
@@ -263,7 +275,8 @@ Important:
 - content_fields: id, content_type_id -> content_types, slug (unique per type), label, field_type, required, options_json, order_index, created_at, updated_at
 - content_entries: id, content_type_id -> content_types, title, slug (unique per type), status (draft|published), order_index, data_json, published_at, created_at, updated_at
 - options: id, key (unique), value_json, created_at, updated_at
-- themes: id, slug (unique), title, description, vars_json, created_at, updated_at
+- workflows: id, slug (unique), title, description, status (draft|active|disabled), trigger_event, definition_json, created_at, updated_at
+- workflow_runs: id, workflow_id -> workflows, status (success|failed), input_json, output_json, error_text, created_at
 - taxonomies: id, slug (unique), title, description, hierarchical (bool), created_at, updated_at
 - terms: id, taxonomy_id -> taxonomies, parent_id -> terms (nullable), slug (unique per taxonomy), title, description, created_at, updated_at
 - term_relationships: id, term_id -> terms, content_entry_id -> content_entries, created_at (unique term_id+content_entry_id)
@@ -272,6 +285,7 @@ Important:
 
 - Alembic baseline (`79769d50d480`) + `fd7afbbbfe44` adds `media_assets` + `03628574cad2` adds `components`/`blocks` + `9a6b2c1d4e8f` adds `media_folders` + `media_assets.folder_id` + `5c3d2a1b9f0e` adds `page_templates` + `8f7c2d1a0b3e` adds `menus` + `menu_items` + `b1c2d3e4f5a6` adds `page_templates.footer` + `c4e5f6a7b8c9` adds `page_templates.definition_json` + `e599ea19ac34` adds `content_types`/`content_fields`/`content_entries` + `f2a0b6c8d9e1` adds `options` + `a9c1d3e5f7b9` adds taxonomies/terms + `c7d8e9f0a1b2` adds `themes`; backend startup runs `upgrade head` (if tables exist but `alembic_version` is missing, it stamps baseline for baseline-only DBs, otherwise stamps head to avoid recreating tables) and seeds defaults on startup.
 
+- Latest migration: 1f9c7ab45d30 adds workflows and workflow_runs.
 Reserved slugs:
 
 - admin, login, logout, media, api, auth
@@ -342,16 +356,10 @@ Blocks:
 
 First-run seed (empty DB only):
 
-- Backend startup runs Alembic `upgrade head` + `seed_defaults()` (see `backend/app/db.py`).
-- If there are no pages yet, it seeds a “Jeweler” starter site:
-  - Template: `jeweler` (top menu + slot + footer menu)
-  - Theme: `.theme-jeweler` (dark luxury palette) applied when template slug is `jeweler` (see `frontend/app/globals.css`; enforced via `frontend/app/[slug]/page-client.tsx`)
-  - Fonts (jeweler): Inter + Cinzel loaded via `frontend/app/layout.tsx`
-  - Menus: `jeweler-main` (one-page anchors: `#top`, `#products`, `#services`, `#contact`), `jeweler-footer`
-  - Pages (published): `home` (renders at `/`), `shop`, `about`, `contact`, `privacy`, `terms`
-  - Collection: `products` (sample entries) + `collection-list` block usage
-  - Blocks: `jeweler-hero`, `jeweler-tiles`, `jeweler-split`, `jeweler-banner` (derived from seeded `/` sections)
-  - Seed media assets are copied into `HOOSHPRO_MEDIA_DIR/seed/jeweler/*` on first run
+- Backend startup always runs Alembic `upgrade head` (see `backend/app/db.py`).
+- Optional defaults seed runs only when `SEED_DEFAULTS_ON_STARTUP=true`.
+- Defaults seed is minimal (system options only); no sample pages/templates/media are auto-created.
+- Use `backend/scripts/prune_nonroadmap_data.py` to clean legacy bootstrap artifacts from existing databases.
 
 ### Frontend
 
@@ -379,7 +387,7 @@ First-run seed (empty DB only):
 - [x] V5-A: Site options (DB `options` + `/admin/settings`; front page slug controls `/`)
 - [x] V5-A: Taxonomies (DB `taxonomies/terms/term_relationships` + `/admin/taxonomies`; entry term assignment API)
 - [x] V5-A: Themes (DB `themes` + `/admin/themes`; public resolver `/api/public/themes/active` merges overrides)
-- [x] Starter site seed (“Jeweler”): template + menus + pages + products collection + sample media
+- [x] Startup seed simplified: defaults-only seeding (no sample site auto-generation)
 - [x] Editor reliability pass: debounced autosave, `Ctrl/Cmd+S`, unsaved-changes unload guard, and last-saved/ autosave status badges
 - [x] Editor history controls: bounded undo/redo stack with shortcuts (`Ctrl/Cmd+Z`, `Shift+Ctrl/Cmd+Z`, `Ctrl+Y`) + toolbar actions
 - [x] Editor shell polish pass: top context strip (tool/mode/selection), grid visibility toggle, and refined dock/canvas visual styling
@@ -394,6 +402,8 @@ First-run seed (empty DB only):
 - [x] V6 inspector/style pass (phase 1.5): local style presets (save/apply/detach + localStorage persistence) and unitized controls for width/height + position anchors (`top/right/bottom/left`) including `auto`
 - [x] V6 inspector/style pass (phase 1.6): preset safety/management hardening (deep-cloned save/apply to avoid shared references + delete preset action + preset name sync on selection)
 - [x] V6 inspector/style pass (phase 1.7): inspector overflow safety (right panel now clips horizontal overflow and wraps style controls to keep all fields visible on narrower widths)
+- [x] V6 inspector/style pass (phase 1.8): fixed length-value parser regression and added unit/special-value selectors for `min/max width/height` (`auto|none|fit-content|min-content|max-content|px|%|rem|vw|vh`)
+- [x] Flow Creator MVP: DB-backed workflow graphs with admin CRUD + test-run UI + public trigger endpoint + run history
 
 ### In Progress
 
@@ -476,6 +486,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 - [ ] Verify proxy/admin layout redirect behavior with expired sessions
 - [ ] Verify Alembic startup upgrade on existing DB
 - [ ] Run API smoke scripts: `python backend/scripts/smoke_api.py --base-url http://127.0.0.1:8000` and `python backend/scripts/smoke_mvp.py --base-url http://127.0.0.1:8000`
+- [ ] Run editor schema migration dry-run: `cd backend && $env:PYTHONPATH='.'; .\.venv\Scripts\python scripts/migrate_editor_docs_to_v6.py`
 - [ ] Verify media drag/drop + TipTap media picker end-to-end
 - [ ] Create a sample Collection + Entries and render with `collection-list`
 - [ ] Verify style preset flow end-to-end (save/apply/detach + persistence on reload) and unit controls (`auto|px|%|rem|vw|vh`) on width/height/anchors
@@ -486,6 +497,7 @@ V5 goal: replicate WordPress core concepts/UX using HooshPro’s existing founda
 
 - Onboarding guide (repo structure + how to add APIs/admin CRUD): `docs/DEVELOPER_ONBOARDING.md`
 - V6 execution contract + ordered backlog: `docs/EDITOR_V6_CONTRACT.md`
+- WordPress-competitor status + ordered loop roadmap: `docs/WORDPRESS_COMPETITOR_STATUS.md`
 
 ---
 
@@ -580,7 +592,7 @@ A block-based visual builder where admins can design pages visually, manage medi
 - **Undo/Redo**, keyboard shortcuts, autosave + manual save
 - **Draft/Publish/Unpublish** + "Last saved" indicators
 - **Preview Modes**: desktop/tablet/mobile widths
-- **Templates**: starter pages
+- **Templates**: reusable page baselines
 - **Reusable Sections ("Symbols")**: global components reusable across pages
 - **Section Locking**: protect certain global components from edits
 - **Per-block Visibility Rules**: e.g., only show on mobile
@@ -645,7 +657,5 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
-
-
 
 

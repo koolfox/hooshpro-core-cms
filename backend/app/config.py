@@ -30,10 +30,15 @@ class Settings:
     LOGIN_RATE_LIMIT_WINDOW_SECONDS: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_WINDOW_SECONDS", "300"))
     LOGIN_RATE_LIMIT_MAX_PER_IP: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_MAX_PER_IP", "20"))
     LOGIN_RATE_LIMIT_MAX_PER_EMAIL: int = int(os.getenv("HOOSHPRO_LOGIN_RATE_MAX_PER_EMAIL", "8"))
+    FLOW_TRIGGER_RATE_LIMIT_WINDOW_SECONDS: int = int(os.getenv("HOOSHPRO_FLOW_TRIGGER_RATE_WINDOW_SECONDS", "60"))
+    FLOW_TRIGGER_RATE_LIMIT_MAX_PER_IP: int = int(os.getenv("HOOSHPRO_FLOW_TRIGGER_RATE_MAX_PER_IP", "120"))
 
     MEDIA_DIR: str = os.getenv("HOOSHPRO_MEDIA_DIR", str(DEFAULT_MEDIA_DIR))
     MAX_UPLOAD_BYTES: int = int(os.getenv("HOOSHPRO_MAX_UPLOAD_BYTES", str(10 * 1024 * 1024)))  # 10MB
     MEDIA_URL_PREFIX: str = "/media"
+
+    # Keep runtime lean by default. Seed data can be applied explicitly via scripts.
+    SEED_DEFAULTS_ON_STARTUP: bool = _env_bool("HOOSHPRO_SEED_DEFAULTS_ON_STARTUP", False)
 
 
 settings = Settings()

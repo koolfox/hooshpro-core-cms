@@ -1,1 +1,1 @@
-# Seed package for bootstrapping demo data and defaults.
+# Seed package for bootstrapping runtime defaults.

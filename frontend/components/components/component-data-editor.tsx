@@ -311,7 +311,104 @@ export function ComponentDataEditor({
 		);
 	}
 
-	if (normalizedType === 'menu') {
+		if (normalizedType === 'flow-form') {
+		const flowSlug = typeof base['flow_slug'] === 'string' ? base['flow_slug'] : '';
+		const event = typeof base['event'] === 'string' ? base['event'] : 'form.submit';
+		const title = typeof base['title'] === 'string' ? base['title'] : '';
+		const description = typeof base['description'] === 'string' ? base['description'] : '';
+		const submitLabel = typeof base['submit_label'] === 'string' ? base['submit_label'] : 'Submit';
+		const successMessage = typeof base['success_message'] === 'string' ? base['success_message'] : '';
+		const errorMessage = typeof base['error_message'] === 'string' ? base['error_message'] : '';
+		const fields = Array.isArray(base['fields']) ? base['fields'] : [];
+
+		return (
+			<div className={cn('space-y-4', className)}>
+				<div className='grid grid-cols-2 gap-3'>
+					<div className='space-y-2'>
+						<Label>Flow slug</Label>
+						<Input
+							value={flowSlug}
+							onChange={(e) => onChange({ ...base, flow_slug: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+					<div className='space-y-2'>
+						<Label>Event</Label>
+						<Input
+							value={event}
+							onChange={(e) => onChange({ ...base, event: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+				</div>
+				<div className='grid grid-cols-2 gap-3'>
+					<div className='space-y-2'>
+						<Label>Title</Label>
+						<Input
+							value={title}
+							onChange={(e) => onChange({ ...base, title: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+					<div className='space-y-2'>
+						<Label>Submit label</Label>
+						<Input
+							value={submitLabel}
+							onChange={(e) => onChange({ ...base, submit_label: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+				</div>
+				<div className='space-y-2'>
+					<Label>Description</Label>
+					<Textarea
+						value={description}
+						onChange={(e) => onChange({ ...base, description: e.target.value })}
+						disabled={disabled}
+						rows={3}
+					/>
+				</div>
+				<div className='grid grid-cols-2 gap-3'>
+					<div className='space-y-2'>
+						<Label>Success message</Label>
+						<Input
+							value={successMessage}
+							onChange={(e) => onChange({ ...base, success_message: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+					<div className='space-y-2'>
+						<Label>Error message</Label>
+						<Input
+							value={errorMessage}
+							onChange={(e) => onChange({ ...base, error_message: e.target.value })}
+							disabled={disabled}
+						/>
+					</div>
+				</div>
+				<div className='space-y-2'>
+					<Label>Fields (JSON)</Label>
+					<Textarea
+						value={stableJson(fields)}
+						onChange={(e) => {
+							try {
+								const parsed = JSON.parse(e.target.value);
+								onChange({ ...base, fields: parsed });
+							} catch {
+								// keep editing without hard failure
+							}
+						}}
+						disabled={disabled}
+						rows={8}
+					/>
+					<p className='text-xs text-muted-foreground'>
+						Array of fields: id, name, label, type (text|email|tel|textarea), required, placeholder.
+					</p>
+				</div>
+			</div>
+		);
+	}
+if (normalizedType === 'menu') {
 		const menu = typeof base['menu'] === 'string' ? base['menu'] : 'main';
 		const kind = typeof base['kind'] === 'string' ? base['kind'] : 'top';
 
@@ -812,3 +909,4 @@ export function ComponentDataEditor({
 		</div>
 	);
 }
+

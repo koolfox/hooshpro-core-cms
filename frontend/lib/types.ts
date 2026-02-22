@@ -306,3 +306,68 @@ export type EntryTermListOut = {
 	items: EntryTerm[];
 };
 
+
+export type FlowNode = {
+	id: string;
+	kind: 'trigger' | 'action';
+	label: string;
+	config: Record<string, unknown>;
+};
+
+export type FlowEdge = {
+	source: string;
+	target: string;
+};
+
+export type FlowDefinition = {
+	version: 1;
+	nodes: FlowNode[];
+	edges: FlowEdge[];
+};
+
+export type Flow = {
+	id: number;
+	slug: string;
+	title: string;
+	description?: string | null;
+	status: 'draft' | 'active' | 'disabled';
+	trigger_event: string;
+	definition: FlowDefinition;
+	created_at: string;
+	updated_at: string;
+};
+
+export type FlowListOut = {
+	items: Flow[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type FlowRun = {
+	id: number;
+	flow_id: number;
+	status: string;
+	input: Record<string, unknown>;
+	output: Record<string, unknown>;
+	error?: string | null;
+	created_at: string;
+};
+
+export type FlowRunListOut = {
+	items: FlowRun[];
+	total: number;
+	limit: number;
+	offset: number;
+};
+
+export type FlowTriggerResult = {
+	ok: boolean;
+	flow_id: number;
+	flow_slug: string;
+	status: string;
+	event: string;
+	output: Record<string, unknown>;
+	steps: Array<Record<string, unknown>>;
+	run_id?: number | null;
+};

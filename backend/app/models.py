@@ -400,3 +400,49 @@ class TermRelationship(Base):
     term_id: Mapped[int] = mapped_column(ForeignKey("terms.id"), index=True)
     content_entry_id: Mapped[int] = mapped_column(ForeignKey("content_entries.id"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class Workflow(Base):
+    __tablename__ = "workflows"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(200), unique=True, index=True, nullable=False)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="draft", index=True)
+    trigger_event: Mapped[str] = mapped_column(String(120), nullable=False, default="manual", index=True)
+
+    definition_json: Mapped[str] = mapped_column(
+        Text,
+        nullable=False,
+        default='{"version":1,"nodes":[],"edges":[]}',
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+    )
+
+    runs: Mapped[list["WorkflowRun"]] = relationship(
+        back_populates="workflow",
+        cascade="all, delete-orphan",
+        order_by="WorkflowRun.created_at.desc()",
+    )
+
+
+class WorkflowRun(Base):
+    __tablename__ = "workflow_runs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("workflows.id", ondelete="CASCADE"), index=True)
+
+    status: Mapped[str] = mapped_column(String(20), nullable=False, index=True)
+    input_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    output_json: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
+    error_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, index=True)
+
+    workflow: Mapped["Workflow"] = relationship(back_populates="runs")

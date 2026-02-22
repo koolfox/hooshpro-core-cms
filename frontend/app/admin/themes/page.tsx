@@ -407,11 +407,11 @@ export default function AdminThemesPage() {
 						<div className='grid grid-cols-1 gap-4 md:grid-cols-2'>
 							<div className='space-y-2'>
 								<Label>Slug</Label>
-								<Input value={slug} onChange={(e) => setSlug(e.target.value)} disabled={saving} placeholder='jeweler' />
+								<Input value={slug} onChange={(e) => setSlug(e.target.value)} disabled={saving} placeholder='default' />
 							</div>
 							<div className='space-y-2'>
 								<Label>Title</Label>
-								<Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} placeholder='Jeweler' />
+								<Input value={title} onChange={(e) => setTitle(e.target.value)} disabled={saving} placeholder='Theme name' />
 							</div>
 						</div>
 
@@ -423,7 +423,7 @@ export default function AdminThemesPage() {
 						<div className='space-y-2'>
 							<Label>Vars (JSON)</Label>
 							<Textarea value={varsText} onChange={(e) => setVarsText(e.target.value)} disabled={saving} rows={10} className='font-mono text-xs' />
-							<p className='text-xs text-muted-foreground'>Example: <code>{'{\"--jeweler-gold\":\"#c8b79a\"}'}</code></p>
+							<p className='text-xs text-muted-foreground'>Example: <code>{'{\"--brand-color\\":\\"#2563eb\"}'}</code></p>
 						</div>
 
 						{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
@@ -467,6 +467,8 @@ export default function AdminThemesPage() {
 		</AdminListPage>
 	);
 }
+
+
 
 
 

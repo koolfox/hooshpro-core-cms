@@ -166,7 +166,10 @@ export function PublicPageClient({
 
 	const activeTemplateSlug = editMode ? builder.template.id : viewState.template.id;
 	const themeSlug = (siteTheme ?? activeTemplateSlug).trim().toLowerCase();
-	const themeClass = themeSlug === 'jeweler' ? 'theme-jeweler dark' : null;
+	const themeClass = useMemo(() => {
+		const normalized = themeSlug.replace(/[^a-z0-9-_]/g, '');
+		return normalized ? `theme-${normalized}` : null;
+	}, [themeSlug]);
 
 	const themeStyle: CSSProperties | undefined = useMemo(() => {
 		if (!siteThemeVars) return undefined;
@@ -518,69 +521,64 @@ export function PublicPageClient({
 	}, [activeTemplate, editMode, menuOverride, footerOverride]);
 
 	const fallbackTemplateState = useMemo(() => {
-		const rows: Array<Record<string, unknown>> = [];
+		const canvas = {
+			snapPx: 1,
+			widths: { mobile: 390, tablet: 820, desktop: 1200 },
+			minHeightPx: 800,
+		};
+
+		const nodes: PageNode[] = [];
+		let cursorY = 0;
 
 		if (legacyMenuId && legacyMenuId.trim() && legacyMenuId.trim().toLowerCase() !== 'none') {
-			rows.push({
-				id: 'row_header',
-				settings: { columns: 1, sizes: [100] },
-				columns: [
-					{
-						id: 'col_header',
-						blocks: [
-							{
-								id: 'blk_menu_top',
-								type: 'menu',
-								data: { menu: legacyMenuId.trim(), kind: 'top' },
-							},
-						],
-					},
-				],
-			});
-		}
-
-		rows.push({
-			id: 'row_content',
-			settings: { columns: 1, sizes: [100] },
-			columns: [
-				{
-					id: 'col_content',
-					blocks: [
-						{
-							id: 'blk_slot',
-							type: 'slot',
-							data: { name: 'Page content' },
-						},
-					],
+			nodes.push({
+				id: 'node_top_menu',
+				type: 'menu',
+				data: { menu: legacyMenuId.trim(), kind: 'top' },
+				frames: {
+					mobile: { x: 0, y: cursorY, w: canvas.widths.mobile, h: 96 },
+					tablet: { x: 0, y: cursorY, w: canvas.widths.tablet, h: 96 },
+					desktop: { x: 0, y: cursorY, w: canvas.widths.desktop, h: 96 },
 				},
-			],
-		});
+			});
+			cursorY += 120;
+		}
 
-		if (
-			legacyFooterId &&
-			legacyFooterId.trim() &&
-			legacyFooterId.trim().toLowerCase() !== 'none'
-		) {
-			rows.push({
-				id: 'row_footer',
-				settings: { columns: 1, sizes: [100] },
-				columns: [
-					{
-						id: 'col_footer',
-						blocks: [
-							{
-								id: 'blk_menu_footer',
-								type: 'menu',
-								data: { menu: legacyFooterId.trim(), kind: 'footer' },
-							},
-						],
-					},
-				],
+		nodes.push({
+			id: 'node_slot',
+			type: 'slot',
+			data: { name: 'Page content' },
+			frames: {
+				mobile: { x: 0, y: cursorY, w: canvas.widths.mobile, h: 1200 },
+				tablet: { x: 0, y: cursorY, w: canvas.widths.tablet, h: 1200 },
+				desktop: { x: 0, y: cursorY, w: canvas.widths.desktop, h: 1200 },
+			},
+		});
+		cursorY += 1240;
+
+		if (legacyFooterId && legacyFooterId.trim() && legacyFooterId.trim().toLowerCase() !== 'none') {
+			nodes.push({
+				id: 'node_footer_menu',
+				type: 'menu',
+				data: { menu: legacyFooterId.trim(), kind: 'footer' },
+				frames: {
+					mobile: { x: 0, y: cursorY, w: canvas.widths.mobile, h: 96 },
+					tablet: { x: 0, y: cursorY, w: canvas.widths.tablet, h: 96 },
+					desktop: { x: 0, y: cursorY, w: canvas.widths.desktop, h: 96 },
+				},
 			});
 		}
 
-		return parsePageBuilderState({ version: 3, layout: { rows } });
-	}, [legacyMenuId, legacyFooterId]);
+		return {
+			template: {
+				id: activeTemplateSlug || 'default',
+				menu: legacyMenuId && legacyMenuId.trim() ? legacyMenuId.trim() : 'none',
+				footer: legacyFooterId && legacyFooterId.trim() ? legacyFooterId.trim() : 'none',
+			},
+			canvas,
+			nodes,
+		};
+	}, [activeTemplateSlug, legacyMenuId, legacyFooterId]);
 
 	const rendererState = templateState && hasSlot(templateState) ? templateState : fallbackTemplateState;
 	const effectiveRendererState = chromeUnlocked && templateDraft ? templateDraft : rendererState;
@@ -1083,3 +1081,6 @@ export function PublicPageClient({
 		</main>
 	);
 }
+
+
+

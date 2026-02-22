@@ -30,6 +30,7 @@ import type {
 	ContentEntryListOut,
 	TaxonomyListOut,
 	ThemeListOut,
+	FlowListOut,
 } from '@/lib/types';
 
 import { cn } from '@/lib/utils';
@@ -42,7 +43,7 @@ type DashboardWidget = {
 	title: string;
 	description: string;
 	href: string;
-	key: 'pages' | 'templates' | 'components' | 'blocks' | 'collections' | 'entries' | 'taxonomies' | 'media' | 'themes';
+	key: 'pages' | 'templates' | 'components' | 'blocks' | 'collections' | 'entries' | 'taxonomies' | 'media' | 'themes' | 'flows';
 };
 
 const WIDGETS: DashboardWidget[] = [
@@ -109,7 +110,13 @@ const WIDGETS: DashboardWidget[] = [
 		description: 'Theme definitions (CSS variables) for public rendering.',
 		href: '/admin/themes',
 	},
-] as const;
+	{
+		id: 'flows',
+		key: 'flows',
+		title: 'Flows',
+		description: 'Automation workflows for forms and business processes.',
+		href: '/admin/flows',
+	},] as const;
 
 function SortableWidgetCard({
 	widget,
@@ -236,6 +243,7 @@ export default function AdminHome() {
 		taxonomies: null,
 		media: null,
 		themes: null,
+		flows: null,
 	});
 	const [loadingCounts, setLoadingCounts] = useState(true);
 	const [countsError, setCountsError] = useState<string | null>(null);
@@ -275,7 +283,7 @@ export default function AdminHome() {
 			setCountsError(null);
 
 			try {
-				const [meOut, pagesOut, templatesOut, componentsOut, blocksOut, collectionsOut, entriesOut, taxonomiesOut, mediaOut, themesOut] =
+				const [meOut, pagesOut, templatesOut, componentsOut, blocksOut, collectionsOut, entriesOut, taxonomiesOut, mediaOut, themesOut, flowsOut] =
 					await Promise.all([
 						apiFetch<{ id: number; email: string }>('/api/auth/me', {
 							cache: 'no-store',
@@ -317,6 +325,10 @@ export default function AdminHome() {
 							cache: 'no-store',
 							nextPath: '/admin',
 						}),
+						apiFetch<FlowListOut>('/api/admin/flows?limit=1&offset=0', {
+							cache: 'no-store',
+							nextPath: '/admin',
+						}),
 					]);
 
 				if (canceled) return;
@@ -332,6 +344,7 @@ export default function AdminHome() {
 					taxonomies: taxonomiesOut.total ?? 0,
 					media: mediaOut.total ?? 0,
 					themes: themesOut.total ?? 0,
+					flows: flowsOut.total ?? 0,
 				});
 			} catch (e) {
 				if (canceled) return;

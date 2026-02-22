@@ -85,6 +85,13 @@ const MAX_ZOOM = 4;
 const HISTORY_LIMIT = 120;
 const STYLE_PRESET_STORAGE_KEY = 'hooshpro_style_presets_v1';
 const STYLE_LENGTH_UNITS = ['px', '%', 'rem', 'vw', 'vh'] as const;
+const STYLE_SIZE_SPECIAL_VALUES = [
+	'auto',
+	'none',
+	'fit-content',
+	'min-content',
+	'max-content',
+] as const;
 
 const GRID_CELL_PX = 5;
 const GRID_MAJOR_PX = GRID_CELL_PX * 10;
@@ -245,6 +252,7 @@ function nestedBlockLabel(block: PageBlock): string {
 	if (block.type === 'menu') return block.data.menu?.trim() ? `Menu/${block.data.menu.trim()}` : 'Menu';
 	if (block.type === 'slot') return block.data.name?.trim() ? `Slot/${block.data.name.trim()}` : 'Slot';
 	if (block.type === 'collection-list') return block.data.type_slug?.trim() ? `Collection/${block.data.type_slug.trim()}` : 'Collection';
+	if (block.type === 'flow-form') return block.data.flow_slug?.trim() ? 'Flow/' + block.data.flow_slug.trim() : 'Flow form';
 	if (block.type === 'shadcn') return block.data.component?.trim() ? `shadcn/${block.data.component.trim()}` : 'shadcn';
 	if (block.type === 'frame') return block.data.label?.trim() ? `Frame/${block.data.label.trim()}` : 'Frame';
 	return block.type;
@@ -787,6 +795,77 @@ function createBlockFromComponent(component: ComponentDef): PageBlock {
 		};
 	}
 
+	if (type === 'flow-form') {
+		const d = isRecord(data) ? data : {};
+		const flowSlug = typeof d['flow_slug'] === 'string' ? d['flow_slug'].trim() : '';
+		const event = typeof d['event'] === 'string' ? d['event'].trim() : undefined;
+		const title = typeof d['title'] === 'string' ? d['title'].trim() : undefined;
+		const description = typeof d['description'] === 'string' ? d['description'].trim() : undefined;
+		const submitLabel = typeof d['submit_label'] === 'string' ? d['submit_label'].trim() : undefined;
+		const successMessage = typeof d['success_message'] === 'string' ? d['success_message'].trim() : undefined;
+		const errorMessage = typeof d['error_message'] === 'string' ? d['error_message'].trim() : undefined;
+
+		let fields:
+			| Array<{
+				id: string;
+				name: string;
+				label: string;
+				type?: 'text' | 'email' | 'tel' | 'textarea';
+				required?: boolean;
+				placeholder?: string;
+			}>
+			| undefined;
+		if (Array.isArray(d['fields'])) {
+			const parsed: NonNullable<typeof fields> = [];
+			for (const [fieldIdx, rawField] of d['fields'].entries()) {
+				if (!isRecord(rawField)) continue;
+				const name = typeof rawField['name'] === 'string' ? rawField['name'].trim() : '';
+				if (!name) continue;
+				const label =
+					typeof rawField['label'] === 'string' && rawField['label'].trim()
+						? rawField['label'].trim()
+						: name;
+				const typeRaw =
+					typeof rawField['type'] === 'string' ? rawField['type'].trim().toLowerCase() : '';
+				const fieldType =
+					typeRaw === 'email' || typeRaw === 'tel' || typeRaw === 'textarea' || typeRaw === 'text'
+						? (typeRaw as 'text' | 'email' | 'tel' | 'textarea')
+						: undefined;
+				const placeholder =
+					typeof rawField['placeholder'] === 'string' && rawField['placeholder'].trim()
+						? rawField['placeholder'].trim()
+						: undefined;
+				const required = rawField['required'] === true ? true : undefined;
+				parsed.push({
+					id:
+						typeof rawField['id'] === 'string' && rawField['id'].trim()
+							? rawField['id'].trim()
+							: createId('flowfield') + '-' + String(fieldIdx),
+					name,
+					label,
+					type: fieldType,
+					required,
+					placeholder,
+				});
+			}
+			fields = parsed.length ? parsed : undefined;
+		}
+
+		return {
+			id,
+			type: 'flow-form',
+			data: {
+				flow_slug: flowSlug,
+				event,
+				title,
+				description,
+				submit_label: submitLabel,
+				success_message: successMessage,
+				error_message: errorMessage,
+				fields,
+			},
+		};
+	}
 	if (type === 'shadcn') {
 		const d = isRecord(data) ? data : {};
 		const componentId = typeof d['component'] === 'string' ? d['component'] : component.slug;
@@ -840,6 +919,8 @@ function createNodeFromBlock(
 						? 240
 						: block.type === 'collection-list'
 							? 420
+						: block.type === 'flow-form'
+							? 360
 						: block.type === 'editor'
 							? 320
 							: block.type === 'slot'
@@ -1590,6 +1671,7 @@ function CanvasNode({
 		disabled: disabled || locked || !interactionsEnabled,
 	});
 
+		const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	if (hidden && !isSelected) return null;
 	const f = node.frames[breakpoint];
 
@@ -1626,7 +1708,6 @@ function CanvasNode({
 	const frameProps = isFrame && isRecord(node.data.props) ? (node.data.props as Record<string, unknown>) : null;
 	const clipContents = isFrame && node.data.clip === true;
 	const containerOverflowClass = isFrame && clipContents ? 'overflow-hidden' : 'overflow-visible';
-	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 
 	let containerHint: ReactNode = null;
@@ -1906,6 +1987,7 @@ function PreviewNode({
 	const templateLocked = lockedIds.has(node.id);
 	const hidden = ancestorHidden || selfHidden;
 	const locked = ancestorLocked || templateLocked;
+		const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	if (hidden && !isSelected) return null;
 
 	const f = node.frames[breakpoint];
@@ -1921,7 +2003,6 @@ function PreviewNode({
 		zIndex,
 	};
 
-	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 	const canContain = Array.isArray(node.nodes);
 	const isFrame = node.type === 'frame';
@@ -2448,7 +2529,7 @@ export function PageBuilder({
 		};
 	}, []);
 
-	function setZoomAtClientPoint(nextZoom: number, clientX: number, clientY: number) {
+	const setZoomAtClientPoint = useCallback((nextZoom: number, clientX: number, clientY: number) => {
 		const el = viewportRef.current;
 		const next = clampZoom(nextZoom);
 		if (!el) {
@@ -2468,9 +2549,9 @@ export function PageBuilder({
 
 		pendingZoomScrollRef.current = { left: Math.max(0, nextLeft), top: Math.max(0, nextTop) };
 		setZoom(next);
-	}
+	}, [rulerInsetPx]);
 
-	function setZoomCentered(nextZoom: number) {
+	const setZoomCentered = useCallback((nextZoom: number) => {
 		const el = viewportRef.current;
 		const next = clampZoom(nextZoom);
 		if (!el) {
@@ -2482,7 +2563,7 @@ export function PageBuilder({
 		const canvasCenterX = rulerInsetPx + (el.clientWidth - rulerInsetPx) / 2;
 		const canvasCenterY = rulerInsetPx + (el.clientHeight - rulerInsetPx) / 2;
 		setZoomAtClientPoint(next, rect.left + canvasCenterX, rect.top + canvasCenterY);
-	}
+	}, [rulerInsetPx, setZoomAtClientPoint]);
 
 	useEffect(() => {
 		const el = viewportRef.current;
@@ -2501,7 +2582,7 @@ export function PageBuilder({
 
 		el.addEventListener('wheel', onWheel, { passive: false });
 		return () => el.removeEventListener('wheel', onWheel);
-	}, []);
+	}, [setZoomAtClientPoint]);
 
 	useEffect(() => {
 		const pending = pendingZoomScrollRef.current;
@@ -2641,7 +2722,7 @@ export function PageBuilder({
 		});
 
 		pendingFocusIdRef.current = null;
-	}, [index, breakpoint, viewportMode, frameBoard.activeOffsetX]);
+	}, [index, breakpoint, viewportMode, frameBoard.activeOffsetX, rulerInsetPx]);
 
 	const updateNode = useCallback(
 		(nodeId: string, updater: (n: PageNode) => PageNode) => {
@@ -3860,11 +3941,36 @@ export function PageBuilder({
 		});
 	}
 
+	function propagateDesktopStyleToAllBreakpoints(nodeId: string) {
+		updateNodeStyle(nodeId, (style) => {
+			if (!style) return style;
+			if (styleState === 'default') {
+				const base = style.base ?? {};
+				return {
+					...style,
+					breakpoints: {
+						...(style.breakpoints ?? {}),
+						tablet: { ...base },
+						mobile: { ...base },
+					},
+				};
+			}
+			const baseState = style.states?.[styleState] ?? {};
+			const nextStateBreakpoints = { ...(style.stateBreakpoints ?? {}) };
+			nextStateBreakpoints[styleState] = {
+				...(nextStateBreakpoints[styleState] ?? {}),
+				tablet: { ...baseState },
+				mobile: { ...baseState },
+			};
+			return { ...style, stateBreakpoints: nextStateBreakpoints };
+		});
+	}
+
 	function parseStyleLengthValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number], allowAuto = false) {
 		const value = raw.trim().toLowerCase();
 		if (!value) return { num: '', unit: fallbackUnit };
 		if (allowAuto && value === 'auto') return { num: '', unit: 'auto' as const };
-		const m = value.match(/^(-?\\d+(?:\\.\\d+)?)(px|%|rem|vw|vh)?$/i);
+		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
 		if (!m) return { num: '', unit: fallbackUnit };
 		return {
 			num: m[1],
@@ -3890,6 +3996,36 @@ export function PageBuilder({
 			return;
 		}
 		setStyleValue(nodeId, key, `${num}${unit}`);
+	}
+
+	function parseStyleSizeValue(raw: string, fallbackUnit: typeof STYLE_LENGTH_UNITS[number]) {
+		const value = raw.trim().toLowerCase();
+		if (!value) return { mode: 'unit' as const, num: '', unit: fallbackUnit, special: '' as const };
+		if ((STYLE_SIZE_SPECIAL_VALUES as readonly string[]).includes(value)) {
+			return { mode: 'special' as const, num: '', unit: fallbackUnit, special: value as (typeof STYLE_SIZE_SPECIAL_VALUES)[number] };
+		}
+		const m = value.match(/^(-?\d+(?:\.\d+)?)(px|%|rem|vw|vh)?$/i);
+		if (!m) return { mode: 'unit' as const, num: '', unit: fallbackUnit, special: '' as const };
+		return {
+			mode: 'unit' as const,
+			num: m[1],
+			unit: ((m[2] || fallbackUnit).toLowerCase() as typeof STYLE_LENGTH_UNITS[number]),
+			special: '' as const,
+		};
+	}
+
+	function setStyleSizeValue(nodeId: string, key: string, nextNum: string, nextUnitOrSpecial: string) {
+		const token = nextUnitOrSpecial.trim().toLowerCase();
+		if ((STYLE_SIZE_SPECIAL_VALUES as readonly string[]).includes(token)) {
+			setStyleValue(nodeId, key, token);
+			return;
+		}
+		const num = nextNum.trim();
+		if (!num) {
+			setStyleValue(nodeId, key, '');
+			return;
+		}
+		setStyleValue(nodeId, key, `${num}${token}`);
 	}
 
 	function cloneStylePresetValue(style: NodeStyle): NodeStyle {
@@ -5028,7 +5164,16 @@ function beginPickMedia(nodeId: string) {
 												Clear {styleScope} overrides
 											</Button>
 										</>
-									) : null}
+									) : (
+										<Button
+											type='button'
+											variant='outline'
+											size='sm'
+											onClick={() => propagateDesktopStyleToAllBreakpoints(selectedNode.id)}
+											disabled={disabledFlag || !selectedNode.style}>
+											Sync tablet+mobile
+										</Button>
+									)}
 										<Button
 											type='button'
 											variant='outline'
@@ -5150,11 +5295,99 @@ function beginPickMedia(nodeId: string) {
 								</div>
 								<div className='space-y-1'>
 									<Label>Min width</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'minWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'minWidth', e.target.value)} placeholder='0 | 240px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'minWidth'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'minWidth', e.target.value, controlValue)}
+													placeholder='240'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'minWidth', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Max width</Label>
-									<Input value={getResolvedStyleValue(selectedNode, 'maxWidth')} onChange={(e) => setStyleValue(selectedNode.id, 'maxWidth', e.target.value)} placeholder='none | 1200px' disabled={disabledFlag} />
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'maxWidth'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'maxWidth', e.target.value, controlValue)}
+													placeholder='1200'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'maxWidth', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Min height</Label>
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'minHeight'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'minHeight', e.target.value, controlValue)}
+													placeholder='56'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'minHeight', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
+								</div>
+								<div className='space-y-1'>
+									<Label>Max height</Label>
+									{(() => {
+										const parsed = parseStyleSizeValue(getResolvedStyleValue(selectedNode, 'maxHeight'), 'px');
+										const controlValue = parsed.mode === 'special' ? parsed.special : parsed.unit;
+										return (
+											<div className='flex items-center gap-2'>
+												<Input
+													value={parsed.num}
+													onChange={(e) => setStyleSizeValue(selectedNode.id, 'maxHeight', e.target.value, controlValue)}
+													placeholder='720'
+													disabled={disabledFlag || parsed.mode === 'special'}
+												/>
+												<Select value={controlValue} onValueChange={(v) => setStyleSizeValue(selectedNode.id, 'maxHeight', parsed.num, v)} disabled={disabledFlag}>
+													<SelectTrigger className='w-[112px]'><SelectValue /></SelectTrigger>
+													<SelectContent>
+														{STYLE_SIZE_SPECIAL_VALUES.map((v) => <SelectItem key={v} value={v}>{v}</SelectItem>)}
+														{STYLE_LENGTH_UNITS.map((u) => <SelectItem key={u} value={u}>{u}</SelectItem>)}
+													</SelectContent>
+												</Select>
+											</div>
+										);
+									})()}
 								</div>
 								<div className='space-y-1'>
 									<Label>Margin</Label>
@@ -5167,6 +5400,69 @@ function beginPickMedia(nodeId: string) {
 								<div className='space-y-1'>
 									<Label>Gap</Label>
 									<Input value={getResolvedStyleValue(selectedNode, 'gap')} onChange={(e) => setStyleValue(selectedNode.id, 'gap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Row gap</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'rowGap')} onChange={(e) => setStyleValue(selectedNode.id, 'rowGap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Column gap</Label>
+									<Input value={getResolvedStyleValue(selectedNode, 'columnGap')} onChange={(e) => setStyleValue(selectedNode.id, 'columnGap', e.target.value)} placeholder='0 | 8px' disabled={disabledFlag} />
+								</div>
+								<div className='space-y-1'>
+									<Label>Flex direction</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'flexDirection') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'flexDirection', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='row'>row</SelectItem>
+											<SelectItem value='row-reverse'>row-reverse</SelectItem>
+											<SelectItem value='column'>column</SelectItem>
+											<SelectItem value='column-reverse'>column-reverse</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Flex wrap</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'flexWrap') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'flexWrap', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='nowrap'>nowrap</SelectItem>
+											<SelectItem value='wrap'>wrap</SelectItem>
+											<SelectItem value='wrap-reverse'>wrap-reverse</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Justify content</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'justifyContent') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'justifyContent', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='flex-start'>flex-start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='flex-end'>flex-end</SelectItem>
+											<SelectItem value='space-between'>space-between</SelectItem>
+											<SelectItem value='space-around'>space-around</SelectItem>
+											<SelectItem value='space-evenly'>space-evenly</SelectItem>
+											<SelectItem value='stretch'>stretch</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+								<div className='space-y-1'>
+									<Label>Align items</Label>
+									<Select value={getResolvedStyleValue(selectedNode, 'alignItems') || 'inherit'} onValueChange={(v) => setStyleValue(selectedNode.id, 'alignItems', v === 'inherit' ? '' : v)} disabled={disabledFlag}>
+										<SelectTrigger><SelectValue placeholder='inherit' /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value='inherit'>inherit</SelectItem>
+											<SelectItem value='flex-start'>flex-start</SelectItem>
+											<SelectItem value='center'>center</SelectItem>
+											<SelectItem value='flex-end'>flex-end</SelectItem>
+											<SelectItem value='stretch'>stretch</SelectItem>
+											<SelectItem value='baseline'>baseline</SelectItem>
+										</SelectContent>
+									</Select>
 								</div>
 								<div className='space-y-1'>
 									<Label>Display</Label>
@@ -6253,6 +6549,82 @@ function beginPickMedia(nodeId: string) {
 							</>
 						) : null}
 
+						
+						{selectedNode.type === 'flow-form' ? (
+							<>
+								<Separator />
+								<div className='space-y-2'>
+									<Label>Flow slug</Label>
+									<Input
+										value={selectedNode.data.flow_slug ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, flow_slug: e.target.value } };
+											})
+										}
+										placeholder='contact-us'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='space-y-2'>
+									<Label>Event</Label>
+									<Input
+										value={selectedNode.data.event ?? 'form.submit'}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, event: e.target.value } };
+											})
+										}
+										placeholder='form.submit'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='grid grid-cols-2 gap-3'>
+									<div className='space-y-1'>
+										<Label>Title</Label>
+										<Input
+											value={selectedNode.data.title ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, title: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+									<div className='space-y-1'>
+										<Label>Submit label</Label>
+										<Input
+											value={selectedNode.data.submit_label ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, submit_label: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+								</div>
+								<div className='space-y-2'>
+									<Label>Description</Label>
+									<Textarea
+										value={selectedNode.data.description ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, description: e.target.value } };
+											})
+										}
+										rows={3}
+										disabled={disabledFlag}
+									/>
+								</div>
+							</>
+						) : null}
 						{selectedNode.type === 'collection-list' ? (
 							<>
 								<Separator />
@@ -7090,7 +7462,83 @@ function beginPickMedia(nodeId: string) {
 												</>
 											) : null}
 
-											{selectedNode.type === 'collection-list' ? (
+											
+						{selectedNode.type === 'flow-form' ? (
+							<>
+								<Separator />
+								<div className='space-y-2'>
+									<Label>Flow slug</Label>
+									<Input
+										value={selectedNode.data.flow_slug ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, flow_slug: e.target.value } };
+											})
+										}
+										placeholder='contact-us'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='space-y-2'>
+									<Label>Event</Label>
+									<Input
+										value={selectedNode.data.event ?? 'form.submit'}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, event: e.target.value } };
+											})
+										}
+										placeholder='form.submit'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='grid grid-cols-2 gap-3'>
+									<div className='space-y-1'>
+										<Label>Title</Label>
+										<Input
+											value={selectedNode.data.title ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, title: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+									<div className='space-y-1'>
+										<Label>Submit label</Label>
+										<Input
+											value={selectedNode.data.submit_label ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, submit_label: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+								</div>
+								<div className='space-y-2'>
+									<Label>Description</Label>
+									<Textarea
+										value={selectedNode.data.description ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, description: e.target.value } };
+											})
+										}
+										rows={3}
+										disabled={disabledFlag}
+									/>
+								</div>
+							</>
+						) : null}
+						{selectedNode.type === 'collection-list' ? (
 												<>
 													<Separator />
 													<div className='space-y-2'>
@@ -8103,4 +8551,14 @@ function beginPickMedia(nodeId: string) {
 }
 
 export { PageRenderer, PageRendererWithSlot } from './page-renderer';
+
+
+
+
+
+
+
+
+
+
 
