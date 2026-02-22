@@ -53,6 +53,8 @@ Backend (optional overrides):
 - `HOOSHPRO_LOGIN_RATE_WINDOW_SECONDS` (default `300`)
 - `HOOSHPRO_LOGIN_RATE_MAX_PER_IP` (default `20`)
 - `HOOSHPRO_LOGIN_RATE_MAX_PER_EMAIL` (default `8`)
+- `HOOSHPRO_FLOW_TRIGGER_RATE_WINDOW_SECONDS` (default `60`)
+- `HOOSHPRO_FLOW_TRIGGER_RATE_MAX_PER_IP` (default `120`)
 
 ---
 
@@ -71,6 +73,7 @@ Backend (optional overrides):
   - Site options: `routers/options.py` + `schemas/option.py` (WordPress-like “settings/options”)
   - Taxonomies/terms: `routers/taxonomies.py` + `schemas/taxonomy.py` (categories/tags/custom)
   - Themes: `routers/themes.py` + `schemas/theme.py` (CSS variable tokens; public resolver `/api/public/themes/active`)
+  - Flows: `routers/flows.py` + `schemas/flow.py` (workflow graphs + test-run + public trigger endpoint)
 
 Migrations:
 
@@ -149,7 +152,7 @@ We keep a local mirror of the raw shadcn/ui markdown docs so devs can read every
   - Public routes use `reading.front_page_slug` to decide what page renders at `/`.
   - Admin edits options in `/admin/settings` (backed by `options` table).
   - Public theming:
-    - `appearance.active_theme` chooses the public theme slug (e.g. `jeweler` → `.theme-jeweler`).
+    - `appearance.active_theme` chooses the public theme slug (rendered as root class `theme-<slug>`).
     - `/api/public/themes/active` resolves the active theme and returns merged CSS variables (theme base + `appearance.theme_vars` overrides), injected into the public root element (`frontend/app/[slug]/page-client.tsx`).
 
 ---
@@ -204,6 +207,7 @@ Examples:
 
 - List+dialog: `frontend/app/admin/components/page.tsx`, `frontend/app/admin/blocks/page.tsx`
 - Collections + entries: `frontend/app/admin/collections/page.tsx`, `frontend/app/admin/entries/page.tsx`
+- Flows (workflow builder): `frontend/app/admin/flows/page.tsx`
 - List + dedicated editor route: `frontend/app/admin/templates/page.tsx` + `frontend/app/admin/templates/[id]/page.tsx`
 
 1) Add/update frontend types
