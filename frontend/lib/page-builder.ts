@@ -86,6 +86,7 @@ export type PageBlock =
 	| ImageBlock
 	| CollectionListBlock
 	| ShapeBlock
+	| FlowFormBlock
 	| ShadcnBlock
 	| UnknownBlock;
 
@@ -246,7 +247,32 @@ export type ShapeBlock = {
 	};
 };
 
+export type FlowFormFieldType = 'text' | 'email' | 'tel' | 'textarea';
 
+export type FlowFormField = {
+	id: string;
+	name: string;
+	label: string;
+	type?: FlowFormFieldType;
+	required?: boolean;
+	placeholder?: string;
+};
+
+export type FlowFormBlock = {
+	id: string;
+	meta?: NodeMeta;
+	type: 'flow-form';
+	data: {
+		flow_slug: string;
+		event?: string;
+		title?: string;
+		description?: string;
+		submit_label?: string;
+		success_message?: string;
+		error_message?: string;
+		fields?: FlowFormField[];
+	};
+};
 export type ShadcnBlock = {
 	id: string;
 	meta?: NodeMeta;
@@ -859,6 +885,59 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 			};
 		}
 
+		if (type === 'flow-form') {
+			const d = isRecord(data) ? data : {};
+			const flowSlug = typeof d['flow_slug'] === 'string' ? d['flow_slug'].trim() : '';
+			const event = typeof d['event'] === 'string' ? d['event'].trim() : undefined;
+			const title = typeof d['title'] === 'string' ? d['title'].trim() : undefined;
+			const description = typeof d['description'] === 'string' ? d['description'].trim() : undefined;
+			const submitLabel = typeof d['submit_label'] === 'string' ? d['submit_label'].trim() : undefined;
+			const successMessage = typeof d['success_message'] === 'string' ? d['success_message'].trim() : undefined;
+			const errorMessage = typeof d['error_message'] === 'string' ? d['error_message'].trim() : undefined;
+
+			let fields: FlowFormField[] | undefined;
+			if (Array.isArray(d['fields'])) {
+				const parsed: FlowFormField[] = [];
+				for (const [fieldIdx, rawField] of d['fields'].entries()) {
+					if (!isRecord(rawField)) continue;
+					const name = typeof rawField['name'] === 'string' ? rawField['name'].trim() : '';
+					if (!name) continue;
+					const label = typeof rawField['label'] === 'string' && rawField['label'].trim() ? rawField['label'].trim() : name;
+					const fieldTypeRaw = typeof rawField['type'] === 'string' ? rawField['type'].trim().toLowerCase() : '';
+					const fieldType =
+						fieldTypeRaw === 'text' || fieldTypeRaw === 'email' || fieldTypeRaw === 'tel' || fieldTypeRaw === 'textarea'
+							? (fieldTypeRaw as FlowFormFieldType)
+							: undefined;
+					const placeholder = typeof rawField['placeholder'] === 'string' ? rawField['placeholder'].trim() : undefined;
+					const required = rawField['required'] === true ? true : undefined;
+					parsed.push({
+						id: typeof rawField['id'] === 'string' && rawField['id'].trim() ? rawField['id'].trim() : stableId('ff', ...path, fieldIdx),
+						name,
+						label,
+						type: fieldType,
+						required,
+						placeholder: placeholder || undefined,
+					});
+				}
+				fields = parsed.length ? parsed : undefined;
+			}
+
+			return {
+				id,
+				meta,
+				type: 'flow-form',
+				data: {
+					flow_slug: flowSlug,
+					event,
+					title,
+					description,
+					submit_label: submitLabel,
+					success_message: successMessage,
+					error_message: errorMessage,
+					fields,
+				},
+			};
+		}
 		if (type === 'shape') {
 			const d = isRecord(data) ? data : {};
 			const kindRaw = typeof d['kind'] === 'string' ? d['kind'].trim().toLowerCase() : 'rect';
@@ -985,6 +1064,7 @@ export function parsePageBuilderState(blocks: unknown): PageBuilderState {
 		if (block.type === 'text') return 80;
 		if (block.type === 'editor') return 260;
 		if (block.type === 'slot') return 320;
+		if (block.type === 'flow-form') return 360;
 		if (block.type === 'frame') return 360;
 		if (block.type === 'collection-list') return 420;
 		return 200;
@@ -1326,6 +1406,12 @@ export function cloneNodesWithNewIds(nodes: PageNode[]): PageNode[] {
 
 	return nodes.map(cloneNodeWithNewIds);
 }
+
+
+
+
+
+
 
 
 

@@ -470,6 +470,7 @@ export default function AdminComponentsScreen() {
 								<SelectItem value='button'>button</SelectItem>
 								<SelectItem value='card'>card</SelectItem>
 								<SelectItem value='separator'>separator</SelectItem>
+								<SelectItem value='flow-form'>flow-form</SelectItem>
 								<SelectItem value='shadcn'>shadcn</SelectItem>
 							</SelectContent>
 						</Select>
@@ -753,6 +754,7 @@ export default function AdminComponentsScreen() {
 											<SelectItem value='button'>button</SelectItem>
 											<SelectItem value='card'>card</SelectItem>
 											<SelectItem value='separator'>separator</SelectItem>
+								<SelectItem value='flow-form'>flow-form</SelectItem>
 											<SelectItem value='shadcn'>shadcn</SelectItem>
 										</SelectContent>
 									</Select>
@@ -1032,3 +1034,4 @@ export default function AdminComponentsScreen() {
 		</AdminListPage>
 	);
 }
+

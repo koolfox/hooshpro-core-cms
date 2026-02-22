@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type ComponentProps, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type ComponentProps, type CSSProperties, type FormEvent } from 'react';
 import Link from 'next/link';
 import Image from 'next/image';
 import { Box, Container, Flex, Grid, Section, Theme } from '@radix-ui/themes';
@@ -10,7 +10,7 @@ import { resolveNodeStyle, type NodeStyleInteractionState } from '@/lib/node-sty
 import { sanitizeRichHtml } from '@/lib/sanitize';
 import { apiFetch } from '@/lib/http';
 import { cn } from '@/lib/utils';
-import type { MediaAsset, PublicContentEntryListOut } from '@/lib/types';
+import type { FlowTriggerResult, MediaAsset, PublicContentEntryListOut } from '@/lib/types';
 
 import { PublicFooterNav } from '@/components/public/public-footer-nav';
 import { PublicTopNav } from '@/components/public/public-top-nav';
@@ -322,6 +322,141 @@ function CollectionListPreview({
 	);
 }
 
+function FlowFormRuntime({ block }: { block: Extract<PageBlock, { type: 'flow-form' }> }) {
+	const [values, setValues] = useState<Record<string, string>>({});
+	const [status, setStatus] = useState<'idle' | 'sending' | 'success' | 'error'>('idle');
+	const [message, setMessage] = useState<string>('');
+
+	const flowSlug = (block.data.flow_slug || '').trim();
+	const eventName = (block.data.event || 'form.submit').trim() || 'form.submit';
+	const submitLabel = (block.data.submit_label || 'Submit').trim() || 'Submit';
+	const title = (block.data.title || '').trim();
+	const description = (block.data.description || '').trim();
+	const successFallback =
+		(block.data.success_message || '').trim() || 'Thanks. Your submission has been received.';
+	const errorFallback =
+		(block.data.error_message || '').trim() || 'Sorry, something went wrong. Please try again.';
+
+	const fields = useMemo(() => {
+		const raw = Array.isArray(block.data.fields) ? block.data.fields : [];
+		const parsed = raw
+			.map((f, idx) => {
+				const name = typeof f.name === 'string' ? f.name.trim() : '';
+				if (!name) return null;
+				const fieldTypeRaw = typeof f.type === 'string' ? f.type.trim().toLowerCase() : 'text';
+				const fieldType =
+					fieldTypeRaw === 'email' || fieldTypeRaw === 'tel' || fieldTypeRaw === 'textarea'
+						? fieldTypeRaw
+						: 'text';
+				return {
+					id: typeof f.id === 'string' && f.id.trim() ? f.id.trim() : 'field-' + idx,
+					name,
+					label:
+						typeof f.label === 'string' && f.label.trim()
+							? f.label.trim()
+							: name,
+					type: fieldType as 'text' | 'email' | 'tel' | 'textarea',
+					required: f.required === true,
+					placeholder:
+						typeof f.placeholder === 'string' && f.placeholder.trim()
+							? f.placeholder.trim()
+							: undefined,
+				};
+			})
+			.filter((f): f is NonNullable<typeof f> => !!f);
+
+		if (parsed.length) return parsed;
+		return [
+			{ id: 'name', name: 'name', label: 'Name', type: 'text', required: true, placeholder: 'Jane Doe' },
+			{ id: 'email', name: 'email', label: 'Email', type: 'email', required: true, placeholder: 'jane@example.com' },
+			{ id: 'message', name: 'message', label: 'Message', type: 'textarea', required: true, placeholder: 'How can we help?' },
+		];
+	}, [block.data.fields]);
+
+	async function onSubmit(e: FormEvent<HTMLFormElement>) {
+		e.preventDefault();
+		if (!flowSlug) {
+			setStatus('error');
+			setMessage('Missing flow slug. Set flow_slug in this block.');
+			return;
+		}
+
+		const input: Record<string, string> = {};
+		for (const field of fields) input[field.name] = (values[field.name] || '').trim();
+
+		setStatus('sending');
+		setMessage('');
+		try {
+			const out = await apiFetch<FlowTriggerResult>(
+				'/api/public/flows/' + encodeURIComponent(flowSlug) + '/trigger',
+				{
+					method: 'POST',
+					headers: { 'content-type': 'application/json' },
+					body: JSON.stringify({ event: eventName, input }),
+					cache: 'no-store',
+					nextPath: window.location.pathname,
+				}
+			);
+			setStatus('success');
+			const outputMessage =
+				out && typeof out.output === 'object' && out.output && typeof (out.output as Record<string, unknown>)['message'] === 'string'
+					? String((out.output as Record<string, unknown>)['message'])
+					: '';
+			setMessage(outputMessage.trim() || successFallback);
+		} catch (error) {
+			setStatus('error');
+			setMessage(error instanceof Error ? error.message : errorFallback);
+		}
+	}
+
+	return (
+		<form onSubmit={onSubmit} className='rounded-xl border bg-background/70 p-4 space-y-4'>
+			{title ? <h3 className='text-base font-semibold'>{title}</h3> : null}
+			{description ? <p className='text-sm text-muted-foreground'>{description}</p> : null}
+			{!flowSlug ? (
+				<div className='rounded-md border border-dashed bg-muted/20 px-3 py-2 text-xs text-muted-foreground'>
+					Set <code>flow_slug</code> to enable this form.
+				</div>
+			) : null}
+			<div className='space-y-3'>
+				{fields.map((field) => (
+					<label key={field.id} className='block space-y-1'>
+						<span className='text-sm font-medium'>
+							{field.label}
+							{field.required ? <span className='text-red-500'> *</span> : null}
+						</span>
+						{field.type === 'textarea' ? (
+							<textarea
+								className='w-full rounded-md border bg-background px-3 py-2 text-sm'
+								rows={4}
+								value={values[field.name] || ''}
+								onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+								placeholder={field.placeholder}
+								required={field.required}
+							/>
+						) : (
+							<input
+								type={field.type}
+								className='w-full rounded-md border bg-background px-3 py-2 text-sm'
+								value={values[field.name] || ''}
+								onChange={(e) => setValues((prev) => ({ ...prev, [field.name]: e.target.value }))}
+								placeholder={field.placeholder}
+								required={field.required}
+							/>
+						)}
+					</label>
+				))}
+			</div>
+			<div className='flex items-center gap-3'>
+				<button type='submit' className='inline-flex items-center justify-center rounded-md bg-foreground px-4 py-2 text-sm font-medium text-background disabled:opacity-60' disabled={status === 'sending'}>
+					{status === 'sending' ? 'Submitting…' : submitLabel}
+				</button>
+				{status === 'success' ? <span className='text-xs text-green-600'>{message}</span> : null}
+				{status === 'error' ? <span className='text-xs text-red-600'>{message || errorFallback}</span> : null}
+			</div>
+		</form>
+	);
+}
 export function renderBlockPreview(block: PageBlock, opts?: RenderOpts) {
 	const slot = opts?.slot;
 	const collectionsByNodeId = opts?.collectionsByNodeId;
@@ -333,6 +468,7 @@ export function renderBlockPreview(block: PageBlock, opts?: RenderOpts) {
 		if (b.type === 'image') return b.data.alt?.trim() ? b.data.alt.trim() : 'Image';
 		if (b.type === 'text') return b.data.text?.trim() ? b.data.text.trim() : 'Text';
 		if (b.type === 'collection-list') return `collection/${b.data.type_slug || 'type'}`;
+		if (b.type === 'flow-form') return b.data.flow_slug?.trim() ? 'flow/' + b.data.flow_slug.trim() : 'Flow form';
 		if (b.type === 'menu') return `menu/${b.data.menu || 'main'}`;
 		if (b.type === 'separator') return 'Divider';
 		if (b.type === 'slot') return b.data.name?.trim() ? b.data.name.trim() : 'Slot';
@@ -493,6 +629,9 @@ export function renderBlockPreview(block: PageBlock, opts?: RenderOpts) {
 			/>
 		);
 	}
+	if (block.type === 'flow-form') {
+		return <FlowFormRuntime block={block} />;
+	}
 
 	if (block.type === 'shape') {
 		const kindRaw = (block.data.kind || 'rect').trim().toLowerCase();
@@ -612,9 +751,8 @@ function RenderNode({
 	breakpoint: BuilderBreakpoint;
 	opts?: RenderOpts;
 }) {
-	if (node.meta?.hidden) return null;
-
 	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
+	if (node.meta?.hidden) return null;
 	const frame = node.frames[breakpoint];
 	const z = typeof frame.z === 'number' && Number.isFinite(frame.z) ? frame.z : undefined;
 
@@ -773,4 +911,17 @@ export function PageRendererWithSlot({
 		</Theme>
 	);
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
 

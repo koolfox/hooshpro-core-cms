@@ -252,6 +252,7 @@ function nestedBlockLabel(block: PageBlock): string {
 	if (block.type === 'menu') return block.data.menu?.trim() ? `Menu/${block.data.menu.trim()}` : 'Menu';
 	if (block.type === 'slot') return block.data.name?.trim() ? `Slot/${block.data.name.trim()}` : 'Slot';
 	if (block.type === 'collection-list') return block.data.type_slug?.trim() ? `Collection/${block.data.type_slug.trim()}` : 'Collection';
+	if (block.type === 'flow-form') return block.data.flow_slug?.trim() ? 'Flow/' + block.data.flow_slug.trim() : 'Flow form';
 	if (block.type === 'shadcn') return block.data.component?.trim() ? `shadcn/${block.data.component.trim()}` : 'shadcn';
 	if (block.type === 'frame') return block.data.label?.trim() ? `Frame/${block.data.label.trim()}` : 'Frame';
 	return block.type;
@@ -794,6 +795,77 @@ function createBlockFromComponent(component: ComponentDef): PageBlock {
 		};
 	}
 
+	if (type === 'flow-form') {
+		const d = isRecord(data) ? data : {};
+		const flowSlug = typeof d['flow_slug'] === 'string' ? d['flow_slug'].trim() : '';
+		const event = typeof d['event'] === 'string' ? d['event'].trim() : undefined;
+		const title = typeof d['title'] === 'string' ? d['title'].trim() : undefined;
+		const description = typeof d['description'] === 'string' ? d['description'].trim() : undefined;
+		const submitLabel = typeof d['submit_label'] === 'string' ? d['submit_label'].trim() : undefined;
+		const successMessage = typeof d['success_message'] === 'string' ? d['success_message'].trim() : undefined;
+		const errorMessage = typeof d['error_message'] === 'string' ? d['error_message'].trim() : undefined;
+
+		let fields:
+			| Array<{
+				id: string;
+				name: string;
+				label: string;
+				type?: 'text' | 'email' | 'tel' | 'textarea';
+				required?: boolean;
+				placeholder?: string;
+			}>
+			| undefined;
+		if (Array.isArray(d['fields'])) {
+			const parsed: NonNullable<typeof fields> = [];
+			for (const [fieldIdx, rawField] of d['fields'].entries()) {
+				if (!isRecord(rawField)) continue;
+				const name = typeof rawField['name'] === 'string' ? rawField['name'].trim() : '';
+				if (!name) continue;
+				const label =
+					typeof rawField['label'] === 'string' && rawField['label'].trim()
+						? rawField['label'].trim()
+						: name;
+				const typeRaw =
+					typeof rawField['type'] === 'string' ? rawField['type'].trim().toLowerCase() : '';
+				const fieldType =
+					typeRaw === 'email' || typeRaw === 'tel' || typeRaw === 'textarea' || typeRaw === 'text'
+						? (typeRaw as 'text' | 'email' | 'tel' | 'textarea')
+						: undefined;
+				const placeholder =
+					typeof rawField['placeholder'] === 'string' && rawField['placeholder'].trim()
+						? rawField['placeholder'].trim()
+						: undefined;
+				const required = rawField['required'] === true ? true : undefined;
+				parsed.push({
+					id:
+						typeof rawField['id'] === 'string' && rawField['id'].trim()
+							? rawField['id'].trim()
+							: createId('flowfield') + '-' + String(fieldIdx),
+					name,
+					label,
+					type: fieldType,
+					required,
+					placeholder,
+				});
+			}
+			fields = parsed.length ? parsed : undefined;
+		}
+
+		return {
+			id,
+			type: 'flow-form',
+			data: {
+				flow_slug: flowSlug,
+				event,
+				title,
+				description,
+				submit_label: submitLabel,
+				success_message: successMessage,
+				error_message: errorMessage,
+				fields,
+			},
+		};
+	}
 	if (type === 'shadcn') {
 		const d = isRecord(data) ? data : {};
 		const componentId = typeof d['component'] === 'string' ? d['component'] : component.slug;
@@ -847,6 +919,8 @@ function createNodeFromBlock(
 						? 240
 						: block.type === 'collection-list'
 							? 420
+						: block.type === 'flow-form'
+							? 360
 						: block.type === 'editor'
 							? 320
 							: block.type === 'slot'
@@ -1597,6 +1671,7 @@ function CanvasNode({
 		disabled: disabled || locked || !interactionsEnabled,
 	});
 
+		const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	if (hidden && !isSelected) return null;
 	const f = node.frames[breakpoint];
 
@@ -1633,7 +1708,6 @@ function CanvasNode({
 	const frameProps = isFrame && isRecord(node.data.props) ? (node.data.props as Record<string, unknown>) : null;
 	const clipContents = isFrame && node.data.clip === true;
 	const containerOverflowClass = isFrame && clipContents ? 'overflow-hidden' : 'overflow-visible';
-	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 
 	let containerHint: ReactNode = null;
@@ -1913,6 +1987,7 @@ function PreviewNode({
 	const templateLocked = lockedIds.has(node.id);
 	const hidden = ancestorHidden || selfHidden;
 	const locked = ancestorLocked || templateLocked;
+		const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	if (hidden && !isSelected) return null;
 
 	const f = node.frames[breakpoint];
@@ -1928,7 +2003,6 @@ function PreviewNode({
 		zIndex,
 	};
 
-	const [interactionState, setInteractionState] = useState<NodeStyleInteractionState>('default');
 	const resolvedVisualStyle = resolveNodeStyle(node.style, breakpoint, interactionState) as CSSProperties;
 	const canContain = Array.isArray(node.nodes);
 	const isFrame = node.type === 'frame';
@@ -2455,7 +2529,7 @@ export function PageBuilder({
 		};
 	}, []);
 
-	function setZoomAtClientPoint(nextZoom: number, clientX: number, clientY: number) {
+	const setZoomAtClientPoint = useCallback((nextZoom: number, clientX: number, clientY: number) => {
 		const el = viewportRef.current;
 		const next = clampZoom(nextZoom);
 		if (!el) {
@@ -2475,9 +2549,9 @@ export function PageBuilder({
 
 		pendingZoomScrollRef.current = { left: Math.max(0, nextLeft), top: Math.max(0, nextTop) };
 		setZoom(next);
-	}
+	}, [rulerInsetPx]);
 
-	function setZoomCentered(nextZoom: number) {
+	const setZoomCentered = useCallback((nextZoom: number) => {
 		const el = viewportRef.current;
 		const next = clampZoom(nextZoom);
 		if (!el) {
@@ -2489,7 +2563,7 @@ export function PageBuilder({
 		const canvasCenterX = rulerInsetPx + (el.clientWidth - rulerInsetPx) / 2;
 		const canvasCenterY = rulerInsetPx + (el.clientHeight - rulerInsetPx) / 2;
 		setZoomAtClientPoint(next, rect.left + canvasCenterX, rect.top + canvasCenterY);
-	}
+	}, [rulerInsetPx, setZoomAtClientPoint]);
 
 	useEffect(() => {
 		const el = viewportRef.current;
@@ -2508,7 +2582,7 @@ export function PageBuilder({
 
 		el.addEventListener('wheel', onWheel, { passive: false });
 		return () => el.removeEventListener('wheel', onWheel);
-	}, []);
+	}, [setZoomAtClientPoint]);
 
 	useEffect(() => {
 		const pending = pendingZoomScrollRef.current;
@@ -2648,7 +2722,7 @@ export function PageBuilder({
 		});
 
 		pendingFocusIdRef.current = null;
-	}, [index, breakpoint, viewportMode, frameBoard.activeOffsetX]);
+	}, [index, breakpoint, viewportMode, frameBoard.activeOffsetX, rulerInsetPx]);
 
 	const updateNode = useCallback(
 		(nodeId: string, updater: (n: PageNode) => PageNode) => {
@@ -6475,6 +6549,82 @@ function beginPickMedia(nodeId: string) {
 							</>
 						) : null}
 
+						
+						{selectedNode.type === 'flow-form' ? (
+							<>
+								<Separator />
+								<div className='space-y-2'>
+									<Label>Flow slug</Label>
+									<Input
+										value={selectedNode.data.flow_slug ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, flow_slug: e.target.value } };
+											})
+										}
+										placeholder='contact-us'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='space-y-2'>
+									<Label>Event</Label>
+									<Input
+										value={selectedNode.data.event ?? 'form.submit'}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, event: e.target.value } };
+											})
+										}
+										placeholder='form.submit'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='grid grid-cols-2 gap-3'>
+									<div className='space-y-1'>
+										<Label>Title</Label>
+										<Input
+											value={selectedNode.data.title ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, title: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+									<div className='space-y-1'>
+										<Label>Submit label</Label>
+										<Input
+											value={selectedNode.data.submit_label ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, submit_label: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+								</div>
+								<div className='space-y-2'>
+									<Label>Description</Label>
+									<Textarea
+										value={selectedNode.data.description ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, description: e.target.value } };
+											})
+										}
+										rows={3}
+										disabled={disabledFlag}
+									/>
+								</div>
+							</>
+						) : null}
 						{selectedNode.type === 'collection-list' ? (
 							<>
 								<Separator />
@@ -7312,7 +7462,83 @@ function beginPickMedia(nodeId: string) {
 												</>
 											) : null}
 
-											{selectedNode.type === 'collection-list' ? (
+											
+						{selectedNode.type === 'flow-form' ? (
+							<>
+								<Separator />
+								<div className='space-y-2'>
+									<Label>Flow slug</Label>
+									<Input
+										value={selectedNode.data.flow_slug ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, flow_slug: e.target.value } };
+											})
+										}
+										placeholder='contact-us'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='space-y-2'>
+									<Label>Event</Label>
+									<Input
+										value={selectedNode.data.event ?? 'form.submit'}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, event: e.target.value } };
+											})
+										}
+										placeholder='form.submit'
+										disabled={disabledFlag}
+									/>
+								</div>
+								<div className='grid grid-cols-2 gap-3'>
+									<div className='space-y-1'>
+										<Label>Title</Label>
+										<Input
+											value={selectedNode.data.title ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, title: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+									<div className='space-y-1'>
+										<Label>Submit label</Label>
+										<Input
+											value={selectedNode.data.submit_label ?? ''}
+											onChange={(e) =>
+												updateNode(selectedNode.id, (n) => {
+													if (n.type !== 'flow-form') return n;
+													return { ...n, data: { ...n.data, submit_label: e.target.value } };
+												})
+											}
+											disabled={disabledFlag}
+										/>
+									</div>
+								</div>
+								<div className='space-y-2'>
+									<Label>Description</Label>
+									<Textarea
+										value={selectedNode.data.description ?? ''}
+										onChange={(e) =>
+											updateNode(selectedNode.id, (n) => {
+												if (n.type !== 'flow-form') return n;
+												return { ...n, data: { ...n.data, description: e.target.value } };
+											})
+										}
+										rows={3}
+										disabled={disabledFlag}
+									/>
+								</div>
+							</>
+						) : null}
+						{selectedNode.type === 'collection-list' ? (
 												<>
 													<Separator />
 													<div className='space-y-2'>
@@ -8325,4 +8551,14 @@ function beginPickMedia(nodeId: string) {
 }
 
 export { PageRenderer, PageRendererWithSlot } from './page-renderer';
+
+
+
+
+
+
+
+
+
+
 
