@@ -29,6 +29,7 @@ from app.routers import (
     bootstrap,
     collections,
     components,
+    flows,
     media,
     menus,
     options,
@@ -298,6 +299,7 @@ app.include_router(blocks.router)
 app.include_router(templates.router)
 app.include_router(menus.router)
 app.include_router(collections.router)
+app.include_router(flows.router)
 app.include_router(options.router)
 app.include_router(taxonomies.router)
 app.include_router(themes.router)

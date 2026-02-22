@@ -7,6 +7,7 @@ from pathlib import Path
 from sqlalchemy import create_engine, inspect
 from sqlalchemy.orm import sessionmaker
 
+from app.config import settings
 from app.core.config import DB_FILE
 from app.seed.bootstrap import seed_defaults as run_seed_defaults
 
@@ -88,6 +89,8 @@ def run_migrations() -> None:
         "taxonomies",
         "terms",
         "term_relationships",
+        "workflows",
+        "workflow_runs",
     }
     baseline_tables = {"users", "sessions", "pages"}
 
@@ -106,8 +109,8 @@ def run_migrations() -> None:
 
 def init_db() -> None:
     run_migrations()
-    run_seed_defaults(engine, SessionLocal)
+    if settings.SEED_DEFAULTS_ON_STARTUP:
+        run_seed_defaults(engine, SessionLocal)
 
 
 # NOTE: get_db moved to app.db_session to keep router deps separate from bootstrap logic.
-

@@ -69,66 +69,6 @@ def _safe_load_json(text: str | None, fallback: dict) -> dict:
         return fallback
 
 
-def _default_template_definition(menu: str, footer: str) -> dict:
-    canvas = {
-        "snapPx": 1,
-        "widths": {"mobile": 390, "tablet": 820, "desktop": 1200},
-        "minHeightPx": 800,
-    }
-
-    nodes: list[dict] = []
-    y = 0
-
-    if menu.strip() and menu.strip().lower() != "none":
-        nodes.append(
-            {
-                "id": "node_menu_top",
-                "type": "menu",
-                "data": {"menu": menu.strip(), "kind": "top"},
-                "frames": {
-                    "mobile": {"x": 0, "y": y, "w": canvas["widths"]["mobile"], "h": 96},
-                    "tablet": {"x": 0, "y": y, "w": canvas["widths"]["tablet"], "h": 96},
-                    "desktop": {"x": 0, "y": y, "w": canvas["widths"]["desktop"], "h": 96},
-                },
-            }
-        )
-        y += 120
-
-    nodes.append(
-        {
-            "id": "node_slot",
-            "type": "slot",
-            "data": {"name": "Page content"},
-            "frames": {
-                "mobile": {"x": 0, "y": y, "w": canvas["widths"]["mobile"], "h": 1200},
-                "tablet": {"x": 0, "y": y, "w": canvas["widths"]["tablet"], "h": 1200},
-                "desktop": {"x": 0, "y": y, "w": canvas["widths"]["desktop"], "h": 1200},
-            },
-        }
-    )
-    y += 1240
-
-    if footer.strip() and footer.strip().lower() != "none":
-        nodes.append(
-            {
-                "id": "node_menu_footer",
-                "type": "menu",
-                "data": {"menu": footer.strip(), "kind": "footer"},
-                "frames": {
-                    "mobile": {"x": 0, "y": y, "w": canvas["widths"]["mobile"], "h": 96},
-                    "tablet": {"x": 0, "y": y, "w": canvas["widths"]["tablet"], "h": 96},
-                    "desktop": {"x": 0, "y": y, "w": canvas["widths"]["desktop"], "h": 96},
-                },
-            }
-        )
-
-    return {
-        "version": CANONICAL_EDITOR_VERSION,
-        "canvas": canvas,
-        "layout": {"nodes": nodes},
-    }
-
-
 def _to_out(t: PageTemplate) -> TemplateOut:
     definition = _safe_load_json(t.definition_json, _empty_definition())
     return TemplateOut(
@@ -197,12 +137,6 @@ def create_template(db: OrmSession, payload: TemplateCreate) -> TemplateOut:
     slug = validate_template_slug(payload.slug)
 
     definition = payload.definition or _empty_definition()
-    definition = _validate_definition(definition, context="template.definition")
-
-    nodes = definition.get("layout", {}).get("nodes") if isinstance(definition, dict) else None
-    if not isinstance(nodes, list) or len(nodes) == 0:
-        definition = _default_template_definition(payload.menu, payload.footer)
-
     definition = _validate_definition(definition, context="template.definition")
 
     t = PageTemplate(

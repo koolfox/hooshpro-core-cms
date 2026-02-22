@@ -22,6 +22,7 @@ ALLOWED_NODE_TYPES = {
     "text",
     "image",
     "shape",
+    "flow-form",
     "card",
     "shadcn",
     "unknown",
@@ -595,4 +596,6 @@ def validate_page_builder_document(
         ) from exc
 
     return dict(root)
+
+
 
