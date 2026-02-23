@@ -46,6 +46,7 @@ import {
 	SelectValue,
 } from '@/components/ui/select';
 import { Separator } from '@/components/ui/separator';
+import { ContentTypeGraph } from '@/components/flows/content-type-graph';
 
 const FIELD_TYPES = ['string', 'text', 'number', 'boolean', 'datetime', 'media', 'select'] as const;
 type FieldType = (typeof FIELD_TYPES)[number];
@@ -254,6 +255,16 @@ export default function AdminCollectionDetailPage() {
 							<div className='text-sm text-muted-foreground'>{ct.description}</div>
 						) : null}
 					</div>
+				</div>
+			) : null}
+
+			{ct ? (
+				<div className='rounded-xl border p-4 space-y-3'>
+					<div className='flex items-center justify-between'>
+						<div className='text-sm font-medium'>Schema map</div>
+						<div className='text-xs text-muted-foreground'>Visual relation view for this collection and its fields</div>
+					</div>
+					<ContentTypeGraph contentType={ct} fields={fields} />
 				</div>
 			) : null}
 
