@@ -1,41 +1,20 @@
 'use client';
 
+import Link from 'next/link';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { usePathname, useRouter, useSearchParams } from 'next/navigation';
 
-import { ApiError } from '@/lib/http';
-import {
-	buildAdminBlocksListUrl,
-	createAdminBlock,
-	deleteAdminBlock,
-	updateAdminBlock,
-} from '@/lib/api/blocks';
+import { deleteAdminBlock, buildAdminBlocksListUrl } from '@/lib/api/blocks';
 import type { BlockListOut, BlockTemplate } from '@/lib/types';
-import {
-	defaultPageBuilderState,
-	parsePageBuilderState,
-	serializePageBuilderState,
-	type PageBuilderState,
-	
-	type PageNode,
-} from '@/lib/page-builder';
+import { parsePageBuilderState, type PageNode } from '@/lib/page-builder';
 import { useApiList } from '@/hooks/use-api-list';
+import { formatUiError } from '@/lib/error-message';
 
 import { AdminListPage } from '@/components/admin/admin-list-page';
 import { AdminDataTable } from '@/components/admin/admin-data-table';
-import { ClientOnly } from '@/components/client-only';
-import { PageBuilder } from '@/components/page-builder/page-builder';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-	Dialog,
-	DialogContent,
-	DialogDescription,
-	DialogFooter,
-	DialogHeader,
-	DialogTitle,
-} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -45,9 +24,6 @@ import {
 	SelectTrigger,
 	SelectValue,
 } from '@/components/ui/select';
-import { Textarea } from '@/components/ui/textarea';
-import { formatUiError } from '@/lib/error-message';
-
 import {
 	AlertDialog,
 	AlertDialogAction,
@@ -88,14 +64,6 @@ function parseDirParam(value: string | null): SortDir {
 
 function toErrorMessage(error: unknown): string {
 	return formatUiError(error);
-}
-
-function slugify(input: string) {
-	return input
-		.trim()
-		.toLowerCase()
-		.replace(/[^a-z0-9]+/g, '-')
-		.replace(/(^-|-$)/g, '');
 }
 
 function formatIso(iso: string) {
@@ -155,6 +123,7 @@ export default function AdminBlocksScreen() {
 	const qRef = useRef<HTMLInputElement | null>(null);
 
 	useEffect(() => {
+		// eslint-disable-next-line react-hooks/set-state-in-effect
 		setOffset(urlOffset);
 		setQ(urlQ);
 		setQInput(urlQ);
@@ -241,106 +210,8 @@ export default function AdminBlocksScreen() {
 		qRef.current?.focus();
 	}
 
-	const [editorOpen, setEditorOpen] = useState(false);
-	const [editing, setEditing] = useState<BlockTemplate | null>(null);
-
-	const [title, setTitle] = useState('');
-	const [slug, setSlug] = useState('');
-	const [description, setDescription] = useState('');
-	const [builder, setBuilder] = useState<PageBuilderState>(() => defaultPageBuilderState());
-
-	const [saving, setSaving] = useState(false);
-	const [formError, setFormError] = useState<string | null>(null);
 	const [actionError, setActionError] = useState<string | null>(null);
-
 	const [confirmDelete, setConfirmDelete] = useState<BlockTemplate | null>(null);
-
-	function openCreate() {
-		setEditing(null);
-		setTitle('');
-		setSlug('');
-		setDescription('');
-		setBuilder(defaultPageBuilderState());
-		setFormError(null);
-		setEditorOpen(true);
-	}
-
-	function openEdit(b: BlockTemplate) {
-		setEditing(b);
-		setTitle(b.title);
-		setSlug(b.slug);
-		setDescription(b.description ?? '');
-		setBuilder(parsePageBuilderState(b.definition));
-		setFormError(null);
-		setEditorOpen(true);
-	}
-
-	async function cloneAsVariant(source: BlockTemplate) {
-		if (saving) return;
-
-		setSaving(true);
-		setFormError(null);
-
-		const baseSlug = slugify(source.slug) || 'block';
-		const baseVariant = baseSlug.endsWith('-variant') ? baseSlug : `${baseSlug}-variant`;
-
-		const payloadBase = {
-			title: `${(title.trim() || source.title || 'Block').trim()} (variant)`,
-			description: description.trim() ? description.trim() : null,
-			definition: serializePageBuilderState(builder) as Record<string, unknown>,
-		};
-
-		try {
-			let lastErr: unknown = null;
-			for (let i = 0; i < 50; i++) {
-				const candidate = i === 0 ? baseVariant : `${baseVariant}-${i + 1}`;
-				try {
-					const created = await createAdminBlock({ ...payloadBase, slug: candidate }, '/admin/blocks');
-
-					setActionError(null);
-					await reload();
-					openEdit(created);
-					return;
-				} catch (e) {
-					lastErr = e;
-					if (e instanceof ApiError && e.status === 409) continue;
-					throw e;
-				}
-			}
-			throw lastErr ?? new Error('Failed to clone block');
-		} catch (e) {
-			setFormError(toErrorMessage(e));
-		} finally {
-			setSaving(false);
-		}
-	}
-
-	async function save() {
-		setSaving(true);
-		setFormError(null);
-
-		const payload = {
-			title: title.trim(),
-			slug: slug.trim(),
-			description: description.trim() ? description.trim() : null,
-			definition: serializePageBuilderState(builder) as Record<string, unknown>,
-		};
-
-		try {
-			if (editing) {
-				await updateAdminBlock(editing.id, payload, '/admin/blocks');
-			} else {
-				await createAdminBlock(payload, '/admin/blocks');
-			}
-			setEditorOpen(false);
-			setActionError(null);
-			await reload();
-		} catch (e) {
-			setFormError(toErrorMessage(e));
-		} finally {
-			setSaving(false);
-		}
-	}
 
 	async function doDelete(b: BlockTemplate) {
 		try {
@@ -349,16 +220,13 @@ export default function AdminBlocksScreen() {
 			setActionError(null);
 
 			const nextTotal = Math.max(0, total - 1);
-				const lastOffset = Math.max(
-					0,
-					Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT
-				);
-				const nextOffset = Math.min(offset, lastOffset);
-				goToOffset(nextOffset);
-				if (nextOffset === offset) await reload();
-			} catch (e) {
-				setActionError(toErrorMessage(e));
-			}
+			const lastOffset = Math.max(0, Math.floor(Math.max(0, nextTotal - 1) / LIMIT) * LIMIT);
+			const nextOffset = Math.min(offset, lastOffset);
+			goToOffset(nextOffset);
+			if (nextOffset === offset) await reload();
+		} catch (e) {
+			setActionError(toErrorMessage(e));
+		}
 	}
 
 	return (
@@ -366,10 +234,8 @@ export default function AdminBlocksScreen() {
 			title='Blocks'
 			description='Reusable sections (blocks) composed of multiple components.'
 			actions={
-				<Button
-					onClick={openCreate}
-					disabled={loading}>
-					New block
+				<Button asChild disabled={loading}>
+					<Link href='/admin/blocks/new'>New block</Link>
 				</Button>
 			}
 			filters={
@@ -464,8 +330,7 @@ export default function AdminBlocksScreen() {
 							const stats = getBlockStats(b.definition);
 							return (
 								<span className='text-xs text-muted-foreground'>
-									{stats.nodesTotal} node{stats.nodesTotal === 1 ? '' : 's'} ·{' '}
-									{stats.frames} frame{stats.frames === 1 ? '' : 's'} · {stats.items} item
+									{stats.nodesTotal} node{stats.nodesTotal === 1 ? '' : 's'} · {stats.frames} frame{stats.frames === 1 ? '' : 's'} · {stats.items} item
 									{stats.items === 1 ? '' : 's'}
 								</span>
 							);
@@ -485,11 +350,8 @@ export default function AdminBlocksScreen() {
 						header: '',
 						cell: (b) => (
 							<div className='flex items-center justify-end gap-2'>
-								<Button
-									size='sm'
-									variant='outline'
-									onClick={() => openEdit(b)}>
-									Edit
+								<Button size='sm' variant='outline' asChild>
+									<Link href={`/admin/blocks/${b.id}`}>Edit</Link>
 								</Button>
 								<Button
 									size='sm'
@@ -504,111 +366,6 @@ export default function AdminBlocksScreen() {
 					},
 				]}
 			/>
-
-			<Dialog
-				open={editorOpen}
-				onOpenChange={(open) => {
-					setEditorOpen(open);
-					if (!open) setEditing(null);
-				}}>
-				<DialogContent className='sm:max-w-6xl max-h-[90svh] overflow-y-auto'>
-					<DialogHeader>
-						<DialogTitle>{editing ? 'Edit block' : 'New block'}</DialogTitle>
-						<DialogDescription>
-							Blocks are reusable section templates (one or more rows).
-						</DialogDescription>
-					</DialogHeader>
-
-					<div className='space-y-4'>
-						<div className='grid grid-cols-1 sm:grid-cols-2 gap-4'>
-							<div className='space-y-2'>
-								<Label>Title</Label>
-								<Input
-									value={title}
-									onChange={(e) => setTitle(e.target.value)}
-									disabled={saving}
-								/>
-							</div>
-							<div className='space-y-2'>
-								<Label>Slug</Label>
-								<Input
-									value={slug}
-									onChange={(e) => setSlug(e.target.value)}
-									placeholder='e.g. hero-section'
-									disabled={saving || !!editing}
-								/>
-								{editing ? (
-									<p className='text-xs text-muted-foreground'>
-										Slug changes are disabled for now (keeps references stable).
-									</p>
-								) : null}
-							</div>
-						</div>
-
-						<div className='space-y-2'>
-							<Label>Description</Label>
-							<Input
-								value={description}
-								onChange={(e) => setDescription(e.target.value)}
-								disabled={saving}
-							/>
-						</div>
-
-						<div className='space-y-2'>
-							<Label>Layout</Label>
-							<div className='rounded-xl border p-4'>
-								<ClientOnly fallback={<div className='text-sm text-muted-foreground'>Loading editor…</div>}>
-									<PageBuilder
-										value={builder}
-										onChange={setBuilder}
-										disabled={saving}
-									/>
-								</ClientOnly>
-							</div>
-						</div>
-
-						<details className='rounded-xl border p-4'>
-							<summary className='cursor-pointer text-sm font-medium'>
-								Advanced (JSON)
-							</summary>
-							<div className='mt-3 space-y-2'>
-								<p className='text-xs text-muted-foreground'>
-									This is the stored definition payload (v4 canvas layout).
-								</p>
-								<Textarea
-									value={JSON.stringify(serializePageBuilderState(builder), null, 2)}
-									readOnly
-									className='font-mono text-xs min-h-[220px]'
-								/>
-							</div>
-						</details>
-
-						{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
-					</div>
-
-					<DialogFooter>
-						{editing ? (
-							<Button
-								variant='secondary'
-								onClick={() => cloneAsVariant(editing)}
-								disabled={saving}>
-								Clone as variant
-							</Button>
-						) : null}
-						<Button
-							variant='outline'
-							onClick={() => setEditorOpen(false)}
-							disabled={saving}>
-							Cancel
-						</Button>
-						<Button
-							onClick={save}
-							disabled={saving || !title.trim() || !slug.trim()}>
-							{saving ? 'Saving…' : 'Save'}
-						</Button>
-					</DialogFooter>
-				</DialogContent>
-			</Dialog>
 
 			<AlertDialog
 				open={!!confirmDelete}
@@ -641,7 +398,7 @@ export default function AdminBlocksScreen() {
 					<div className='mt-3'>
 						<Badge variant='secondary'>Tip</Badge>
 						<span className='ml-2 text-sm text-muted-foreground'>
-							Blocks are “sections”: saved row/column/component layouts.
+							Blocks are sections that you can edit in full-page editor mode.
 						</span>
 					</div>
 				</div>
@@ -649,3 +406,4 @@ export default function AdminBlocksScreen() {
 		</AdminListPage>
 	);
 }
+

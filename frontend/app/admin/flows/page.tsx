@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
+import { FlowCanvasDesigner } from '@/components/flows/flow-canvas-designer';
 
 const LIMIT = 20;
 
@@ -43,12 +44,74 @@ type DraftNode = {
 	event: string;
 	operation: 'noop' | 'set_output' | 'upsert_option' | 'create_entry';
 	payloadJson: string;
+	position?: { x: number; y: number };
 };
 
 type DraftEdge = {
 	source: string;
 	target: string;
 };
+
+type GraphIssue = {
+	level: 'error' | 'warning';
+	message: string;
+};
+
+function collectGraphIssues(nodes: DraftNode[], edges: DraftEdge[]): GraphIssue[] {
+	const issues: GraphIssue[] = [];
+	const seen = new Set<string>();
+	const dup = new Set<string>();
+
+	for (const node of nodes) {
+		const id = node.id.trim();
+		if (!id) {
+			issues.push({ level: 'error', message: 'Node id cannot be empty.' });
+			continue;
+		}
+		if (seen.has(id)) dup.add(id);
+		seen.add(id);
+
+		if (node.kind === 'action' && node.payloadJson.trim()) {
+			try {
+				const parsed = JSON.parse(node.payloadJson);
+				if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+					issues.push({ level: 'error', message: `Action node '${id}' payload must be a JSON object.` });
+				}
+			} catch {
+				issues.push({ level: 'error', message: `Action node '${id}' payload is invalid JSON.` });
+			}
+		}
+	}
+
+	for (const id of dup) {
+		issues.push({ level: 'error', message: `Duplicate node id '${id}'.` });
+	}
+
+	for (let i = 0; i < edges.length; i += 1) {
+		const edge = edges[i];
+		const source = edge.source.trim();
+		const target = edge.target.trim();
+		if (!source || !target) {
+			issues.push({ level: 'error', message: `Edge #${i + 1} requires source and target.` });
+			continue;
+		}
+		if (!seen.has(source)) {
+			issues.push({ level: 'error', message: `Edge #${i + 1} source '${source}' does not exist.` });
+		}
+		if (!seen.has(target)) {
+			issues.push({ level: 'error', message: `Edge #${i + 1} target '${target}' does not exist.` });
+		}
+		if (source === target) {
+			issues.push({ level: 'warning', message: `Edge #${i + 1} loops to itself ('${source}').` });
+		}
+	}
+
+	if (!nodes.some((node) => node.kind === 'trigger')) {
+		issues.push({ level: 'warning', message: 'Flow has no trigger node.' });
+	}
+
+	return issues;
+}
 
 function parsePageParam(value: string | null): number {
 	const n = value ? Number.parseInt(value, 10) : Number.NaN;
@@ -149,6 +212,19 @@ function hydrateDraftNodes(flow: Flow): DraftNode[] {
 	return (flow.definition?.nodes ?? []).map((n) => {
 		const kind = n.kind === 'action' ? 'action' : 'trigger';
 		const config = n.config ?? {};
+		const ui =
+			typeof config['ui'] === 'object' &&
+			config['ui'] !== null &&
+			!Array.isArray(config['ui'])
+				? (config['ui'] as Record<string, unknown>)
+				: null;
+		const rawPos =
+			ui && typeof ui['position'] === 'object' && ui['position'] !== null && !Array.isArray(ui['position'])
+				? (ui['position'] as Record<string, unknown>)
+				: null;
+		const x = rawPos && typeof rawPos['x'] === 'number' ? rawPos['x'] : undefined;
+		const y = rawPos && typeof rawPos['y'] === 'number' ? rawPos['y'] : undefined;
+		const position = typeof x === 'number' && typeof y === 'number' ? { x: Math.round(x), y: Math.round(y) } : undefined;
 		if (kind === 'trigger') {
 			return {
 				id: n.id,
@@ -157,6 +233,7 @@ function hydrateDraftNodes(flow: Flow): DraftNode[] {
 				event: typeof config['event'] === 'string' ? String(config['event']) : '',
 				operation: 'noop',
 				payloadJson: '{}',
+				position,
 			};
 		}
 
@@ -166,6 +243,7 @@ function hydrateDraftNodes(flow: Flow): DraftNode[] {
 				: 'noop';
 		const payload = { ...config } as Record<string, unknown>;
 		delete payload.operation;
+		delete payload.ui;
 
 		return {
 			id: n.id,
@@ -174,6 +252,7 @@ function hydrateDraftNodes(flow: Flow): DraftNode[] {
 			event: '',
 			operation,
 			payloadJson: JSON.stringify(payload, null, 2),
+			position,
 		};
 	});
 }
@@ -194,6 +273,14 @@ function buildDefinition(nodes: DraftNode[], edges: DraftEdge[]) {
 		if (n.kind === 'trigger') {
 			const config: Record<string, unknown> = {};
 			if (n.event.trim()) config.event = n.event.trim().toLowerCase();
+			if (n.position) {
+				config.ui = {
+					position: {
+						x: Math.round(n.position.x),
+						y: Math.round(n.position.y),
+					},
+				};
+			}
 			return { id, kind: 'trigger' as const, label, config };
 		}
 
@@ -213,6 +300,7 @@ function buildDefinition(nodes: DraftNode[], edges: DraftEdge[]) {
 			config: {
 				operation: n.operation,
 				...payload,
+				...(n.position ? { ui: { position: { x: Math.round(n.position.x), y: Math.round(n.position.y) } } } : {}),
 			},
 		};
 	});
@@ -365,6 +453,8 @@ export default function AdminFlowsPage() {
 	const [triggerEvent, setTriggerEvent] = useState('contact.submit');
 	const [nodes, setNodes] = useState<DraftNode[]>(defaultDraftNodes());
 	const [edges, setEdges] = useState<DraftEdge[]>(defaultDraftEdges());
+	const graphIssues = useMemo(() => collectGraphIssues(nodes, edges), [nodes, edges]);
+	const graphErrors = useMemo(() => graphIssues.filter((issue) => issue.level === 'error'), [graphIssues]);
 
 	const [formError, setFormError] = useState<string | null>(null);
 	const [saving, setSaving] = useState(false);
@@ -406,6 +496,20 @@ export default function AdminFlowsPage() {
 		setEditorOpen(true);
 	}
 
+	function setNodeId(index: number, nextId: string) {
+		const previousId = nodes[index]?.id;
+		if (typeof previousId !== 'string') return;
+		setNodes((prev) => prev.map((node, i) => (i === index ? { ...node, id: nextId } : node)));
+		if (previousId === nextId) return;
+		setEdges((prev) =>
+			prev.map((edge) => ({
+				...edge,
+				source: edge.source === previousId ? nextId : edge.source,
+				target: edge.target === previousId ? nextId : edge.target,
+			}))
+		);
+	}
+
 	function addNode(kind: 'trigger' | 'action') {
 		const base = kind === 'trigger' ? 'trigger' : 'action';
 		let i = 1;
@@ -442,6 +546,10 @@ export default function AdminFlowsPage() {
 	}
 
 	async function saveFlow() {
+		if (graphErrors.length > 0) {
+			setFormError('Fix flow graph errors before saving.');
+			return;
+		}
 		setSaving(true);
 		setFormError(null);
 		try {
@@ -730,6 +838,20 @@ export default function AdminFlowsPage() {
 						</div>
 
 						<div className='space-y-4 lg:col-span-3'>
+							<div className='space-y-2'>
+								<div className='flex items-center justify-between'>
+									<h3 className='text-sm font-semibold'>Visual canvas</h3>
+									<p className='text-xs text-muted-foreground'>Drag nodes and connect edges directly.</p>
+								</div>
+								<FlowCanvasDesigner
+									nodes={nodes}
+									edges={edges}
+									onNodesChange={setNodes}
+									onEdgesChange={setEdges}
+									disabled={saving}
+								/>
+							</div>
+
 							<div className='flex items-center justify-between'>
 								<h3 className='text-sm font-semibold'>Nodes</h3>
 								<div className='flex gap-2'>
@@ -743,7 +865,7 @@ export default function AdminFlowsPage() {
 										<div className='grid grid-cols-1 md:grid-cols-12 gap-2'>
 											<div className='md:col-span-3 space-y-1'>
 												<Label>ID</Label>
-												<Input value={node.id} onChange={(e) => setNodes((prev) => prev.map((n, i) => i === idx ? { ...n, id: e.target.value } : n))} disabled={saving} />
+												<Input value={node.id} onChange={(e) => setNodeId(idx, e.target.value)} disabled={saving} />
 											</div>
 											<div className='md:col-span-3 space-y-1'>
 												<Label>Kind</Label>
@@ -827,11 +949,24 @@ export default function AdminFlowsPage() {
 						</div>
 					</div>
 
+					{graphIssues.length ? (
+					<div className='rounded-xl border p-3 space-y-2'>
+						<p className='text-sm font-medium'>Flow graph checks</p>
+						<ul className='space-y-1 text-xs'>
+							{graphIssues.map((issue, idx) => (
+								<li key={idx} className={issue.level === 'error' ? 'text-red-600' : 'text-amber-600'}>
+									{issue.level.toUpperCase()}: {issue.message}
+								</li>
+							))}
+						</ul>
+					</div>
+				) : null}
+
 					{formError ? <p className='text-sm text-red-600'>{formError}</p> : null}
 
 					<DialogFooter>
 						<Button variant='outline' onClick={() => setEditorOpen(false)} disabled={saving}>Cancel</Button>
-						<Button onClick={saveFlow} disabled={saving || !title.trim() || (!editing && !slug.trim()) || !triggerEvent.trim()}>
+						<Button onClick={saveFlow} disabled={saving || !title.trim() || (!editing && !slug.trim()) || !triggerEvent.trim() || graphErrors.length > 0}>
 							{saving ? 'Saving…' : 'Save'}
 						</Button>
 					</DialogFooter>
