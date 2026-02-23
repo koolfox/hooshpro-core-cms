@@ -43,7 +43,7 @@ Quick check:
 - Public pages: `/[slug]`
 - SEO metadata routes: `/robots.txt`, `/sitemap.xml`
 - Auth page: `/auth/login`
-- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/components`, `/admin/blocks`, `/admin/collections`, `/admin/collections/[id]`, `/admin/entries`, `/admin/taxonomies`, `/admin/taxonomies/[id]`, `/admin/media`, `/admin/themes`, `/admin/flows`, `/admin/settings`
+- Admin pages: `/admin`, `/admin/pages`, `/admin/pages/new`, `/admin/pages/[id]`, `/admin/templates`, `/admin/templates/[id]`, `/admin/menus`, `/admin/components`, `/admin/blocks`, `/admin/blocks/new`, `/admin/blocks/[id]`, `/admin/collections`, `/admin/collections/[id]`, `/admin/entries`, `/admin/taxonomies`, `/admin/taxonomies/[id]`, `/admin/media`, `/admin/themes`, `/admin/flows`, `/admin/settings`
 - Homepage: `/` (renders the page with slug from option `reading.front_page_slug`; default `home`; edit at `/?edit=1` when logged in)
 - Canonical homepage: `/<front-page-slug>` redirects to `/` (e.g. `/home` -> `/`)
 - Public theme: option `appearance.active_theme` (slug; applied as root class `theme-<slug>`; CSS vars resolved via `/api/public/themes/active`)
@@ -380,8 +380,9 @@ First-run seed (empty DB only):
 - [x] Media manager MVP (images: upload/list/search/delete + folders/subfolders + drag/drop move + icons/details view)
 - [x] Page builder V6 canvas serializer (nodes + frames) + drag/drop + resize (dnd-kit)
 - [x] Components/Blocks foundation (DB + admin CRUD + editor pickers)
+- [x] Blocks editor moved to full-page routes (`/admin/blocks/new`, `/admin/blocks/[id]`) for parity with page/template editing
 - [x] Page templates foundation (DB + admin CRUD + page settings wiring)
-- [x] Menu rendering via template blocks (`menu` component supports embedded items; no dedicated admin menus/footers UI)
+- [x] Menus admin UI + visual graph editor (`/admin/menus`) wired to menu/menu_items CRUD + reorder endpoints
 - [x] Admin list template: numbered pagination (top+bottom) + URL query param state
 - [x] Collections/Entries MVP (Content Types + Fields + Entries + dynamic `collection-list` component)
 - [x] V5-A: Site options (DB `options` + `/admin/settings`; front page slug controls `/`)
@@ -403,7 +404,7 @@ First-run seed (empty DB only):
 - [x] V6 inspector/style pass (phase 1.6): preset safety/management hardening (deep-cloned save/apply to avoid shared references + delete preset action + preset name sync on selection)
 - [x] V6 inspector/style pass (phase 1.7): inspector overflow safety (right panel now clips horizontal overflow and wraps style controls to keep all fields visible on narrower widths)
 - [x] V6 inspector/style pass (phase 1.8): fixed length-value parser regression and added unit/special-value selectors for `min/max width/height` (`auto|none|fit-content|min-content|max-content|px|%|rem|vw|vh`)
-- [x] Flow Creator MVP: DB-backed workflow graphs with admin CRUD + test-run UI + public trigger endpoint + run history
+- [x] Flow Creator MVP: DB-backed workflow graphs with admin CRUD + visual canvas editor (drag/connect/select) + test-run UI + public trigger endpoint + run history
 
 ### In Progress
 
@@ -657,5 +658,7 @@ A block-based visual builder where admins can design pages visually, manage medi
 ### Admin "Template" Evolution (to scale beyond Pages/Media)
 
 Keep the generic list pattern, then add a "resource registry" so each admin section declares: columns, filters, form schema, endpoints, and permissions (prevents ad-hoc screens).
+
+
 
 

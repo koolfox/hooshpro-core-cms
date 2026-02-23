@@ -10,6 +10,7 @@ import {
 	LayoutTemplate,
 	LayoutDashboard,
 	ListOrdered,
+	Navigation,
 	LogOut,
 	Palette,
 	Puzzle,
@@ -34,6 +35,7 @@ const nav = [
 	{ title: 'Dashboard', href: '/admin', icon: LayoutDashboard },
 	{ title: 'Pages', href: '/admin/pages', icon: FileText },
 	{ title: 'Templates', href: '/admin/templates', icon: LayoutTemplate },
+	{ title: 'Menus', href: '/admin/menus', icon: Navigation },
 	{ title: 'Components', href: '/admin/components', icon: Puzzle },
 	{ title: 'Blocks', href: '/admin/blocks', icon: Blocks },
 	{ title: 'Collections', href: '/admin/collections', icon: Database },
@@ -127,4 +129,5 @@ export function AppSidebar(props: React.ComponentProps<typeof Sidebar>) {
 		</Sidebar>
 	);
 }
+
 
